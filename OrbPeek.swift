@@ -31,11 +31,14 @@ struct Config {
     var orbOpacity: Double = 0.85
     var tuckKey: String = "t"
     var hideAllKey: String = "h"
-    var peekAnimationMs: Double = 180
     var autoLaunch: Bool = false
     // Extra margin around the window treated as "inside" so edge/resize
     // interactions don't falsely hide the window.
     var edgeBuffer: CGFloat = 12
+    // Distance (px) from a screen edge at which a dragged orb snaps to it.
+    // Only right/top edges are offered — the window's top-right corner is
+    // anchored to the orb, so a left/bottom-snapped orb would hide the window.
+    var snapThreshold: CGFloat = 50
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -50,11 +53,11 @@ struct Config {
         func num(_ k: String) -> Double? { (json[k] as? NSNumber)?.doubleValue }
         if let v = num("orbSize") { c.orbSize = CGFloat(v) }
         if let v = num("orbOpacity") { c.orbOpacity = v }
-        if let v = num("peekAnimationMs") { c.peekAnimationMs = v }
         if let v = json["tuckKey"] as? String { c.tuckKey = v }
         if let v = json["hideAllKey"] as? String { c.hideAllKey = v }
         if let v = json["autoLaunch"] as? Bool { c.autoLaunch = v }
         if let v = num("edgeBuffer") { c.edgeBuffer = CGFloat(v) }
+        if let v = num("snapThreshold") { c.snapThreshold = CGFloat(v) }
         return c
     }
 
@@ -63,8 +66,7 @@ struct Config {
         let dict: [String: Any] = [
             "orbSize": 32, "orbOpacity": 0.85,
             "tuckKey": "t", "hideAllKey": "h",
-            "peekAnimationMs": 180,
-            "autoLaunch": false, "edgeBuffer": 12,
+            "autoLaunch": false, "edgeBuffer": 12, "snapThreshold": 50,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -287,9 +289,12 @@ final class OrbWindow: NSPanel {
 
     override func mouseUp(with event: NSEvent) {
         isDragging = false
-        if !dragged {
+        if dragged {
+            // Repositioning the orb: snap to a screen edge if dropped near one.
+            owner?.controller?.snapOrb(self)
+        } else {
             // A click on the orb shows the window (drag = reposition only).
-            owner?.setShown(true, animated: true)
+            owner?.setShown(true)
         }
         dragStart = nil
     }
@@ -320,10 +325,7 @@ final class ManagedWindow {
     // a closed window (removed after ~1s) without flaking on transient failures.
     var nilCount = 0
 
-    private var animTimer: Timer?
     private var valid = true
-
-    var isAnimating: Bool { animTimer != nil }
 
     init(ax: AXUIElement, frame: CGRect, orb: OrbWindow, controller: OrbPeekController) {
         self.ax = ax
@@ -339,9 +341,8 @@ final class ManagedWindow {
     // Central transition — every show/hide decision routes through here.
     // `force` bypasses the state guard (used to tuck a freshly-managed window,
     // whose flag is already "hidden" but whose frame is still on screen).
-    // Show animates in; hide is ALWAYS instant (teleports off-screen) so the
-    // disappearing never feels in the way.
-    func setShown(_ show: Bool, animated: Bool, force: Bool = false) {
+    // Both directions are INSTANT (teleport) — no slide animations.
+    func setShown(_ show: Bool, force: Bool = false) {
         guard valid, force || shown != show else { return }
         shown = show
         if show {
@@ -355,11 +356,7 @@ final class ManagedWindow {
             // The peek only renders above other apps if its app is frontmost.
             controller?.activateApp(self)
             let target = controller?.shownPos(for: self) ?? homeFrame.origin
-            if animated {
-                animate(to: target, duration: (controller?.config.peekAnimationMs ?? 180) / 1000)
-            } else {
-                axSetPosition(ax, target)
-            }
+            axSetPosition(ax, target)
         } else {
             // Window hands back to the orb: place the orb at the window's
             // current top-right corner, then teleport the window off-screen.
@@ -373,47 +370,18 @@ final class ManagedWindow {
     }
 
     func collapseNow() {
-        setShown(false, animated: false)
+        setShown(false)
     }
 
-    func tuck(animated: Bool) {
-        setShown(false, animated: animated, force: true)
+    func tuck() {
+        setShown(false, force: true)
     }
 
     func release() {
-        animTimer?.invalidate()
-        animTimer = nil
         axSetPosition(ax, homeFrame.origin)
         axSetSize(ax, homeFrame.size)
         valid = false
         orb.orderOut(nil)
-    }
-
-    private func animate(to target: CGPoint, duration: TimeInterval) {
-        animTimer?.invalidate()
-        guard let start = axGetFrame(ax)?.origin else {
-            axSetPosition(ax, target)
-            return
-        }
-        Log.info("animate from \(start) -> \(target) dur=\(duration)")
-        let dx = target.x - start.x
-        let dy = target.y - start.y
-        let steps = max(1, Int(duration * 60))
-        var step = 0
-        let timer = Timer(timeInterval: duration / Double(steps), repeats: true) { [weak self] t in
-            guard let self else { t.invalidate(); return }
-            step += 1
-            let f = CGFloat(step) / CGFloat(steps)
-            axSetPosition(self.ax, CGPoint(x: start.x + dx * f, y: start.y + dy * f))
-            if step >= steps {
-                t.invalidate()
-                self.animTimer = nil
-                axSetPosition(self.ax, target)
-                Log.info("animate done at \(target)")
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        animTimer = timer
     }
 }
 
@@ -645,21 +613,21 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         orb.orderFrontRegardless()
         // Snap the window off-screen immediately: no animation, so there is no
         // frame where the window and the orb are both visible.
-        m.tuck(animated: false)
+        m.tuck()
         rebuildMenu()
         Log.info("tucked window frame=\(frame), total managed=\(managed.count)")
     }
 
     @objc private func hideAll() {
         for m in managed {
-            m.setShown(false, animated: true)
+            m.setShown(false)
         }
         Log.info("hide all, count=\(managed.count)")
     }
 
     @objc private func toggleWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.setShown(!m.shown, animated: true)
+        m.setShown(!m.shown)
     }
 
     @objc private func releaseWindow(_ sender: NSMenuItem) {
@@ -708,9 +676,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "orbOpacity": config.orbOpacity,
             "tuckKey": config.tuckKey,
             "hideAllKey": config.hideAllKey,
-            "peekAnimationMs": config.peekAnimationMs,
             "autoLaunch": config.autoLaunch,
             "edgeBuffer": config.edgeBuffer,
+            "snapThreshold": config.snapThreshold,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: Config.path))
@@ -798,6 +766,36 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.orb.setFrameOrigin(origin)
     }
 
+    // Auto edge-snap: after dragging the orb, if it is within snapThreshold of a
+    // screen's RIGHT or TOP edge (visible frame, so the menu bar is avoided),
+    // snap it flush, and clamp the perpendicular axis on-screen. Left/bottom are
+    // intentionally excluded — the window anchors its top-right corner to the
+    // orb, so it would extend off-screen from a left/bottom-snapped orb.
+    func snapOrb(_ orb: OrbWindow) {
+        let threshold = config.snapThreshold
+        guard threshold > 0 else { return }
+        let f = orb.frame
+        let size = f.width
+        var bestGap = CGFloat.greatestFiniteMagnitude
+        var bestOrigin = f.origin
+        for s in NSScreen.screens {
+            let v = s.visibleFrame
+            let rGap = abs(v.maxX - f.maxX)
+            if rGap <= threshold, rGap < bestGap {
+                bestGap = rGap
+                bestOrigin = NSPoint(x: v.maxX - size, y: clamp(f.minY, v.minY, v.maxY - size))
+            }
+            let tGap = abs(v.maxY - f.maxY)
+            if tGap <= threshold, tGap < bestGap {
+                bestGap = tGap
+                bestOrigin = NSPoint(x: clamp(f.minX, v.minX, v.maxX - size), y: v.maxY - size)
+            }
+        }
+        if bestGap < .greatestFiniteMagnitude {
+            orb.setFrameOrigin(bestOrigin)
+        }
+    }
+
     // MARK: Poll
 
     // NSEvent.mouseLocation is bottom-left (AppKit); AX positions and CGWindow
@@ -826,9 +824,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let inWin = winFrame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
             let front = appIsFrontmost(m)
 
-            // Let an in-flight animation settle before re-evaluating hover,
-            // otherwise a window sliding under the cursor flips back and forth.
-            if m.isAnimating { continue }
             // Repositioning the orb (visible only while the window is hidden)
             // should not peek the window.
             if m.orb.isDragging { continue }
@@ -843,7 +838,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             let shouldShow = desiredState(m, hover: hover, inWin: inWin, front: front)
             if shouldShow != m.shown {
-                m.setShown(shouldShow, animated: true)
+                m.setShown(shouldShow)
             }
         }
         for m in toRemove { removeManaged(m) }
