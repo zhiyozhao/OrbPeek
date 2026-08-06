@@ -35,6 +35,9 @@ struct Config {
     var collapseAnimationMs: Double = 160
     var hideOrbWhenShown: Bool = false
     var autoLaunch: Bool = false
+    // Extra margin around the window treated as "inside" so edge/resize
+    // interactions and the orb's own size don't falsely hide the window.
+    var edgeBuffer: CGFloat = 12
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -55,6 +58,7 @@ struct Config {
         if let v = json["hideAllKey"] as? String { c.hideAllKey = v }
         if let v = json["hideOrbWhenShown"] as? Bool { c.hideOrbWhenShown = v }
         if let v = json["autoLaunch"] as? Bool { c.autoLaunch = v }
+        if let v = num("edgeBuffer") { c.edgeBuffer = CGFloat(v) }
         return c
     }
 
@@ -64,7 +68,7 @@ struct Config {
             "orbSize": 28, "orbOpacity": 0.85,
             "tuckKey": "t", "hideAllKey": "h",
             "peekAnimationMs": 180, "collapseAnimationMs": 160,
-            "hideOrbWhenShown": false, "autoLaunch": false,
+            "hideOrbWhenShown": false, "autoLaunch": false, "edgeBuffer": 12,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -230,6 +234,11 @@ final class OrbWindow: NSPanel {
         origin.x += dx
         origin.y += dy
         setFrameOrigin(origin)
+        // If the window is currently shown, drag it along rigidly so the orb
+        // stays glued to its corner.
+        if let owner, owner.state == .shown {
+            owner.followOrb()
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -299,6 +308,13 @@ final class ManagedWindow {
 
     func collapseNow() {
         setShown(false, animated: false)
+    }
+
+    // Rigidly re-anchor the window to the orb (no animation) — used while the
+    // orb is being dragged so the window sticks to its corner.
+    func followOrb() {
+        guard valid, state == .shown, let target = controller?.shownPos(for: self) else { return }
+        axSetPosition(ax, target)
     }
 
     func tuck(animated: Bool) {
@@ -600,6 +616,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "collapseAnimationMs": config.collapseAnimationMs,
             "hideOrbWhenShown": config.hideOrbWhenShown,
             "autoLaunch": config.autoLaunch,
+            "edgeBuffer": config.edgeBuffer,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: Config.path))
@@ -618,6 +635,21 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main!
     }
 
+    private func screen(containingQuartz rect: CGRect) -> NSScreen {
+        NSScreen.screens.first { quartzFrame(of: $0).intersects(rect) } ?? NSScreen.main!
+    }
+
+    // NSScreen.frame is AppKit (bottom-left); flip to top-left over the union.
+    private func quartzFrame(of s: NSScreen) -> CGRect {
+        let f = s.frame
+        return CGRect(x: f.minX, y: desktopFrame.maxY - f.maxY, width: f.width, height: f.height)
+    }
+
+    private func quartzVisibleFrame(of s: NSScreen) -> CGRect {
+        let v = s.visibleFrame
+        return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
+    }
+
     private var desktopFrame: CGRect {
         var r = NSScreen.screens[0].frame
         for s in NSScreen.screens.dropFirst() { r = r.union(s.frame) }
@@ -625,26 +657,22 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func shownPos(for m: ManagedWindow) -> CGPoint {
-        // The orb IS the window's top-right corner handle: pin the window's
-        // top-right corner to the orb center so the orb and window are always
-        // adjacent (no gap for the cursor to fall through between them).
-        let fr = screen(containing: m.orb.frame).visibleFrame
+        // Strict 1:1 corner anchor: the window's top-right corner is ALWAYS at
+        // the orb center, no clamping — the window may extend off-screen.
         let size = m.originalFrame.size
         let orbCenter = appKitToQuartz(m.orb.frame.center)
-        let x = clamp(orbCenter.x - size.width, fr.minX, fr.maxX - size.width)
-        let y = clamp(orbCenter.y, fr.minY, fr.maxY - size.height)
-        return CGPoint(x: x, y: y)
+        return CGPoint(x: orbCenter.x - size.width, y: orbCenter.y)
     }
 
     // macOS forces at least 1px of a window to stay on screen. Dock the window
-    // off the DESKTOP's outer edge (never an interior display boundary), leaving
-    // a 1px sliver — effectively invisible, and correct on any multi-display layout.
+    // off the NEARER outer edge of the whole desktop (never a display boundary),
+    // so it genuinely disappears instead of sliding onto a neighboring screen.
     func hiddenPos(for m: ManagedWindow) -> CGPoint {
-        let fr = screen(containing: m.originalFrame).visibleFrame
         let size = m.originalFrame.size
-        let y = clamp(m.originalFrame.origin.y, fr.minY, fr.maxY - size.height)
+        let home = quartzVisibleFrame(of: screen(containingQuartz: m.originalFrame))
+        let y = clamp(m.originalFrame.origin.y, home.minY, home.maxY - size.height)
         let orbCenter = m.orb.frame.center
-        if orbCenter.x < desktopFrame.midX {
+        if orbCenter.x - desktopFrame.minX < desktopFrame.maxX - orbCenter.x {
             return CGPoint(x: desktopFrame.minX - size.width + 1, y: y)
         } else {
             return CGPoint(x: desktopFrame.maxX - 1, y: y)
@@ -661,7 +689,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Orb starts centered on the window's top-right corner (quartz space, then
     // converted to AppKit); cascade left/up so multiple orbs never overlap.
     private func freeOrbOrigin(for frame: CGRect) -> NSPoint {
-        let fr = screen(containing: frame).visibleFrame
+        let scr = screen(containingQuartz: frame)
+        let fr = scr.visibleFrame
         let size = config.orbSize
         let corner = CGPoint(x: frame.maxX, y: frame.minY)
         let qx = corner.x - size / 2
@@ -725,15 +754,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let inflated = orbFrame.insetBy(dx: -8, dy: -8)
             let inOrb = inflated.contains(p)
             let winFrame = axGetFrame(m.ax)
-            let inWin = winFrame?.contains(q) ?? false
-
-            var shouldShow = inOrb || inWin
-            if shouldShow, inWin, !inOrb, let top = topFrame {
-                shouldShow = abs(top.minX - winFrame!.minX) <= 3
-                    && abs(top.minY - winFrame!.minY) <= 3
-                    && abs(top.width - winFrame!.width) <= 3
-                    && abs(top.height - winFrame!.height) <= 3
+            if winFrame == nil, m.state == .collapsed {
+                toRemove.append(m)
+                continue
             }
+            // Buffer around the window counts as "inside" so edge/resize
+            // gestures and the orb's own footprint don't hide it prematurely.
+            let inWin = winFrame?.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q) ?? false
+            let isFront = appIsFrontmost(m)
 
             m.orb.orbView.highlighted = inOrb
 
@@ -743,15 +771,46 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Repositioning the orb (drag) should not peek/hide the window.
             if m.orb.isDragging { continue }
 
+            // Hovering a background app's orb brings that app forward, otherwise
+            // the peek would render under the frontmost app and look broken.
+            if inOrb, !isFront {
+                activateApp(m)
+            }
+
+            // An app the user switched away from (Cmd+Tab) must stay collapsed;
+            // only an explicit orb hover can bring its window back.
+            if !isFront, !inOrb {
+                if m.state == .shown {
+                    m.setShown(false, animated: true)
+                }
+                continue
+            }
+
+            var shouldShow = inOrb || inWin
+            if shouldShow, inWin, !inOrb, let top = topFrame {
+                shouldShow = abs(top.minX - winFrame!.minX) <= 3
+                    && abs(top.minY - winFrame!.minY) <= 3
+                    && abs(top.width - winFrame!.width) <= 3
+                    && abs(top.height - winFrame!.height) <= 3
+            }
+
             if shouldShow != (m.state == .shown) {
                 m.setShown(shouldShow, animated: true)
             }
-
-            if winFrame == nil, m.state == .collapsed {
-                toRemove.append(m)
-            }
         }
         for m in toRemove { removeManaged(m) }
+    }
+
+    private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(m.ax, &pid) == .success else { return false }
+        return pid == (NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+    }
+
+    private func activateApp(_ m: ManagedWindow) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(m.ax, &pid) == .success else { return }
+        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
     }
 
     private func removeManaged(_ m: ManagedWindow) {
