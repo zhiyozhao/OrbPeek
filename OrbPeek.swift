@@ -251,11 +251,6 @@ final class ManagedWindow {
     let orb: OrbWindow
     weak var controller: OrbPeekController?
 
-    // The orb's offset from the window's top-right corner as captured at manage
-    // time; on show the window is re-anchored so the orb keeps that exact spot,
-    // which equals "restore to original" whenever the orb hasn't been dragged.
-    var cornerOffset: CGPoint = .zero
-
     private(set) var state: State = .collapsed
     private var animTimer: Timer?
     private var valid = true
@@ -541,13 +536,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let origin = freeOrbOrigin(for: frame)
         orb.setFrameOrigin(origin)
         orb.orderFrontRegardless()
-        // Capture the orb→window-corner delta in quartz (top-left) space so
-        // shownPos can re-anchor the window's top-right corner to the orb.
-        let orbCenterQuartz = appKitToQuartz(orb.frame.center)
-        m.cornerOffset = CGPoint(
-            x: frame.maxX - orbCenterQuartz.x,
-            y: frame.maxY - orbCenterQuartz.y
-        )
         m.tuck(animated: true)
         rebuildMenu()
         Log.info("tucked window frame=\(frame), orb at \(origin), total managed=\(managed.count)")
@@ -637,16 +625,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func shownPos(for m: ManagedWindow) -> CGPoint {
-        // Re-anchor the window's top-right corner to the orb, preserving the
-        // exact corner offset captured at manage time. Undragged orb → the
-        // window restores to its original spot; dragged orb → the window
-        // follows the orb (which stays its corner "handle", never mid-window).
+        // The orb IS the window's top-right corner handle: pin the window's
+        // top-right corner to the orb center so the orb and window are always
+        // adjacent (no gap for the cursor to fall through between them).
         let fr = screen(containing: m.orb.frame).visibleFrame
         let size = m.originalFrame.size
         let orbCenter = appKitToQuartz(m.orb.frame.center)
-        let corner = CGPoint(x: orbCenter.x + m.cornerOffset.x, y: orbCenter.y + m.cornerOffset.y)
-        let x = clamp(corner.x - size.width, fr.minX, fr.maxX - size.width)
-        let y = clamp(corner.y - size.height, fr.minY, fr.maxY - size.height)
+        let x = clamp(orbCenter.x - size.width, fr.minX, fr.maxX - size.width)
+        let y = clamp(orbCenter.y, fr.minY, fr.maxY - size.height)
         return CGPoint(x: x, y: y)
     }
 
@@ -672,12 +658,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
-    // Orb starts at the window's top-right corner; cascade left/up so multiple
-    // orbs never overlap.
+    // Orb starts centered on the window's top-right corner (quartz space, then
+    // converted to AppKit); cascade left/up so multiple orbs never overlap.
     private func freeOrbOrigin(for frame: CGRect) -> NSPoint {
         let fr = screen(containing: frame).visibleFrame
         let size = config.orbSize
-        var origin = NSPoint(x: frame.maxX - size - 8, y: frame.maxY - size - 8)
+        let corner = CGPoint(x: frame.maxX, y: frame.minY)
+        let qx = corner.x - size / 2
+        let qy = corner.y - size / 2
+        var origin = NSPoint(x: qx + desktopFrame.minX, y: desktopFrame.maxY - qy - size)
         origin = clampOrbOrigin(origin, screen: fr)
         var attempts = 0
         var probe = CGRect(origin: origin, size: CGSize(width: size, height: size))
