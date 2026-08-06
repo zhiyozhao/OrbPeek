@@ -27,8 +27,8 @@ enum Log {
 // MARK: - Config
 
 struct Config {
-    var orbSize: CGFloat = 32
-    var orbOpacity: Double = 0.85
+    var orbSize: CGFloat = 38
+    var orbOpacity: Double = 0.6
     var tuckKey: String = "t"
     var hideAllKey: String = "h"
     var autoLaunch: Bool = false
@@ -38,7 +38,9 @@ struct Config {
     // Distance (px) from a screen edge at which a dragged orb snaps to it.
     // Only right/top edges are offered — the window's top-right corner is
     // anchored to the orb, so a left/bottom-snapped orb would hide the window.
-    var snapThreshold: CGFloat = 50
+    var snapThreshold: CGFloat = 80
+    // Pressing ESC while a window is shown hides it (keyboard-first dismissal).
+    var escToHide: Bool = true
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -56,6 +58,7 @@ struct Config {
         if let v = json["tuckKey"] as? String { c.tuckKey = v }
         if let v = json["hideAllKey"] as? String { c.hideAllKey = v }
         if let v = json["autoLaunch"] as? Bool { c.autoLaunch = v }
+        if let v = json["escToHide"] as? Bool { c.escToHide = v }
         if let v = num("edgeBuffer") { c.edgeBuffer = CGFloat(v) }
         if let v = num("snapThreshold") { c.snapThreshold = CGFloat(v) }
         return c
@@ -64,9 +67,9 @@ struct Config {
     static func saveDefault() {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let dict: [String: Any] = [
-            "orbSize": 32, "orbOpacity": 0.85,
+            "orbSize": 38, "orbOpacity": 0.6,
             "tuckKey": "t", "hideAllKey": "h",
-            "autoLaunch": false, "edgeBuffer": 12, "snapThreshold": 50,
+            "autoLaunch": false, "edgeBuffer": 12, "snapThreshold": 80, "escToHide": true,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -304,17 +307,25 @@ final class OrbWindow: NSPanel {
 
 final class ManagedWindow {
     let ax: AXUIElement
-    // "Home" size/position of the window. Size is updated when the user resizes
-    // the window while it is shown, so peek/hide anchors and release() all use
-    // the live size. Position stays at the pre-manage spot (restore target).
-    var homeFrame: CGRect
+    // "Home" frame of the window: captured at manage time, used only to restore
+    // the window when it is released (un-managed). Never mutated.
+    let homeFrame: CGRect
+    // The window's last position/size while visible — where it reappears on
+    // show. Updated on hide so show/hide cycles are decoupled from the orb.
+    var lastFrame: CGRect
     let orb: OrbWindow
     weak var controller: OrbPeekController?
 
-    // Core invariant: the window and the orb are NEVER visible at the same time.
-    //   shown  — window visible at the orb-anchored position; orb is hidden.
-    //   hidden — window tucked off-screen; orb visible (the only interaction point).
+    // Positions of the window and the orb are DECOUPLED:
+    //   shown  — window visible at lastFrame; orb hidden (stays where it was).
+    //   hidden — window tucked off-screen; orb reappears exactly where it was.
     private(set) var shown = false
+
+    // Summoned windows are sticky: a window shown by clicking the orb stays even
+    // with the mouse elsewhere. Once the mouse has dwelled inside it, leaving
+    // hides it ("used it, left"). ESC / Cmd+Tab / hide-all dismiss it regardless.
+    var touched = false
+    private var inWinSince: Date?
 
     // User has the mouse button down on the window (native move/resize): the
     // window must stay shown until release, even if the pointer briefly leaves
@@ -330,12 +341,26 @@ final class ManagedWindow {
     init(ax: AXUIElement, frame: CGRect, orb: OrbWindow, controller: OrbPeekController) {
         self.ax = ax
         self.homeFrame = frame
+        self.lastFrame = frame
         self.orb = orb
         self.controller = controller
     }
 
     var appName: String {
         controller?.nameForWindow(ax) ?? "Window"
+    }
+
+    // Track "used it, left": the mouse must dwell inside the window for a beat
+    // before counting as "used", so brushing past doesn't arm the dismiss.
+    func noteHover(_ inWin: Bool) {
+        if inWin {
+            if inWinSince == nil { inWinSince = Date() }
+            else if !touched, Date().timeIntervalSince(inWinSince!) >= 0.3 {
+                touched = true
+            }
+        } else {
+            inWinSince = nil
+        }
     }
 
     // Central transition — every show/hide decision routes through here.
@@ -346,8 +371,8 @@ final class ManagedWindow {
         guard valid, force || shown != show else { return }
         shown = show
         if show {
-            // Window replaces the orb: hide the orb, then show the window with
-            // its top-right corner aligned to the orb's top-right corner.
+            // Window replaces the orb: hide the orb, then restore the window to
+            // its last position (positions are decoupled).
             orb.orderOut(nil)
             let err = AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
             if err != .success {
@@ -355,16 +380,18 @@ final class ManagedWindow {
             }
             // The peek only renders above other apps if its app is frontmost.
             controller?.activateApp(self)
-            let target = controller?.shownPos(for: self) ?? homeFrame.origin
+            let target = controller?.restorePos(for: self) ?? lastFrame.origin
             axSetPosition(ax, target)
         } else {
-            // Window hands back to the orb: place the orb at the window's
-            // current top-right corner, then teleport the window off-screen.
-            if let f = axGetFrame(ax), let controller {
-                controller.positionOrb(self, frame: f)
+            // Record where the window is now, then teleport it off-screen. The
+            // orb stays where it was (it was hidden while the window was shown).
+            if let f = axGetFrame(ax) {
+                lastFrame = f
             }
+            touched = false
+            inWinSince = nil
             orb.orderFrontRegardless()
-            let target = controller?.hiddenPos(for: self) ?? homeFrame.origin
+            let target = controller?.hiddenPos(for: self) ?? lastFrame.origin
             axSetPosition(ax, target)
         }
     }
@@ -447,12 +474,24 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Track when the user holds the mouse button down on a shown window: that's
     // a native move/resize gesture, during which we must not hide the window.
     // (The orb is hidden while the window is shown, so there's nothing to exclude.)
+    // Also listens for ESC to dismiss a shown window without touching the mouse.
     private func installMouseMonitors() {
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             self?.handleGlobalMouseDown()
         }
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
             self?.handleGlobalMouseUp()
+        }
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleGlobalKey(event)
+        }
+    }
+
+    private func handleGlobalKey(_ event: NSEvent) {
+        // ESC hides any shown window (its app is frontmost). No-op when hidden.
+        guard config.escToHide, event.keyCode == UInt16(kVK_Escape) else { return }
+        for m in managed where m.shown {
+            m.setShown(false)
         }
     }
 
@@ -469,17 +508,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func handleGlobalMouseUp() {
         for m in managed { m.gesture = false }
-    }
-
-    // While a window is shown the user may resize it natively. Track the new
-    // size so the orb-anchored show position and the off-screen tuck both use
-    // the live size (the orb itself only reappears when the window hides).
-    private func trackResize(_ m: ManagedWindow, frame: CGRect) {
-        guard m.shown else { return }
-        let old = m.homeFrame.size
-        if abs(frame.width - old.width) > 0.5 || abs(frame.height - old.height) > 0.5 {
-            m.homeFrame.size = frame.size
-        }
     }
 
     func restoreAll() {
@@ -679,6 +707,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "autoLaunch": config.autoLaunch,
             "edgeBuffer": config.edgeBuffer,
             "snapThreshold": config.snapThreshold,
+            "escToHide": config.escToHide,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: Config.path))
@@ -717,27 +746,21 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return r
     }
 
-    func shownPos(for m: ManagedWindow) -> CGPoint {
-        // Corner alignment: the window's top-right corner sits exactly at the
-        // orb's top-right corner (the orb rect extends into the window). This is
-        // the exact inverse of positionOrb, so hide→show cycles never drift.
-        // No clamping — the window may extend off-screen.
-        let size = m.homeFrame.size
-        let f = m.orb.frame
-        let topRightX = f.minX - desktopFrame.minX + f.width
-        let topRightY = desktopFrame.maxY - f.minY - f.height
-        return CGPoint(x: topRightX - size.width, y: topRightY)
+    // Where the window reappears on show: its last position, unchanged.
+    // Positions are decoupled from the orb, so the window is never constrained.
+    func restorePos(for m: ManagedWindow) -> CGPoint {
+        m.lastFrame.origin
     }
 
     // macOS forces at least 1px of a window to stay on screen. Dock the window
     // off the NEARER outer edge of the whole desktop (never a display boundary),
     // so it genuinely disappears instead of sliding onto a neighboring screen.
     func hiddenPos(for m: ManagedWindow) -> CGPoint {
-        let size = m.homeFrame.size
-        let home = quartzVisibleFrame(of: screen(containingQuartz: m.homeFrame))
-        let y = clamp(m.homeFrame.origin.y, home.minY, home.maxY - size.height)
-        let orbCenter = m.orb.frame.center
-        if orbCenter.x - desktopFrame.minX < desktopFrame.maxX - orbCenter.x {
+        let size = m.lastFrame.size
+        let home = quartzVisibleFrame(of: screen(containingQuartz: m.lastFrame))
+        let y = clamp(m.lastFrame.origin.y, home.minY, home.maxY - size.height)
+        let cx = m.lastFrame.midX
+        if cx - desktopFrame.minX < desktopFrame.maxX - cx {
             return CGPoint(x: desktopFrame.minX - size.width + 1, y: y)
         } else {
             return CGPoint(x: desktopFrame.maxX - 1, y: y)
@@ -768,9 +791,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Auto edge-snap: after dragging the orb, if it is within snapThreshold of a
     // screen's RIGHT or TOP edge (visible frame, so the menu bar is avoided),
-    // snap it flush, and clamp the perpendicular axis on-screen. Left/bottom are
-    // intentionally excluded — the window anchors its top-right corner to the
-    // orb, so it would extend off-screen from a left/bottom-snapped orb.
+    // snap it flush, and clamp the perpendicular axis on-screen. The orb's
+    // position is fully decoupled from the window, so this just parks the orb.
     func snapOrb(_ orb: OrbWindow) {
         let threshold = config.snapThreshold
         guard threshold > 0 else { return }
@@ -824,13 +846,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let inWin = winFrame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
             let front = appIsFrontmost(m)
 
+            // Track "used it, left" for the sticky-dismiss rule.
+            m.noteHover(inWin)
+
             // Repositioning the orb (visible only while the window is hidden)
             // should not peek the window.
             if m.orb.isDragging { continue }
-
-            // A shown window may be resized natively; keep the anchor sizes in
-            // sync so the next show/tuck uses the live dimensions.
-            trackResize(m, frame: winFrame)
 
             // The user is mid-gesture (native move/resize of a shown window):
             // leave it alone — do not hide — until the button is released.
@@ -845,12 +866,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // Pure per-window decision function: whether the window should be shown next
-    // tick. Showing is CLICK-triggered (on the orb, handled in OrbWindow.mouseUp),
-    // so a hidden window stays hidden under the cursor. Leaving the window (or
-    // switching apps) hides it — which brings the orb back at its current corner.
+    // tick. Showing is CLICK-triggered (on the orb). A summoned window is STICKY:
+    // it stays shown even with the mouse elsewhere, and hides only when its app
+    // stops being frontmost (Cmd+Tab), or the mouse has been used inside it and
+    // then left. ESC / hide-all dismiss it as well.
     private func desiredState(_ m: ManagedWindow, hover: Bool, inWin: Bool, front: Bool) -> Bool {
         guard m.shown else { return false }
-        return front && inWin
+        if !front { return false }
+        if m.touched && !inWin { return false }
+        return true
     }
 
     private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
@@ -875,12 +899,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 private func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
     min(max(v, lo), hi)
-}
-
-private extension CGRect {
-    var center: CGPoint {
-        CGPoint(x: midX, y: midY)
-    }
 }
 
 // MARK: - Self test
