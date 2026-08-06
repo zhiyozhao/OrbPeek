@@ -170,36 +170,70 @@ final class OrbView: NSView {
         didSet { needsDisplay = true }
     }
     var opacity: Double = 0.85
-    var icon: NSImage?
+    var icon: NSImage? {
+        didSet {
+            // Crop to the icon's actual non-transparent content so it fills the
+            // orb regardless of the icon's own padding. Full-bleed icons (no
+            // transparent margin) are cropped to ~nothing.
+            icon = icon.flatMap { Self.cropped($0) }
+            needsDisplay = true
+        }
+    }
+
+    // Crop an app icon to its visible (non-transparent) bounding box.
+    private static func cropped(_ image: NSImage) -> NSImage? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+        let w = cg.width, h = cg.height
+        guard w > 0, h > 0 else { return image }
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        var i = 0
+        for y in 0..<h {
+            for x in 0..<w {
+                if pixels[i + 3] > 16 {
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                }
+                i += 4
+            }
+        }
+        guard maxX >= 0 else { return image }
+        let rect = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        guard let cropped = cg.cropping(to: rect) else { return image }
+        return NSImage(cgImage: cropped, size: NSSize(width: rect.width, height: rect.height))
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        let body = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+        let body = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
 
         if let icon {
-            // The icon fills the orb (clipped to the rounded rect), so there is
-            // no dark backing ring around it — just a thin border for definition.
             NSGraphicsContext.current?.saveGraphicsState()
             body.addClip()
-            icon.draw(in: bounds.insetBy(dx: 3, dy: 3), from: .zero, operation: .sourceOver, fraction: 1.0)
+            // Aspect-fill the (already cropped) icon over the orb, centered.
+            let target = bounds.insetBy(dx: 2, dy: 2)
+            let s = icon.size
+            let scale = max(target.width / max(s.width, 1), target.height / max(s.height, 1))
+            let dw = s.width * scale
+            let dh = s.height * scale
+            icon.draw(in: CGRect(x: target.midX - dw / 2, y: target.midY - dh / 2, width: dw, height: dh),
+                      from: .zero, operation: .sourceOver, fraction: 1.0)
             NSGraphicsContext.current?.restoreGraphicsState()
-
-            let stroke = highlighted ? NSColor.systemBlue : NSColor.white.withAlphaComponent(0.35)
-            stroke.setStroke()
-            body.lineWidth = highlighted ? 2.5 : 1
-            body.stroke()
-            if highlighted {
-                NSColor.systemBlue.withAlphaComponent(0.25).setFill()
-                body.fill()
-            }
         } else {
-            let fill = highlighted ? NSColor.systemBlue : NSColor.darkGray
-            fill.withAlphaComponent(opacity).setFill()
-            body.fill()
-            if highlighted {
-                NSColor.white.withAlphaComponent(0.9).setStroke()
-                body.lineWidth = 1.5
-                body.stroke()
-            }
+            NSColor.darkGray.withAlphaComponent(opacity).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8).fill()
+        }
+
+        if highlighted {
+            NSColor.systemBlue.setStroke()
+            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 8, yRadius: 8)
+            ring.lineWidth = 2.5
+            ring.stroke()
         }
     }
 }
@@ -330,7 +364,7 @@ final class ManagedWindow {
             // Window hands back to the orb: place the orb at the window's
             // current top-right corner, then teleport the window off-screen.
             if let f = axGetFrame(ax), let controller {
-                controller.positionOrb(self, at: CGPoint(x: f.maxX, y: f.minY))
+                controller.positionOrb(self, frame: f)
             }
             orb.orderFrontRegardless()
             let target = controller?.hiddenPos(for: self) ?? homeFrame.origin
@@ -607,7 +641,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         orb.owner = m
         managed.append(m)
 
-        positionOrb(m, at: CGPoint(x: frame.maxX, y: frame.minY))
+        positionOrb(m, frame: frame)
         orb.orderFrontRegardless()
         // Snap the window off-screen immediately: no animation, so there is no
         // frame where the window and the orb are both visible.
@@ -691,8 +725,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return t
     }
 
+    // Screen owning a quartz rect, by its CENTER — robust at display seams,
+    // where edge-touching rects would ambiguously "intersect" both screens.
     private func screen(containingQuartz rect: CGRect) -> NSScreen {
-        NSScreen.screens.first { quartzFrame(of: $0).intersects(rect) } ?? NSScreen.main!
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { quartzFrame(of: $0).contains(center) } ?? NSScreen.main!
     }
 
     // NSScreen.frame is AppKit (bottom-left); flip to top-left over the union.
@@ -748,12 +785,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Place the orb so its top-right corner sits exactly at the window's
     // top-right corner (the orb extends left/down into the window interior),
-    // clamped so it stays on-screen — on the display where the corner is.
-    func positionOrb(_ m: ManagedWindow, at corner: CGPoint) {
+    // clamped to stay on-screen — on the DISPLAY of the window's frame (a
+    // fullscreen window's corner can sit exactly on a seam; the frame's center
+    // resolves the display unambiguously).
+    func positionOrb(_ m: ManagedWindow, frame: CGRect) {
+        let corner = CGPoint(x: frame.maxX, y: frame.minY)
         let size = config.orbSize
         let x = corner.x - size + desktopFrame.minX
         let y = desktopFrame.maxY - corner.y - size
-        let scr = screen(containingQuartz: CGRect(x: corner.x, y: corner.y, width: 1, height: 1))
+        let scr = screen(containingQuartz: frame)
         let origin = clampOrbOrigin(NSPoint(x: x, y: y), screen: scr.visibleFrame)
         m.orb.setFrameOrigin(origin)
     }
