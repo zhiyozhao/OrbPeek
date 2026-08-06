@@ -251,6 +251,11 @@ final class ManagedWindow {
     let orb: OrbWindow
     weak var controller: OrbPeekController?
 
+    // The orb's offset from the window's top-right corner as captured at manage
+    // time; on show the window is re-anchored so the orb keeps that exact spot,
+    // which equals "restore to original" whenever the orb hasn't been dragged.
+    var cornerOffset: CGPoint = .zero
+
     private(set) var state: State = .collapsed
     private var animTimer: Timer?
     private var valid = true
@@ -536,6 +541,13 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let origin = freeOrbOrigin(for: frame)
         orb.setFrameOrigin(origin)
         orb.orderFrontRegardless()
+        // Capture the orb→window-corner delta in quartz (top-left) space so
+        // shownPos can re-anchor the window's top-right corner to the orb.
+        let orbCenterQuartz = appKitToQuartz(orb.frame.center)
+        m.cornerOffset = CGPoint(
+            x: frame.maxX - orbCenterQuartz.x,
+            y: frame.maxY - orbCenterQuartz.y
+        )
         m.tuck(animated: true)
         rebuildMenu()
         Log.info("tucked window frame=\(frame), orb at \(origin), total managed=\(managed.count)")
@@ -625,11 +637,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func shownPos(for m: ManagedWindow) -> CGPoint {
-        let fr = screen(containing: m.originalFrame).visibleFrame
+        // Re-anchor the window's top-right corner to the orb, preserving the
+        // exact corner offset captured at manage time. Undragged orb → the
+        // window restores to its original spot; dragged orb → the window
+        // follows the orb (which stays its corner "handle", never mid-window).
+        let fr = screen(containing: m.orb.frame).visibleFrame
         let size = m.originalFrame.size
-        let orbCenter = m.orb.frame.center
-        let x = clamp(orbCenter.x - size.width / 2, fr.minX, fr.maxX - size.width)
-        let y = clamp(orbCenter.y - size.height / 2, fr.minY, fr.maxY - size.height)
+        let orbCenter = appKitToQuartz(m.orb.frame.center)
+        let corner = CGPoint(x: orbCenter.x + m.cornerOffset.x, y: orbCenter.y + m.cornerOffset.y)
+        let x = clamp(corner.x - size.width, fr.minX, fr.maxX - size.width)
+        let y = clamp(corner.y - size.height, fr.minY, fr.maxY - size.height)
         return CGPoint(x: x, y: y)
     }
 
