@@ -179,6 +179,9 @@ final class ManagedWindow {
     // before leaving counts as a dismiss (avoids brushing past).
     var touched = false
     private var inWinSince: Date?
+    // When the window was peeked — the app is activated asynchronously, so for a
+    // short grace the "not frontmost" check must not dismiss the window.
+    var shownSince: Date?
     // Hover dwell on the sliver before peeking.
     var sliverSince: Date?
     // User is dragging the peeked window (native move/resize).
@@ -202,6 +205,7 @@ final class ManagedWindow {
         touched = false
         inWinSince = nil
         sliverSince = nil
+        shownSince = nil
         let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
         axSetPosition(ax, pos)
     }
@@ -213,6 +217,7 @@ final class ManagedWindow {
         touched = false
         inWinSince = nil
         sliverSince = nil
+        shownSince = Date()
         let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
         AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
         controller?.activateApp(self)
@@ -226,18 +231,26 @@ final class ManagedWindow {
         touched = false
         inWinSince = nil
         sliverSince = nil
+        shownSince = nil
         let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
         axSetPosition(ax, pos)
     }
 
-    // Leave the window where it is and stop tracking it.
+    // Leave the window where it is and stop tracking it. A window that is still
+    // DOCKED (off-screen) is brought back flush against its edge first so it is
+    // never left invisible.
     func cancelDock() {
         guard valid else { return }
+        if !peeked, dockEdge != nil, let frame = axGetFrame(ax) {
+            let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
+            axSetPosition(ax, pos)
+        }
         dockEdge = nil
         peeked = false
         touched = false
         inWinSince = nil
         sliverSince = nil
+        shownSince = nil
         controller?.removeManaged(self)
     }
 
@@ -248,7 +261,7 @@ final class ManagedWindow {
         if let controller, controller.distanceFromDockEdge(frame, edge: edge) > controller.config.dockCancelPx {
             cancelDock()
         } else {
-            dockPerp = controller?.perpendicular(frame, for: edge) ?? dockPerp
+            dockPerp = frame.minY
         }
     }
 
@@ -389,7 +402,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         if managed.isEmpty {
-            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+方向贴边)", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+←/→ 贴边)", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
@@ -510,7 +523,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let existing = managed.first(where: { CFEqual($0.ax, axWin) }) {
             // Re-dock to a new edge.
             existing.dockEdge = edge
-            existing.dockPerp = perpendicular(frame, for: edge)
+            existing.dockPerp = frame.minY
             existing.dock()
             rebuildMenu()
             return
@@ -518,7 +531,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let m = ManagedWindow(ax: axWin, controller: self)
         m.dockEdge = edge
-        m.dockPerp = perpendicular(frame, for: edge)
+        m.dockPerp = frame.minY
         m.restoreFrame = frame
         managed.append(m)
         m.dock()
@@ -574,10 +587,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .left: return NSScreen.screens.min { $0.frame.minX < $1.frame.minX } ?? NSScreen.main!
         case .right: return NSScreen.screens.max { $0.frame.maxX < $1.frame.maxX } ?? NSScreen.main!
         }
-    }
-
-    func perpendicular(_ frame: CGRect, for edge: DockEdge) -> CGFloat {
-        frame.minY
     }
 
     // Off-screen docked position: mostly past the outer edge, leaving sliverPx
@@ -655,11 +664,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             if m.peeked {
                 // Track the live parallel position (the user may move it).
-                m.dockPerp = perpendicular(frame, for: m.dockEdge!)
+                m.dockPerp = frame.minY
                 let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
                 m.noteHover(inWin)
                 let onSliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6).contains(q)
-                if !appIsFrontmost(m) {
+                if let since = m.shownSince, Date().timeIntervalSince(since) < 0.6 {
+                    // Grace: the app was just activated asynchronously; don't
+                    // dismiss the window before the activation lands.
+                } else if !appIsFrontmost(m) {
                     m.dockBack()
                 } else if m.touched && !inWin {
                     m.dockBack()
