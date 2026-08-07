@@ -175,8 +175,9 @@ private final class HotkeyManager {
 
 // MARK: - Orb view & window
 
-// Screen edge the orb parks on while its window is hidden.
-enum OrbEdge { case left, right, top, bottom }
+// Screen edge the orb parks on while its window is hidden. Only left/right
+// edges are offered.
+enum OrbEdge { case left, right }
 
 final class OrbView: NSView {
     var highlighted = false {
@@ -864,10 +865,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return NSRect(x: v.minX, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
         case .right:
             return NSRect(x: v.maxX - t, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
-        case .top:
-            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.maxY - t, width: l, height: t)
-        case .bottom:
-            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.minY, width: l, height: t)
         }
     }
 
@@ -881,10 +878,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return NSRect(x: v.minX, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
         case .right:
             return NSRect(x: v.maxX - t, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
-        case .top:
-            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.maxY - t, width: t, height: t)
-        case .bottom:
-            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.minY, width: t, height: t)
         }
     }
 
@@ -895,12 +888,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let v = screen.visibleFrame
         let l = config.stripLength
         let t = config.stripThickness
-        let lo: CGFloat
-        let hi: CGFloat
-        switch edge {
-        case .left, .right: lo = v.minY; hi = v.maxY - l
-        case .top, .bottom: lo = v.minX; hi = v.maxX - l
-        }
+        let lo = v.minY
+        let hi = v.maxY - l
         let gap: CGFloat = 8
         let step = l + gap
         var candidates: [CGFloat] = []
@@ -914,8 +903,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch edge {
             case .left: probe = NSRect(x: v.minX, y: off, width: t, height: l)
             case .right: probe = NSRect(x: v.maxX - t, y: off, width: t, height: l)
-            case .top: probe = NSRect(x: off, y: v.maxY - t, width: l, height: t)
-            case .bottom: probe = NSRect(x: off, y: v.minY, width: l, height: t)
             }
             if !managed.contains(where: { $0 !== m && $0.orb.frame.intersects(probe) }) {
                 return off
@@ -940,11 +927,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.stripRevealed = true
     }
 
-    // After dragging the strip: dock it flush to the nearest edge of the screen
-    // it is currently on (by its center), and record that as its stable parking
-    // spot. Only the strip's own screen's edges are considered — searching every
-    // display lets a visible-frame offset on a neighbor make the strip hop to
-    // the wrong display.
+    // After dragging the strip: dock it flush to the nearest LEFT/RIGHT edge of
+    // the screen it is currently on (by its center), and record that as its
+    // stable parking spot. Only the strip's own screen's edges are considered —
+    // searching every display lets a visible-frame offset on a neighbor make the
+    // strip hop to the wrong display. Top/bottom edges are not offered.
     func reParkOrb(_ m: ManagedWindow) {
         let c = CGPoint(x: m.orb.frame.midX, y: m.orb.frame.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(c) }
@@ -958,17 +945,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let candidates: [(OrbEdge, CGFloat)] = [
             (.left, abs(c.x - v.minX)),
             (.right, abs(v.maxX - c.x)),
-            (.top, abs(v.maxY - c.y)),
-            (.bottom, abs(c.y - v.minY)),
         ]
         guard let best = candidates.min(by: { $0.1 < $1.1 }) else { return }
         m.parkEdge = best.0
         m.parkScreen = screen
-        let rect = m.orb.frame
-        switch best.0 {
-        case .left, .right: m.parkOffset = rect.minY
-        case .top, .bottom: m.parkOffset = rect.minX
-        }
+        m.parkOffset = m.orb.frame.minY
         parkOrb(m)
     }
 
