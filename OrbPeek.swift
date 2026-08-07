@@ -793,15 +793,22 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func captureSlice(of windowID: CGWindowID, windowFrame: CGRect, for edge: DockEdge,
                               completion: @escaping (NSImage?) -> Void) {
         guard windowID != 0, windowFrame.width > 0 else { completion(nil); return }
+        let t0 = Date()
         Task {
             let slice: NSImage?
             do {
                 let content: SCShareableContent
-                if let cached = shareableContent, cached.windows.contains(where: { $0.windowID == windowID }) {
+                if let cached = shareableContent,
+                   let cachedWin = cached.windows.first(where: { $0.windowID == windowID }),
+                   abs(cachedWin.frame.minX - windowFrame.minX) < 10,
+                   abs(cachedWin.frame.minY - windowFrame.minY) < 10,
+                   abs(cachedWin.frame.width - windowFrame.width) < 10,
+                   abs(cachedWin.frame.height - windowFrame.height) < 10 {
                     content = cached
                 } else {
                     content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                     shareableContent = content
+                    Log.info("SC refetch \(windowID)")
                 }
                 guard let win = content.windows.first(where: { $0.windowID == windowID }) else {
                     await MainActor.run { completion(nil) }
@@ -819,7 +826,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 cfg.width = Int(sliceRect.width * 2)
                 cfg.height = Int(sliceRect.height * 2)
                 cfg.showsCursor = false
-                guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else {
+                let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+                Log.info("captureImage took \(Int(Date().timeIntervalSince(t0) * 1000))ms, got=\(img != nil)")
+                guard let img else {
                     await MainActor.run { completion(nil) }
                     return
                 }
