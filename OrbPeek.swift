@@ -215,6 +215,8 @@ final class ManagedWindow {
     var restoreFrame: CGRect = .zero
     // The fake snapshot strip handle, only for up/down docks.
     var fakeStrip: SnapshotStrip?
+    // Last captured slice, so re-showing the fake strip is instant.
+    var lastSlice: NSImage?
 
     private(set) var peeked = false
 
@@ -358,6 +360,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let hotkeys = HotkeyManager()
     private var managed: [ManagedWindow] = []
     private var pollTimer: Timer?
+    // Cached SCShareableContent (window list rarely changes) — avoids re-enumerating
+    // all windows on every fake-strip capture.
+    private var shareableContent: SCShareableContent?
 
     override init() {
         config = Config.load()
@@ -744,12 +749,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
-        strip.show(image: nil, frame: frame)
+        // Show any cached slice instantly (no gray flash), refresh in the background.
+        strip.show(image: m.lastSlice, frame: frame)
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
               let wid = windowID(for: pid, frame: windowFrame) else { return }
         captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
             guard let self, let m, let image else { return }
+            m.lastSlice = image
             m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
         }
     }
@@ -770,38 +777,43 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // ScreenCaptureKit-based capture of a window's edge slice (includes the
-    // title bar, so a down-dock's handle can show it).
+    // title bar, so a down-dock's handle can show it). Crops via the filter's
+    // sourceRect so only the thin slice is captured (fast), and caches the
+    // shareable content to avoid re-enumerating windows each time.
     private func captureSlice(of windowID: CGWindowID, windowFrame: CGRect, for edge: DockEdge,
                               completion: @escaping (NSImage?) -> Void) {
         guard windowID != 0, windowFrame.width > 0 else { completion(nil); return }
         Task {
             let slice: NSImage?
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let content: SCShareableContent
+                if let cached = shareableContent, cached.windows.contains(where: { $0.windowID == windowID }) {
+                    content = cached
+                } else {
+                    content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    shareableContent = content
+                }
                 guard let win = content.windows.first(where: { $0.windowID == windowID }) else {
                     await MainActor.run { completion(nil) }
                     return
                 }
                 let filter = SCContentFilter(desktopIndependentWindow: win)
+                let sliceRect: CGRect
+                switch edge {
+                case .up: sliceRect = CGRect(x: 0, y: windowFrame.height - config.fakeSliverPx, width: windowFrame.width, height: config.fakeSliverPx)
+                case .down: sliceRect = CGRect(x: 0, y: 0, width: windowFrame.width, height: config.fakeSliverPx)
+                default: await MainActor.run { completion(nil) }; return
+                }
                 let cfg = SCStreamConfiguration()
-                cfg.width = Int(windowFrame.width * 2)
-                cfg.height = Int(windowFrame.height * 2)
+                cfg.sourceRect = sliceRect
+                cfg.width = Int(sliceRect.width * 2)
+                cfg.height = Int(sliceRect.height * 2)
                 cfg.showsCursor = false
                 guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else {
                     await MainActor.run { completion(nil) }
                     return
                 }
-                let iw = img.width, ih = img.height
-                let scale = CGFloat(iw) / windowFrame.width
-                let thick = config.fakeSliverPx * scale
-                let crop: CGRect
-                switch edge {
-                case .up: crop = CGRect(x: 0, y: CGFloat(ih) - thick, width: CGFloat(iw), height: thick)
-                case .down: crop = CGRect(x: 0, y: 0, width: CGFloat(iw), height: thick)
-                default: await MainActor.run { completion(nil) }; return
-                }
-                guard let cg = img.cropping(to: crop) else { await MainActor.run { completion(nil) }; return }
-                slice = NSImage(cgImage: cg, size: NSSize(width: windowFrame.width, height: config.fakeSliverPx))
+                slice = NSImage(cgImage: img, size: NSSize(width: sliceRect.width, height: sliceRect.height))
             } catch {
                 slice = nil
             }
