@@ -1,6 +1,7 @@
 import Cocoa
 import ApplicationServices
 import Carbon.HIToolbox
+import ScreenCaptureKit
 
 // MARK: - Logging
 
@@ -39,6 +40,10 @@ struct Config {
     var touchDwell: Double = 0.3
     // Dragging the peeked window this far off its docked edge cancels the dock.
     var dockCancelPx: CGFloat = 40
+    // Thickness of the fake snapshot sliver used for up/down docks (macOS won't
+    // let a titled window leave the top/bottom, so those edges use a captured
+    // slice of the window as the handle).
+    var fakeSliverPx: CGFloat = 10
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -57,6 +62,7 @@ struct Config {
         if let v = num("peekDwell") { c.peekDwell = v }
         if let v = num("touchDwell") { c.touchDwell = v }
         if let v = num("dockCancelPx") { c.dockCancelPx = CGFloat(v) }
+        if let v = num("fakeSliverPx") { c.fakeSliverPx = CGFloat(v) }
         return c
     }
 
@@ -64,7 +70,7 @@ struct Config {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let dict: [String: Any] = [
             "autoLaunch": false, "edgeBuffer": 12,
-            "sliverPx": 6, "peekDwell": 0.15, "touchDwell": 0.3, "dockCancelPx": 40,
+            "sliverPx": 6, "peekDwell": 0.15, "touchDwell": 0.3, "dockCancelPx": 40, "fakeSliverPx": 10,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -154,10 +160,45 @@ private final class HotkeyManager {
 
 // MARK: - Docked window
 
-// Edge a window can be docked to. Only left/right — macOS keeps a titled
-// window's title bar on-screen, so the top edge can't leave the screen and a
-// bottom dock would leave the whole title bar visible as the handle.
-enum DockEdge { case left, right }
+// Edge a window can be docked to. macOS keeps a titled window's title bar
+// on-screen, so the top/bottom edges use a fake snapshot sliver as the handle
+// (left/right use the window's own visible slice).
+enum DockEdge {
+    case left, right, up, down
+    var isFake: Bool { self == .up || self == .down }
+}
+
+// A floating strip that displays a captured slice of a docked window's content.
+final class SnapshotStrip: NSPanel {
+    private let imageView = NSImageView()
+
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isFloatingPanel = true
+        level = .floating
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        isReleasedWhenClosed = false
+        hidesOnDeactivate = false
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = 2
+        imageView.layer?.masksToBounds = true
+        contentView = imageView
+    }
+
+    func show(image: NSImage?, frame: NSRect) {
+        imageView.image = image
+        setFrame(frame, display: true)
+        orderFrontRegardless()
+    }
+
+    func hide() {
+        orderOut(nil)
+    }
+}
 
 final class ManagedWindow {
     let ax: AXUIElement
@@ -168,10 +209,12 @@ final class ManagedWindow {
     // nil = a normal window; an edge = docked off that edge (sliver visible).
     var dockEdge: DockEdge? = nil
     // Preserved coordinate along the perpendicular axis (y for left/right,
-    // x for top/bottom) — never moved when docking.
+    // x for up/down) — never moved when docking.
     var dockPerp: CGFloat = 0
     // The on-screen frame at dock time, used to restore on quit.
     var restoreFrame: CGRect = .zero
+    // The fake snapshot strip handle, only for up/down docks.
+    var fakeStrip: SnapshotStrip?
 
     private(set) var peeked = false
 
@@ -200,14 +243,25 @@ final class ManagedWindow {
     }
 
     func dock() {
-        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
         peeked = false
         touched = false
         inWinSince = nil
         sliverSince = nil
         shownSince = nil
-        let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
-        axSetPosition(ax, pos)
+        if edge.isFake {
+            // Fake edges: capture the window's edge slice, show the fake strip,
+            // and tuck the real window fully off a side edge.
+            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
+            controller?.updateFakeStrip(self, windowFrame: frame, edge: edge)
+            let pos = controller?.hiddenSidePos(self, size: frame.size) ?? frame.origin
+            axSetPosition(ax, pos)
+        } else {
+            fakeStrip?.hide()
+            fakeStrip = nil
+            let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
+            axSetPosition(ax, pos)
+        }
     }
 
     // Slide the window back in, flush against its docked edge.
@@ -218,6 +272,7 @@ final class ManagedWindow {
         inWinSince = nil
         sliverSince = nil
         shownSince = Date()
+        fakeStrip?.hide()
         let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
         AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
         controller?.activateApp(self)
@@ -226,14 +281,22 @@ final class ManagedWindow {
 
     // Slide back out to the docked (off-screen) position.
     func dockBack() {
-        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
         peeked = false
         touched = false
         inWinSince = nil
         sliverSince = nil
         shownSince = nil
-        let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
-        axSetPosition(ax, pos)
+        if edge.isFake {
+            // Re-capture while the window is on-screen, then hide it again.
+            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
+            controller?.updateFakeStrip(self, windowFrame: frame, edge: edge)
+            let pos = controller?.hiddenSidePos(self, size: frame.size) ?? frame.origin
+            axSetPosition(ax, pos)
+        } else {
+            let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
+            axSetPosition(ax, pos)
+        }
     }
 
     // Leave the window where it is and stop tracking it. A window that is still
@@ -245,6 +308,8 @@ final class ManagedWindow {
             let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
             axSetPosition(ax, pos)
         }
+        fakeStrip?.hide()
+        fakeStrip = nil
         dockEdge = nil
         peeked = false
         touched = false
@@ -261,7 +326,7 @@ final class ManagedWindow {
         if let controller, controller.distanceFromDockEdge(frame, edge: edge) > controller.config.dockCancelPx {
             cancelDock()
         } else {
-            dockPerp = frame.minY
+            dockPerp = controller?.dockPerp(for: edge, frame: frame) ?? frame.minY
         }
     }
 
@@ -278,6 +343,8 @@ final class ManagedWindow {
 
     func restore() {
         guard valid else { return }
+        fakeStrip?.hide()
+        fakeStrip = nil
         axSetPosition(ax, restoreFrame.origin)
         valid = false
     }
@@ -299,7 +366,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.title = "◉"
             button.font = NSFont.systemFont(ofSize: 12)
-            button.toolTip = "OrbPeek — Ctrl+←/→ 把窗口贴到屏幕外,悬停边缘滑出"
+            button.toolTip = "OrbPeek — Ctrl+←/→/↑/↓ 把窗口贴到屏幕外,悬停边缘滑出"
         }
         rebuildMenu()
         statusItem.menu?.delegate = self
@@ -312,6 +379,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mods = UInt32(controlKey)
         hotkeys.register(id: 1, key: UInt32(kVK_LeftArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.left) }
         hotkeys.register(id: 2, key: UInt32(kVK_RightArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.right) }
+        hotkeys.register(id: 3, key: UInt32(kVK_UpArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.up) }
+        hotkeys.register(id: 4, key: UInt32(kVK_DownArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.down) }
 
         installSignalHandlers()
         installMouseMonitors()
@@ -402,7 +471,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         if managed.isEmpty {
-            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+←/→ 贴边)", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+←/→/↑/↓ 贴边)", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
@@ -502,6 +571,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "peekDwell": config.peekDwell,
             "touchDwell": config.touchDwell,
             "dockCancelPx": config.dockCancelPx,
+            "fakeSliverPx": config.fakeSliverPx,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: Config.path))
@@ -523,7 +593,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let existing = managed.first(where: { CFEqual($0.ax, axWin) }) {
             // Re-dock to a new edge.
             existing.dockEdge = edge
-            existing.dockPerp = frame.minY
+            existing.dockPerp = dockPerp(for: edge, frame: frame)
             existing.dock()
             rebuildMenu()
             return
@@ -531,7 +601,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let m = ManagedWindow(ax: axWin, controller: self)
         m.dockEdge = edge
-        m.dockPerp = frame.minY
+        m.dockPerp = dockPerp(for: edge, frame: frame)
         m.restoreFrame = frame
         managed.append(m)
         m.dock()
@@ -580,64 +650,185 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
     }
 
-    // The screen at the desktop's outer edge in the dock direction (leftmost or
-    // rightmost display) — the docked window parks off its outer edge.
-    private func outerScreen(for edge: DockEdge) -> NSScreen {
+    // Convert a quartz (top-left) rect to AppKit (bottom-left) — needed when
+    // positioning our own floating panels, whose frames are AppKit.
+    private func appKitRect(_ r: CGRect) -> CGRect {
+        CGRect(x: r.minX, y: desktopFrame.maxY - r.maxY, width: r.width, height: r.height)
+    }
+
+    // The perpendicular coordinate to preserve for an edge (y for left/right,
+    // x for up/down).
+    func dockPerp(for edge: DockEdge, frame: CGRect) -> CGFloat {
         switch edge {
-        case .left: return NSScreen.screens.min { $0.frame.minX < $1.frame.minX } ?? NSScreen.main!
-        case .right: return NSScreen.screens.max { $0.frame.maxX < $1.frame.maxX } ?? NSScreen.main!
+        case .left, .right: return frame.minY
+        case .up, .down: return frame.minX
         }
     }
 
-    // Off-screen docked position: mostly past the outer edge, leaving sliverPx
-    // of the window visible (the handle). The perpendicular coordinate is kept.
+    // The screen at the desktop's outer edge in the dock direction. For up/down
+    // the relevant screen is the one at the window's perpendicular (x) — its
+    // visible frame carries the menu-bar/dock offsets.
+    private func outerScreen(for edge: DockEdge, perp: CGFloat) -> NSScreen {
+        switch edge {
+        case .left: return NSScreen.screens.min { $0.frame.minX < $1.frame.minX } ?? NSScreen.main!
+        case .right: return NSScreen.screens.max { $0.frame.maxX < $1.frame.maxX } ?? NSScreen.main!
+        case .up, .down:
+            return NSScreen.screens.first { $0.frame.contains(CGPoint(x: perp, y: $0.frame.midY)) } ?? NSScreen.main!
+        }
+    }
+
+    // Off-screen docked position for LEFT/RIGHT: mostly past the outer edge,
+    // leaving sliverPx of the window visible (the handle).
     func dockedPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
         switch m.dockEdge! {
         case .left: return CGPoint(x: v.minX - size.width + config.sliverPx, y: m.dockPerp)
         case .right: return CGPoint(x: v.maxX - config.sliverPx, y: m.dockPerp)
+        default: return .zero
         }
+    }
+
+    // Hiding spot for UP/DOWN: the real window tucks off the desktop's right
+    // outer edge leaving a 1px sliver (macOS keeps ~40px visible if fully off,
+    // but allows 1px). The fake strip at the top/bottom is the real handle. Its
+    // y matches the peek position so the window only slides horizontally when
+    // recalled.
+    func hiddenSidePos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
+        let y: CGFloat
+        switch m.dockEdge! {
+        case .up: y = v.minY
+        case .down: y = v.maxY - size.height
+        default: y = 0
+        }
+        return CGPoint(x: desktopFrame.maxX - 1, y: y)
     }
 
     // Flush position the window slides back to when peeked.
     func peekPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
         switch m.dockEdge! {
         case .left: return CGPoint(x: v.minX, y: m.dockPerp)
         case .right: return CGPoint(x: v.maxX - size.width, y: m.dockPerp)
+        case .up: return CGPoint(x: m.dockPerp, y: v.minY)
+        case .down: return CGPoint(x: m.dockPerp, y: v.maxY - size.height)
         }
     }
 
-    // The visible slice of the window when docked (the hover handle).
+    // The handle rect (what you hover to peek): the window's own slice for
+    // left/right, or the fake snapshot strip's frame for up/down.
     func sliverRect(_ m: ManagedWindow, size: CGSize) -> CGRect {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
         switch m.dockEdge! {
         case .left: return CGRect(x: v.minX, y: m.dockPerp, width: config.sliverPx, height: size.height)
         case .right: return CGRect(x: v.maxX - config.sliverPx, y: m.dockPerp, width: config.sliverPx, height: size.height)
+        case .up: return CGRect(x: m.dockPerp, y: v.minY, width: size.width, height: config.fakeSliverPx)
+        case .down: return CGRect(x: m.dockPerp, y: v.maxY - config.fakeSliverPx, width: size.width, height: config.fakeSliverPx)
         }
     }
 
     // How far a window's docked-side edge sits off its docked edge (used to
     // decide whether the user dragged it out of the dock).
     func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge) -> CGFloat {
-        let v = quartzVisibleFrame(of: outerScreen(for: edge))
+        let v = quartzVisibleFrame(of: outerScreen(for: edge, perp: frame.minX))
         switch edge {
         case .left: return frame.minX - v.minX
         case .right: return v.maxX - frame.maxX
+        case .up: return frame.minY - v.minY
+        case .down: return v.maxY - frame.maxY
         }
     }
 
+    // Capture the edge slice of a window and show it in the fake strip (async —
+    // the strip shows a placeholder until the capture lands).
+    func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
+        guard let strip = m.fakeStrip else { return }
+        let frame = appKitRect(sliverRect(m, size: windowFrame.size))
+        strip.show(image: nil, frame: frame)
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(m.ax, &pid) == .success,
+              let wid = windowID(for: pid, frame: windowFrame) else { return }
+        captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
+            guard let self, let m, let image else { return }
+            m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
+        }
+    }
+
+    private func windowID(for pid: pid_t, frame: CGRect) -> CGWindowID? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        for w in list {
+            guard (w[kCGWindowOwnerPID as String] as? Int) == Int(pid) else { continue }
+            guard let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let bx = b["X"] as? Double, let by = b["Y"] as? Double,
+                  let bw = b["Width"] as? Double, let bh = b["Height"] as? Double else { continue }
+            if abs(bx - frame.minX) < 5 && abs(by - frame.minY) < 5
+                && abs(bw - frame.width) < 5 && abs(bh - frame.height) < 5 {
+                return CGWindowID(w[kCGWindowNumber as String] as? Int ?? 0)
+            }
+        }
+        return nil
+    }
+
+    // ScreenCaptureKit-based capture of a window's edge slice (includes the
+    // title bar, so a down-dock's handle can show it).
+    private func captureSlice(of windowID: CGWindowID, windowFrame: CGRect, for edge: DockEdge,
+                              completion: @escaping (NSImage?) -> Void) {
+        guard windowID != 0, windowFrame.width > 0 else { completion(nil); return }
+        Task {
+            let slice: NSImage?
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                guard let win = content.windows.first(where: { $0.windowID == windowID }) else {
+                    await MainActor.run { completion(nil) }
+                    return
+                }
+                let filter = SCContentFilter(desktopIndependentWindow: win)
+                let cfg = SCStreamConfiguration()
+                cfg.width = Int(windowFrame.width * 2)
+                cfg.height = Int(windowFrame.height * 2)
+                cfg.showsCursor = false
+                guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else {
+                    await MainActor.run { completion(nil) }
+                    return
+                }
+                let iw = img.width, ih = img.height
+                let scale = CGFloat(iw) / windowFrame.width
+                let thick = config.fakeSliverPx * scale
+                let crop: CGRect
+                switch edge {
+                case .up: crop = CGRect(x: 0, y: CGFloat(ih) - thick, width: CGFloat(iw), height: thick)
+                case .down: crop = CGRect(x: 0, y: 0, width: CGFloat(iw), height: thick)
+                default: await MainActor.run { completion(nil) }; return
+                }
+                guard let cg = img.cropping(to: crop) else { await MainActor.run { completion(nil) }; return }
+                slice = NSImage(cgImage: cg, size: NSSize(width: windowFrame.width, height: config.fakeSliverPx))
+            } catch {
+                slice = nil
+            }
+            await MainActor.run { completion(slice) }
+        }
+    }
+
+
+    // The window's size along the sliver (height for left/right, width for
+    // up/down) — used to pick the smallest window when slivers overlap.
+    private func sliverSize(_ m: ManagedWindow, size: CGSize) -> CGFloat {
+        switch m.dockEdge! {
+        case .left, .right: return size.height
+        case .up, .down: return size.width
+        }
+    }
 
     // True if another docked window whose sliver also sits under the cursor is
     // smaller (or equally small but earlier in the managed order) — so the
     // smallest window owns the overlap and the rest stay hidden.
     private func smallestDockedUnder(_ q: CGPoint, excluding m: ManagedWindow) -> Bool {
         guard let f = axGetFrame(m.ax) else { return false }
-        let thisSize = f.size.height
+        let thisSize = sliverSize(m, size: f.size)
         for other in managed where other !== m && !other.peeked {
             guard let of = axGetFrame(other.ax) else { continue }
             guard sliverRect(other, size: of.size).insetBy(dx: -6, dy: -6).contains(q) else { continue }
-            let otherSize = of.size.height
+            let otherSize = sliverSize(other, size: of.size)
             if otherSize < thisSize || (otherSize == thisSize && other.id < m.id) {
                 return true
             }
@@ -664,7 +855,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             if m.peeked {
                 // Track the live parallel position (the user may move it).
-                m.dockPerp = frame.minY
+                m.dockPerp = dockPerp(for: m.dockEdge!, frame: frame)
                 let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
                 m.noteHover(inWin)
                 let onSliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6).contains(q)
