@@ -389,6 +389,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         installSignalHandlers()
         installMouseMonitors()
+        prewarmCapture()
 
         if !AXIsProcessTrusted() {
             promptAccessibility()
@@ -420,6 +421,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
             self?.handleGlobalMouseUp()
+        }
+    }
+
+    // Warm the ScreenCaptureKit pipeline at launch so the first fake-strip
+    // capture doesn't pay the one-time enumeration/setup cost.
+    private func prewarmCapture() {
+        Task {
+            if let c = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) {
+                shareableContent = c
+            }
         }
     }
 
@@ -749,7 +760,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
-        // Show any cached slice instantly (no gray flash), refresh in the background.
         strip.show(image: m.lastSlice, frame: frame)
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
@@ -817,7 +827,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch {
                 slice = nil
             }
-            await MainActor.run { completion(slice) }
+            await MainActor.run {
+                completion(slice)
+            }
         }
     }
 
