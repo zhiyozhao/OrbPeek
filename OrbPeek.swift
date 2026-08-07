@@ -38,10 +38,10 @@ struct Config {
     // Distance (px) from a screen edge at which a dragged orb snaps to it.
     // Only right/top edges are offered — the window's top-right corner is
     // anchored to the orb, so a left/bottom-snapped orb would hide the window.
-    // Thickness (into the screen) and length (along the edge) of the parked
-    // edge-strip the orb collapses into.
+    // Thickness (into the screen) of the parked edge-strip. Its length follows
+    // the orb's tile width (1.5×) so the strip scales with the orb.
     var stripThickness: CGFloat = 6
-    var stripLength: CGFloat = 48
+    var stripLength: CGFloat { orbSize * 1.5 }
     // Pressing ESC while a window is shown hides it (keyboard-first dismissal).
     var escToHide: Bool = true
 
@@ -64,7 +64,6 @@ struct Config {
         if let v = json["escToHide"] as? Bool { c.escToHide = v }
         if let v = num("edgeBuffer") { c.edgeBuffer = CGFloat(v) }
         if let v = num("stripThickness") { c.stripThickness = CGFloat(v) }
-        if let v = num("stripLength") { c.stripLength = CGFloat(v) }
         return c
     }
 
@@ -74,7 +73,7 @@ struct Config {
             "orbSize": 38, "orbOpacity": 0.6,
             "tuckKey": "t", "hideAllKey": "h",
             "autoLaunch": false, "edgeBuffer": 12,
-            "stripThickness": 6, "stripLength": 48, "escToHide": true,
+            "stripThickness": 6, "escToHide": true,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -175,9 +174,8 @@ private final class HotkeyManager {
 
 // MARK: - Orb view & window
 
-// Screen edge the orb parks on while its window is hidden. Only left/right
-// edges are offered.
-enum OrbEdge { case left, right }
+// Screen edge the orb parks on while its window is hidden.
+enum OrbEdge { case left, right, top, bottom }
 
 final class OrbView: NSView {
     var highlighted = false {
@@ -459,19 +457,18 @@ final class ManagedWindow {
             }
             // The peek only renders above other apps if its app is frontmost.
             controller?.activateApp(self)
-            let target = controller?.restorePos(for: self) ?? lastFrame.origin
+            let target = controller?.showPos(for: self) ?? lastFrame.origin
             axSetPosition(ax, target)
         } else {
             // Record where the window is now, then teleport it off-screen. The
-            // orb (hidden while the window was shown) returns as the parked edge
-            // strip at its stored parking spot.
+            // strip returns parked on the edge nearest the window's center.
             if let f = axGetFrame(ax) {
                 lastFrame = f
             }
             touched = false
             inWinSince = nil
             shownSince = nil
-            controller?.parkOrb(self)
+            controller?.parkAtWindowCenter(self)
             orb.orderFrontRegardless()
             let target = controller?.hiddenPos(for: self) ?? lastFrame.origin
             axSetPosition(ax, target)
@@ -720,11 +717,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         orb.owner = m
         managed.append(m)
 
-        // Initial park: right edge of the window's screen, vertically aligned
-        // with the window. tuck() then parks the strip and hides the window.
-        m.parkScreen = screen(containingQuartz: frame)
-        m.parkEdge = .right
-        m.parkOffset = (desktopFrame.maxY - frame.midY) - config.stripLength / 2
+        // Initial park: the edge nearest the window's center, vertically aligned
+        // with the window. tuck() then parks the strip (overlap-resolved) and
+        // hides the window.
+        let scr = screen(containingQuartz: frame)
+        m.parkScreen = scr
+        let center = CGPoint(x: frame.midX, y: desktopFrame.maxY - frame.midY)
+        m.parkEdge = nearestEdge(to: center, screen: scr)
+        m.parkOffset = parkOffset(for: m.parkEdge, at: center)
         orb.orderFrontRegardless()
         // Snap the window off-screen immediately: no animation, so there is no
         // frame where the window and the orb are both visible.
@@ -794,7 +794,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "autoLaunch": config.autoLaunch,
             "edgeBuffer": config.edgeBuffer,
             "stripThickness": config.stripThickness,
-            "stripLength": config.stripLength,
             "escToHide": config.escToHide,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
@@ -834,10 +833,59 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return r
     }
 
-    // Where the window reappears on show: its last position, unchanged.
-    // Positions are decoupled from the orb, so the window is never constrained.
-    func restorePos(for m: ManagedWindow) -> CGPoint {
-        m.lastFrame.origin
+    // Where the window appears on show: it slides in from the strip's edge,
+    // flush against that edge and centered on the strip, clamped so it displays
+    // fully on the strip's screen.
+    func showPos(for m: ManagedWindow) -> CGPoint {
+        let size = m.lastFrame.size
+        let qv = quartzVisibleFrame(of: m.parkScreen)
+        let s = stripRect(m)
+        switch m.parkEdge {
+        case .left:
+            return CGPoint(x: qv.minX,
+                           y: clamp((desktopFrame.maxY - s.midY) - size.height / 2, qv.minY, max(qv.minY, qv.maxY - size.height)))
+        case .right:
+            return CGPoint(x: qv.maxX - size.width,
+                           y: clamp((desktopFrame.maxY - s.midY) - size.height / 2, qv.minY, max(qv.minY, qv.maxY - size.height)))
+        case .top:
+            return CGPoint(x: clamp(s.midX - size.width / 2, qv.minX, max(qv.minX, qv.maxX - size.width)),
+                           y: qv.minY)
+        case .bottom:
+            return CGPoint(x: clamp(s.midX - size.width / 2, qv.minX, max(qv.minX, qv.maxX - size.width)),
+                           y: qv.maxY - size.height)
+        }
+    }
+
+    // The screen edge nearest a point (AppKit), on a given screen.
+    private func nearestEdge(to center: CGPoint, screen: NSScreen) -> OrbEdge {
+        let v = screen.visibleFrame
+        let candidates: [(OrbEdge, CGFloat)] = [
+            (.left, abs(center.x - v.minX)),
+            (.right, abs(v.maxX - center.x)),
+            (.top, abs(v.maxY - center.y)),
+            (.bottom, abs(center.y - v.minY)),
+        ]
+        return candidates.min(by: { $0.1 < $1.1 })!.0
+    }
+
+    // The strip's leading offset along the edge that aligns it with a point.
+    private func parkOffset(for edge: OrbEdge, at center: CGPoint) -> CGFloat {
+        switch edge {
+        case .left, .right: return center.y - config.stripLength / 2
+        case .top, .bottom: return center.x - config.stripLength / 2
+        }
+    }
+
+    // Park the strip on the edge nearest the window's center, aligned with it
+    // (then overlap-resolved). Re-run on every hide so the strip tracks where
+    // the window is.
+    func parkAtWindowCenter(_ m: ManagedWindow) {
+        let scr = screen(containingQuartz: m.lastFrame)
+        m.parkScreen = scr
+        let center = CGPoint(x: m.lastFrame.midX, y: desktopFrame.maxY - m.lastFrame.midY)
+        m.parkEdge = nearestEdge(to: center, screen: scr)
+        m.parkOffset = parkOffset(for: m.parkEdge, at: center)
+        parkOrb(m)
     }
 
     // macOS forces at least 1px of a window to stay on screen. Dock the window
@@ -865,6 +913,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return NSRect(x: v.minX, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
         case .right:
             return NSRect(x: v.maxX - t, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
+        case .top:
+            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.maxY - t, width: l, height: t)
+        case .bottom:
+            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.minY, width: l, height: t)
         }
     }
 
@@ -878,6 +930,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return NSRect(x: v.minX, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
         case .right:
             return NSRect(x: v.maxX - t, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
+        case .top:
+            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.maxY - t, width: t, height: t)
+        case .bottom:
+            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.minY, width: t, height: t)
         }
     }
 
@@ -888,8 +944,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let v = screen.visibleFrame
         let l = config.stripLength
         let t = config.stripThickness
-        let lo = v.minY
-        let hi = v.maxY - l
+        let lo: CGFloat
+        let hi: CGFloat
+        switch edge {
+        case .left, .right: lo = v.minY; hi = v.maxY - l
+        case .top, .bottom: lo = v.minX; hi = v.maxX - l
+        }
         let gap: CGFloat = 8
         let step = l + gap
         var candidates: [CGFloat] = []
@@ -903,6 +963,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch edge {
             case .left: probe = NSRect(x: v.minX, y: off, width: t, height: l)
             case .right: probe = NSRect(x: v.maxX - t, y: off, width: t, height: l)
+            case .top: probe = NSRect(x: off, y: v.maxY - t, width: l, height: t)
+            case .bottom: probe = NSRect(x: off, y: v.minY, width: l, height: t)
             }
             if !managed.contains(where: { $0 !== m && $0.orb.frame.intersects(probe) }) {
                 return off
@@ -927,11 +989,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.stripRevealed = true
     }
 
-    // After dragging the strip: dock it flush to the nearest LEFT/RIGHT edge of
-    // the screen it is currently on (by its center), and record that as its
-    // stable parking spot. Only the strip's own screen's edges are considered —
-    // searching every display lets a visible-frame offset on a neighbor make the
-    // strip hop to the wrong display. Top/bottom edges are not offered.
+    // After dragging the strip: dock it flush to the nearest edge of the screen
+    // it is currently on (by its center), and record that as its stable parking
+    // spot. Only the strip's own screen's edges are considered — searching every
+    // display lets a visible-frame offset on a neighbor make the strip hop to
+    // the wrong display.
     func reParkOrb(_ m: ManagedWindow) {
         let c = CGPoint(x: m.orb.frame.midX, y: m.orb.frame.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(c) }
@@ -945,11 +1007,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let candidates: [(OrbEdge, CGFloat)] = [
             (.left, abs(c.x - v.minX)),
             (.right, abs(v.maxX - c.x)),
+            (.top, abs(v.maxY - c.y)),
+            (.bottom, abs(c.y - v.minY)),
         ]
         guard let best = candidates.min(by: { $0.1 < $1.1 }) else { return }
         m.parkEdge = best.0
         m.parkScreen = screen
-        m.parkOffset = m.orb.frame.minY
+        switch best.0 {
+        case .left, .right: m.parkOffset = m.orb.frame.minY
+        case .top, .bottom: m.parkOffset = m.orb.frame.minX
+        }
         parkOrb(m)
     }
 
