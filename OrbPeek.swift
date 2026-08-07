@@ -182,6 +182,9 @@ final class SnapshotStrip: NSPanel {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // Hover/peek is detected geometrically by the poll, so the strip must not
+        // swallow clicks aimed at whatever is below it.
+        ignoresMouseEvents = true
         imageView.imageScaling = .scaleAxesIndependently
         imageView.wantsLayer = true
         imageView.layer?.cornerRadius = 2
@@ -189,8 +192,18 @@ final class SnapshotStrip: NSPanel {
         contentView = imageView
     }
 
-    func show(image: NSImage?, frame: NSRect) {
-        imageView.image = image
+    func show(image: NSImage?, icon: NSImage?, frame: NSRect) {
+        if let image {
+            imageView.image = image
+            imageView.imageScaling = .scaleAxesIndependently
+            imageView.layer?.backgroundColor = nil
+        } else {
+            // Fallback when no capture is available (missing screen-recording
+            // permission): keep the strip visible as a clickable/hoverable handle.
+            imageView.image = icon
+            imageView.imageScaling = .scaleProportionallyDown
+            imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        }
         setFrame(frame, display: true)
         orderFrontRegardless()
     }
@@ -244,8 +257,19 @@ final class ManagedWindow {
         controller?.nameForWindow(ax) ?? "窗口"
     }
 
+    // External state guard: if the user minimized the window (⌘M) while it was
+    // peeked, AX position changes are unreliable until it is restored.
+    private func ensureNotMinimized() {
+        var v: CFTypeRef?
+        if AXUIElementCopyAttributeValue(ax, kAXMinimizedAttribute as CFString, &v) == .success,
+           let b = v as? Bool, b {
+            AXUIElementSetAttributeValue(ax, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        }
+    }
+
     func dock() {
         guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
+        ensureNotMinimized()
         peeked = false
         touched = false
         inWinSince = nil
@@ -269,6 +293,7 @@ final class ManagedWindow {
     // Slide the window back in, flush against its docked edge.
     func peek() {
         guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        ensureNotMinimized()
         peeked = true
         touched = false
         inWinSince = nil
@@ -284,6 +309,7 @@ final class ManagedWindow {
     // Slide back out to the docked (off-screen) position.
     func dockBack() {
         guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
+        ensureNotMinimized()
         peeked = false
         touched = false
         inWinSince = nil
@@ -626,6 +652,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func removeManaged(_ m: ManagedWindow) {
+        m.fakeStrip?.hide()
+        m.fakeStrip = nil
         managed.removeAll { $0 === m }
         rebuildMenu()
     }
@@ -760,18 +788,23 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
-        strip.show(image: m.lastSlice, frame: frame)
+        strip.show(image: m.lastSlice, icon: appIcon(for: m), frame: frame)
         Log.info("strip win=\(m.id.uuidString.prefix(6)) cached=\(m.lastSlice != nil)")
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
               let wid = windowID(for: pid, frame: windowFrame) else { return }
         captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
             guard let self, let m else { Log.info("capture done but m/self nil"); return }
-            guard let image else { Log.info("capture done for \(m.id.uuidString.prefix(6)) but image nil"); return }
+            guard let image else { return }
             m.lastSlice = image
-            Log.info("capture done win=\(m.id.uuidString.prefix(6)) set lastSlice")
-            m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
+            m.fakeStrip?.show(image: image, icon: self.appIcon(for: m), frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
         }
+    }
+
+    private func appIcon(for m: ManagedWindow) -> NSImage? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(m.ax, &pid) == .success else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.icon
     }
 
     private func windowID(for pid: pid_t, frame: CGRect) -> CGWindowID? {
@@ -907,9 +940,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     m.dockBack()
                 }
             } else {
-                // Docked: hover the sliver to slide the window back in. Only the
-                // smallest window under the cursor peeks, and only one window
-                // peeks at a time — otherwise overlapping slivers flip-flop.
+                // Docked: snap the window back to its docked position if it was
+                // moved externally (dragging the 1-6px sliver, or the app moving
+                // its own window), then hover the sliver to slide it back in.
+                let target = m.dockEdge!.isFake ? hiddenSidePos(m, size: frame.size) : dockedPos(m, size: frame.size)
+                if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
+                    axSetPosition(m.ax, target)
+                }
+                // Only the smallest window under the cursor peeks, and only one
+                // window peeks at a time — otherwise overlapping slivers flip-flop.
                 let sliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6)
                 if sliver.contains(q),
                    !managed.contains(where: { $0 !== m && $0.peeked }),
