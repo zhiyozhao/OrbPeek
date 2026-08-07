@@ -27,23 +27,18 @@ enum Log {
 // MARK: - Config
 
 struct Config {
-    var orbSize: CGFloat = 38
-    var orbOpacity: Double = 0.6
-    var tuckKey: String = "t"
-    var hideAllKey: String = "h"
     var autoLaunch: Bool = false
-    // Extra margin around the window treated as "inside" so edge/resize
-    // interactions don't falsely hide the window.
+    // Margin around the window treated as "inside" so resize/edge interactions
+    // don't falsely dismiss a peeked window.
     var edgeBuffer: CGFloat = 12
-    // Distance (px) from a screen edge at which a dragged orb snaps to it.
-    // Only right/top edges are offered — the window's top-right corner is
-    // anchored to the orb, so a left/bottom-snapped orb would hide the window.
-    // Thickness (into the screen) of the parked edge-strip. Its length follows
-    // the orb's tile width (1.5×) so the strip scales with the orb.
-    var stripThickness: CGFloat = 6
-    var stripLength: CGFloat { orbSize * 1.5 }
-    // Pressing ESC while a window is shown hides it (keyboard-first dismissal).
-    var escToHide: Bool = true
+    // Visible slice of a docked window — the "handle" you hover to peek it.
+    var sliverPx: CGFloat = 6
+    // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
+    var peekDwell: Double = 0.15
+    // Dwell inside the peeked window before leaving counts as "used it, left".
+    var touchDwell: Double = 0.3
+    // Dragging the peeked window this far off its docked edge cancels the dock.
+    var dockCancelPx: CGFloat = 40
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -56,24 +51,20 @@ struct Config {
             return c
         }
         func num(_ k: String) -> Double? { (json[k] as? NSNumber)?.doubleValue }
-        if let v = num("orbSize") { c.orbSize = CGFloat(v) }
-        if let v = num("orbOpacity") { c.orbOpacity = v }
-        if let v = json["tuckKey"] as? String { c.tuckKey = v }
-        if let v = json["hideAllKey"] as? String { c.hideAllKey = v }
         if let v = json["autoLaunch"] as? Bool { c.autoLaunch = v }
-        if let v = json["escToHide"] as? Bool { c.escToHide = v }
         if let v = num("edgeBuffer") { c.edgeBuffer = CGFloat(v) }
-        if let v = num("stripThickness") { c.stripThickness = CGFloat(v) }
+        if let v = num("sliverPx") { c.sliverPx = CGFloat(v) }
+        if let v = num("peekDwell") { c.peekDwell = v }
+        if let v = num("touchDwell") { c.touchDwell = v }
+        if let v = num("dockCancelPx") { c.dockCancelPx = CGFloat(v) }
         return c
     }
 
     static func saveDefault() {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let dict: [String: Any] = [
-            "orbSize": 38, "orbOpacity": 0.6,
-            "tuckKey": "t", "hideAllKey": "h",
             "autoLaunch": false, "edgeBuffer": 12,
-            "stripThickness": 6, "escToHide": true,
+            "sliverPx": 6, "peekDwell": 0.15, "touchDwell": 0.3, "dockCancelPx": 40,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: path))
@@ -159,279 +150,112 @@ private final class HotkeyManager {
             &handlerRef
         )
     }
-
-    static func keyCode(for key: String) -> UInt32 {
-        switch key.lowercased() {
-        case "h": return UInt32(kVK_ANSI_H)
-        case "p": return UInt32(kVK_ANSI_P)
-        case "e": return UInt32(kVK_ANSI_E)
-        case "y": return UInt32(kVK_ANSI_Y)
-        case "x": return UInt32(kVK_ANSI_X)
-        default: return UInt32(kVK_ANSI_T)
-        }
-    }
 }
 
-// MARK: - Orb view & window
+// MARK: - Docked window
 
-// Screen edge the orb parks on while its window is hidden.
-enum OrbEdge { case left, right, top, bottom }
-
-final class OrbView: NSView {
-    var highlighted = false {
-        didSet { needsDisplay = true }
-    }
-    var opacity: Double = 0.85
-    var icon: NSImage? {
-        didSet {
-            // Crop to the icon's actual non-transparent content so it fills the
-            // orb regardless of the icon's own padding. Full-bleed icons (no
-            // transparent margin) are cropped to ~nothing.
-            icon = icon.flatMap { Self.cropped($0) }
-            needsDisplay = true
-        }
-    }
-    // When true the orb renders as a thin colored strip (parked on an edge);
-    // otherwise as a square tile with the app icon (revealed on hover).
-    var stripMode = false {
-        didSet { needsDisplay = true }
-    }
-    var stripColor: NSColor = .gray {
-        didSet { needsDisplay = true }
-    }
-
-    // The strip's fill color: the app icon's average color (weighted by alpha),
-    // lifted off pure black so it stays visible on any desktop.
-    static func averageColor(of image: NSImage) -> NSColor {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return .gray }
-        let sw = 16, sh = 16
-        var pixels = [UInt8](repeating: 0, count: sw * sh * 4)
-        guard let ctx = CGContext(data: &pixels, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: sw * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return .gray }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: sw, height: sh))
-        var r = 0.0, g = 0.0, b = 0.0, weight = 0.0
-        var i = 0
-        for _ in 0..<(sw * sh) {
-            let a = Double(pixels[i + 3]) / 255.0
-            if a > 0.2 {
-                r += Double(pixels[i]) * a
-                g += Double(pixels[i + 1]) * a
-                b += Double(pixels[i + 2]) * a
-                weight += a
-            }
-            i += 4
-        }
-        if weight == 0 { return .gray }
-        return NSColor(
-            calibratedRed: max(r / weight / 255.0, 0.35),
-            green: max(g / weight / 255.0, 0.35),
-            blue: max(b / weight / 255.0, 0.35),
-            alpha: 1
-        )
-    }
-
-    // Crop an app icon to its visible (non-transparent) bounding box.
-    private static func cropped(_ image: NSImage) -> NSImage? {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
-        let w = cg.width, h = cg.height
-        guard w > 0, h > 0 else { return image }
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        guard let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        var minX = w, minY = h, maxX = -1, maxY = -1
-        var i = 0
-        for y in 0..<h {
-            for x in 0..<w {
-                if pixels[i + 3] > 16 {
-                    if x < minX { minX = x }
-                    if x > maxX { maxX = x }
-                    if y < minY { minY = y }
-                    if y > maxY { maxY = y }
-                }
-                i += 4
-            }
-        }
-        guard maxX >= 0 else { return image }
-        let rect = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
-        guard let cropped = cg.cropping(to: rect) else { return image }
-        return NSImage(cgImage: cropped, size: NSSize(width: rect.width, height: rect.height))
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if stripMode {
-            // A thin rounded bar in the icon's color, sitting on the screen edge.
-            let r = min(bounds.width, bounds.height) / 2
-            let body = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: r, yRadius: r)
-            stripColor.withAlphaComponent(opacity).setFill()
-            body.fill()
-            if highlighted {
-                NSColor.systemBlue.setStroke()
-                let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: r, yRadius: r)
-                ring.lineWidth = 2
-                ring.stroke()
-            }
-            return
-        }
-
-        let body = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
-
-        if let icon {
-            NSGraphicsContext.current?.saveGraphicsState()
-            body.addClip()
-            // Aspect-fill the (already cropped) icon over the orb, centered.
-            let target = bounds.insetBy(dx: 2, dy: 2)
-            let s = icon.size
-            let scale = max(target.width / max(s.width, 1), target.height / max(s.height, 1))
-            let dw = s.width * scale
-            let dh = s.height * scale
-            icon.draw(in: CGRect(x: target.midX - dw / 2, y: target.midY - dh / 2, width: dw, height: dh),
-                      from: .zero, operation: .sourceOver, fraction: opacity)
-            NSGraphicsContext.current?.restoreGraphicsState()
-        } else {
-            NSColor.darkGray.withAlphaComponent(opacity).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8).fill()
-        }
-
-        if highlighted {
-            NSColor.systemBlue.setStroke()
-            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 8, yRadius: 8)
-            ring.lineWidth = 2.5
-            ring.stroke()
-        }
-    }
-}
-
-final class OrbWindow: NSPanel {
-    weak var owner: ManagedWindow?
-    private var dragStart: NSPoint?
-    private var dragged = false
-    let orbView = OrbView()
-
-    init(size: CGFloat, opacity: Double, icon: NSImage?) {
-        let rect = NSRect(x: 0, y: 0, width: size, height: size)
-        super.init(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        isFloatingPanel = true
-        level = .floating
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = false
-        isReleasedWhenClosed = false
-        hidesOnDeactivate = false
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        isMovableByWindowBackground = false
-        orbView.opacity = opacity
-        orbView.icon = icon
-        contentView = orbView
-        orderFrontRegardless()
-    }
-
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-
-    private(set) var isDragging = false
-
-    override func mouseDown(with event: NSEvent) {
-        dragStart = event.locationInWindow
-        dragged = false
-        isDragging = false
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let start = dragStart else { return }
-        let cur = event.locationInWindow
-        let dx = cur.x - start.x
-        let dy = cur.y - start.y
-        if abs(dx) + abs(dy) > 3 { dragged = true; isDragging = true }
-        var origin = frame.origin
-        origin.x += dx
-        origin.y += dy
-        setFrameOrigin(origin)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        isDragging = false
-        if dragged {
-            // Repositioning the strip: re-dock it to the nearest screen edge.
-            if let owner {
-                owner.controller?.reParkOrb(owner)
-            }
-        } else {
-            // A click on the strip/tile shows the window (drag = reposition).
-            owner?.setShown(true)
-        }
-        dragStart = nil
-    }
-}
-
-// MARK: - Managed window
+// Edge a window can be docked to. Only left/right — macOS keeps a titled
+// window's title bar on-screen, so the top edge can't leave the screen and a
+// bottom dock would leave the whole title bar visible as the handle.
+enum DockEdge { case left, right }
 
 final class ManagedWindow {
     let ax: AXUIElement
-    // "Home" frame of the window: captured at manage time, used only to restore
-    // the window when it is released (un-managed). Never mutated.
-    let homeFrame: CGRect
-    // The window's last position/size while visible — where it reappears on
-    // show. Updated on hide so show/hide cycles are decoupled from the orb.
-    var lastFrame: CGRect
-    let orb: OrbWindow
     weak var controller: OrbPeekController?
+    // Stable ordering tiebreak for overlapping slivers (same-size windows).
+    let id = UUID()
 
-    // Positions of the window and the orb are DECOUPLED:
-    //   shown  — window visible at lastFrame; orb hidden (stays where it was).
-    //   hidden — window tucked off-screen; orb reappears exactly where it was.
-    private(set) var shown = false
+    // nil = a normal window; an edge = docked off that edge (sliver visible).
+    var dockEdge: DockEdge? = nil
+    // Preserved coordinate along the perpendicular axis (y for left/right,
+    // x for top/bottom) — never moved when docking.
+    var dockPerp: CGFloat = 0
+    // The on-screen frame at dock time, used to restore on quit.
+    var restoreFrame: CGRect = .zero
 
-    // Summoned windows are sticky: a window shown by clicking the orb stays even
-    // with the mouse elsewhere. Once the mouse has dwelled inside it, leaving
-    // hides it ("used it, left"). ESC / Cmd+Tab / hide-all dismiss it regardless.
+    private(set) var peeked = false
+
+    // "Used it, left" tracking: the mouse must dwell inside the peeked window
+    // before leaving counts as a dismiss (avoids brushing past).
     var touched = false
     private var inWinSince: Date?
-
-    // When the window was summoned; the app is activated asynchronously, so for
-    // a short grace the window must not be hidden by the "not frontmost" check.
-    var shownSince: Date?
-
-    // Where the orb's edge-strip parks while the window is hidden. STABLE state:
-    // set at manage time and when the user drags the strip to a new edge — never
-    // re-derived from the live position (an edge strip straddles a display seam,
-    // so deriving the screen each tick makes it ping-pong between displays).
-    var parkEdge: OrbEdge = .right
-    var parkOffset: CGFloat = 0
-    var parkScreen: NSScreen = NSScreen.main!
-    var stripRevealed = false
-
-    // User has the mouse button down on the window (native move/resize): the
-    // window must stay shown until release, even if the pointer briefly leaves
-    // its frame (stale AX frame during a live resize).
+    // Hover dwell on the sliver before peeking.
+    var sliverSince: Date?
+    // User is dragging the peeked window (native move/resize).
     var gesture = false
-
-    // Consecutive ticks where the window frame could not be read; used to detect
-    // a closed window (removed after ~1s) without flaking on transient failures.
+    // Consecutive ticks where the window frame could not be read (closed window).
     var nilCount = 0
-
     private var valid = true
 
-    init(ax: AXUIElement, frame: CGRect, orb: OrbWindow, controller: OrbPeekController) {
+    init(ax: AXUIElement, controller: OrbPeekController) {
         self.ax = ax
-        self.homeFrame = frame
-        self.lastFrame = frame
-        self.orb = orb
         self.controller = controller
     }
 
     var appName: String {
-        controller?.nameForWindow(ax) ?? "Window"
+        controller?.nameForWindow(ax) ?? "窗口"
     }
 
-    // Track "used it, left": the mouse must dwell inside the window for a beat
-    // before counting as "used", so brushing past doesn't arm the dismiss.
+    func dock() {
+        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        peeked = false
+        touched = false
+        inWinSince = nil
+        sliverSince = nil
+        let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
+        axSetPosition(ax, pos)
+    }
+
+    // Slide the window back in, flush against its docked edge.
+    func peek() {
+        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        peeked = true
+        touched = false
+        inWinSince = nil
+        sliverSince = nil
+        let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
+        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        controller?.activateApp(self)
+        axSetPosition(ax, pos)
+    }
+
+    // Slide back out to the docked (off-screen) position.
+    func dockBack() {
+        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
+        peeked = false
+        touched = false
+        inWinSince = nil
+        sliverSince = nil
+        let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
+        axSetPosition(ax, pos)
+    }
+
+    // Leave the window where it is and stop tracking it.
+    func cancelDock() {
+        guard valid else { return }
+        dockEdge = nil
+        peeked = false
+        touched = false
+        inWinSince = nil
+        sliverSince = nil
+        controller?.removeManaged(self)
+    }
+
+    // Called on drag release: pulled off the edge → cancel; otherwise remember
+    // the new parallel position.
+    func checkDragOut() {
+        guard peeked, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
+        if let controller, controller.distanceFromDockEdge(frame, edge: edge) > controller.config.dockCancelPx {
+            cancelDock()
+        } else {
+            dockPerp = controller?.perpendicular(frame, for: edge) ?? dockPerp
+        }
+    }
+
     func noteHover(_ inWin: Bool) {
         if inWin {
             if inWinSince == nil { inWinSince = Date() }
-            else if !touched, Date().timeIntervalSince(inWinSince!) >= 0.3 {
+            else if !touched, Date().timeIntervalSince(inWinSince!) >= (controller?.config.touchDwell ?? 0.3) {
                 touched = true
             }
         } else {
@@ -439,55 +263,10 @@ final class ManagedWindow {
         }
     }
 
-    // Central transition — every show/hide decision routes through here.
-    // `force` bypasses the state guard (used to tuck a freshly-managed window,
-    // whose flag is already "hidden" but whose frame is still on screen).
-    // Both directions are INSTANT (teleport) — no slide animations.
-    func setShown(_ show: Bool, force: Bool = false) {
-        guard valid, force || shown != show else { return }
-        shown = show
-        if show {
-            // Window replaces the strip: hide the strip, then restore the window
-            // to its last position (positions are decoupled).
-            shownSince = Date()
-            orb.orderOut(nil)
-            let err = AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
-            if err != .success {
-                Log.info("raise error \(err.rawValue)")
-            }
-            // The peek only renders above other apps if its app is frontmost.
-            controller?.activateApp(self)
-            let target = controller?.showPos(for: self) ?? lastFrame.origin
-            axSetPosition(ax, target)
-        } else {
-            // Record where the window is now, then teleport it off-screen. The
-            // strip returns parked on the edge nearest the window's center.
-            if let f = axGetFrame(ax) {
-                lastFrame = f
-            }
-            touched = false
-            inWinSince = nil
-            shownSince = nil
-            controller?.parkAtWindowCenter(self)
-            orb.orderFrontRegardless()
-            let target = controller?.hiddenPos(for: self) ?? lastFrame.origin
-            axSetPosition(ax, target)
-        }
-    }
-
-    func collapseNow() {
-        setShown(false)
-    }
-
-    func tuck() {
-        setShown(false, force: true)
-    }
-
-    func release() {
-        axSetPosition(ax, homeFrame.origin)
-        axSetSize(ax, homeFrame.size)
+    func restore() {
+        guard valid else { return }
+        axSetPosition(ax, restoreFrame.origin)
         valid = false
-        orb.orderOut(nil)
     }
 }
 
@@ -507,7 +286,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.title = "◉"
             button.font = NSFont.systemFont(ofSize: 12)
-            button.toolTip = "OrbPeek — ⌃⌥T 接管/释放窗口,点击圆球显示"
+            button.toolTip = "OrbPeek — Ctrl+←/→ 把窗口贴到屏幕外,悬停边缘滑出"
         }
         rebuildMenu()
         statusItem.menu?.delegate = self
@@ -517,13 +296,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.info("launched, pid=\(ProcessInfo.processInfo.processIdentifier), AX trusted=\(AXIsProcessTrusted())")
 
         hotkeys.install()
-        let mods: UInt32 = UInt32(controlKey | optionKey)
-        hotkeys.register(id: 1, key: HotkeyManager.keyCode(for: config.tuckKey), modifiers: mods) { [weak self] in
-            self?.tuckFrontmost()
-        }
-        hotkeys.register(id: 2, key: HotkeyManager.keyCode(for: config.hideAllKey), modifiers: mods) { [weak self] in
-            self?.hideAll()
-        }
+        let mods = UInt32(controlKey)
+        hotkeys.register(id: 1, key: UInt32(kVK_LeftArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.left) }
+        hotkeys.register(id: 2, key: UInt32(kVK_RightArrow), modifiers: mods) { [weak self] in self?.dockFrontmost(.right) }
 
         installSignalHandlers()
         installMouseMonitors()
@@ -550,10 +325,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         signal(SIGINT, restore)
     }
 
-    // Track when the user holds the mouse button down on a shown window: that's
-    // a native move/resize gesture, during which we must not hide the window.
-    // (The orb is hidden while the window is shown, so there's nothing to exclude.)
-    // Also listens for ESC to dismiss a shown window without touching the mouse.
+    // Track mouse-down on a peeked window (native move/resize gesture) so we
+    // don't dismiss it mid-drag, and resolve "dragged out of the edge" on release.
     private func installMouseMonitors() {
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             self?.handleGlobalMouseDown()
@@ -561,43 +334,34 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
             self?.handleGlobalMouseUp()
         }
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleGlobalKey(event)
-        }
-    }
-
-    private func handleGlobalKey(_ event: NSEvent) {
-        // ESC hides any shown window (its app is frontmost). No-op when hidden.
-        guard config.escToHide, event.keyCode == UInt16(kVK_Escape) else { return }
-        for m in managed where m.shown {
-            m.setShown(false)
-        }
     }
 
     private func handleGlobalMouseDown() {
         let q = appKitToQuartz(NSEvent.mouseLocation)
-        for m in managed where m.shown {
+        for m in managed where m.peeked {
             guard let f = axGetFrame(m.ax) else { continue }
-            let expanded = f.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer)
-            if expanded.contains(q) {
+            if f.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q) {
                 m.gesture = true
             }
         }
     }
 
     private func handleGlobalMouseUp() {
-        for m in managed { m.gesture = false }
+        for m in managed where m.gesture {
+            m.gesture = false
+            m.checkDragOut()
+        }
     }
 
     func restoreAll() {
-        for m in managed { m.release() }
+        for m in managed { m.restore() }
         managed.removeAll()
         rebuildMenu()
-        Log.info("restored all windows on signal")
+        Log.info("restored all docked windows on signal")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        for m in managed { m.release() }
+        for m in managed { m.restore() }
         Log.info("terminated")
     }
 
@@ -624,32 +388,22 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(permItem)
         menu.addItem(.separator())
 
-        let tuck = NSMenuItem(title: "接管/释放当前前台窗口 ⌃⌥\(config.tuckKey.uppercased())", action: #selector(tuckFrontmost), keyEquivalent: "")
-        tuck.target = self
-        menu.addItem(tuck)
-
-        let hideAll = NSMenuItem(title: "一键全部缩回 ⌃⌥\(config.hideAllKey.uppercased())", action: #selector(hideAll), keyEquivalent: "")
-        hideAll.target = self
-        menu.addItem(hideAll)
-
-        menu.addItem(.separator())
-
         if managed.isEmpty {
-            let item = NSMenuItem(title: "还没有管理的窗口(按 ⌃⌥T 接管)", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+方向贴边)", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
             for (i, m) in managed.enumerated() {
-                let title = "\(i + 1). \(m.appName) — \(m.shown ? "已显示" : "已折叠")"
-                let item = NSMenuItem(title: title, action: #selector(toggleWindow(_:)), keyEquivalent: "")
+                let title = "\(i + 1). \(m.appName) — \(m.peeked ? "已滑出" : "已贴边")"
+                let item = NSMenuItem(title: title, action: #selector(togglePeek(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
                 menu.addItem(item)
 
-                let release = NSMenuItem(title: "  释放该窗口", action: #selector(releaseWindow(_:)), keyEquivalent: "")
-                release.target = self
-                release.representedObject = m
-                menu.addItem(release)
+                let cancel = NSMenuItem(title: "  取消贴边", action: #selector(cancelWindow(_:)), keyEquivalent: "")
+                cancel.target = self
+                cancel.representedObject = m
+                menu.addItem(cancel)
             }
         }
 
@@ -682,72 +436,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Actions
 
-    @objc private func tuckFrontmost() {
-        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        guard let pid, pid != ProcessInfo.processInfo.processIdentifier else {
-            Log.info("tuck: frontmost is self or nil, pid=\(pid.map(String.init) ?? "nil")")
-            return
-        }
-        let axApp = AXUIElementCreateApplication(pid)
-        var focused: CFTypeRef?
-        let err = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused)
-        guard err == .success, let window = focused else {
-            Log.info("tuck: no focused window err=\(err.rawValue)")
-            return
-        }
-        let axWin = window as! AXUIElement
-
-        // Toggle: if the frontmost window is already managed, release it.
-        if let existing = managed.first(where: { CFEqual($0.ax, axWin) }) {
-            removeManaged(existing)
-            Log.info("released managed window via toggle, total managed=\(managed.count)")
-            return
-        }
-
-        guard let frame = axGetFrame(axWin) else {
-            Log.info("tuck: cannot read frame (check Accessibility permission)")
-            return
-        }
-        guard frame.size.width > 0, frame.size.height > 0 else { return }
-
-        let icon = NSRunningApplication(processIdentifier: pid)?.icon
-        let orb = OrbWindow(size: config.orbSize, opacity: config.orbOpacity, icon: icon)
-        orb.orbView.stripColor = icon.map { OrbView.averageColor(of: $0) } ?? .gray
-        let m = ManagedWindow(ax: axWin, frame: frame, orb: orb, controller: self)
-        orb.owner = m
-        managed.append(m)
-
-        // Initial park: the edge nearest the window's center, vertically aligned
-        // with the window. tuck() then parks the strip (overlap-resolved) and
-        // hides the window.
-        let scr = screen(containingQuartz: frame)
-        m.parkScreen = scr
-        let center = CGPoint(x: frame.midX, y: desktopFrame.maxY - frame.midY)
-        m.parkEdge = nearestEdge(to: center, screen: scr)
-        m.parkOffset = parkOffset(for: m.parkEdge, at: center)
-        orb.orderFrontRegardless()
-        // Snap the window off-screen immediately: no animation, so there is no
-        // frame where the window and the orb are both visible.
-        m.tuck()
-        rebuildMenu()
-        Log.info("tucked window frame=\(frame), total managed=\(managed.count)")
-    }
-
-    @objc private func hideAll() {
-        for m in managed {
-            m.setShown(false)
-        }
-        Log.info("hide all, count=\(managed.count)")
-    }
-
-    @objc private func toggleWindow(_ sender: NSMenuItem) {
+    @objc private func togglePeek(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.setShown(!m.shown)
+        m.peeked ? m.dockBack() : m.peek()
     }
 
-    @objc private func releaseWindow(_ sender: NSMenuItem) {
+    @objc private func cancelWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        removeManaged(m)
+        m.cancelDock()
     }
 
     @objc private func toggleLaunch(_ sender: NSMenuItem) {
@@ -787,20 +483,53 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func saveConfig() {
         let dict: [String: Any] = [
-            "orbSize": config.orbSize,
-            "orbOpacity": config.orbOpacity,
-            "tuckKey": config.tuckKey,
-            "hideAllKey": config.hideAllKey,
             "autoLaunch": config.autoLaunch,
             "edgeBuffer": config.edgeBuffer,
-            "stripThickness": config.stripThickness,
-            "escToHide": config.escToHide,
+            "sliverPx": config.sliverPx,
+            "peekDwell": config.peekDwell,
+            "touchDwell": config.touchDwell,
+            "dockCancelPx": config.dockCancelPx,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: URL(fileURLWithPath: Config.path))
     }
 
-    // MARK: Geometry
+    // MARK: Docking
+
+    // Dock the frontmost window off the given edge of the desktop.
+    private func dockFrontmost(_ edge: DockEdge) {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              pid != ProcessInfo.processInfo.processIdentifier else { return }
+        let axApp = AXUIElementCreateApplication(pid)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+              let window = focused else { return }
+        let axWin = window as! AXUIElement
+        guard let frame = axGetFrame(axWin), frame.size.width > 0, frame.size.height > 0 else { return }
+
+        if let existing = managed.first(where: { CFEqual($0.ax, axWin) }) {
+            // Re-dock to a new edge.
+            existing.dockEdge = edge
+            existing.dockPerp = perpendicular(frame, for: edge)
+            existing.dock()
+            rebuildMenu()
+            return
+        }
+
+        let m = ManagedWindow(ax: axWin, controller: self)
+        m.dockEdge = edge
+        m.dockPerp = perpendicular(frame, for: edge)
+        m.restoreFrame = frame
+        managed.append(m)
+        m.dock()
+        rebuildMenu()
+        Log.info("docked window frame=\(frame) edge=\(edge), total=\(managed.count)")
+    }
+
+    func removeManaged(_ m: ManagedWindow) {
+        managed.removeAll { $0 === m }
+        rebuildMenu()
+    }
 
     func nameForWindow(_ el: AXUIElement) -> String {
         var title: CFTypeRef?
@@ -809,291 +538,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return t
     }
 
-    // Screen owning a quartz rect, by its CENTER — robust at display seams,
-    // where edge-touching rects would ambiguously "intersect" both screens.
-    private func screen(containingQuartz rect: CGRect) -> NSScreen {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        return NSScreen.screens.first { quartzFrame(of: $0).contains(center) } ?? NSScreen.main!
-    }
-
-    // NSScreen.frame is AppKit (bottom-left); flip to top-left over the union.
-    private func quartzFrame(of s: NSScreen) -> CGRect {
-        let f = s.frame
-        return CGRect(x: f.minX, y: desktopFrame.maxY - f.maxY, width: f.width, height: f.height)
-    }
-
-    private func quartzVisibleFrame(of s: NSScreen) -> CGRect {
-        let v = s.visibleFrame
-        return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
-    }
-
-    private var desktopFrame: CGRect {
-        var r = NSScreen.screens[0].frame
-        for s in NSScreen.screens.dropFirst() { r = r.union(s.frame) }
-        return r
-    }
-
-    // Where the window appears on show: it slides in from the strip's edge,
-    // flush against that edge and centered on the strip, clamped so it displays
-    // fully on the strip's screen.
-    func showPos(for m: ManagedWindow) -> CGPoint {
-        let size = m.lastFrame.size
-        let qv = quartzVisibleFrame(of: m.parkScreen)
-        let s = stripRect(m)
-        switch m.parkEdge {
-        case .left:
-            return CGPoint(x: qv.minX,
-                           y: clamp((desktopFrame.maxY - s.midY) - size.height / 2, qv.minY, max(qv.minY, qv.maxY - size.height)))
-        case .right:
-            return CGPoint(x: qv.maxX - size.width,
-                           y: clamp((desktopFrame.maxY - s.midY) - size.height / 2, qv.minY, max(qv.minY, qv.maxY - size.height)))
-        case .top:
-            return CGPoint(x: clamp(s.midX - size.width / 2, qv.minX, max(qv.minX, qv.maxX - size.width)),
-                           y: qv.minY)
-        case .bottom:
-            return CGPoint(x: clamp(s.midX - size.width / 2, qv.minX, max(qv.minX, qv.maxX - size.width)),
-                           y: qv.maxY - size.height)
-        }
-    }
-
-    // The screen edge nearest a point (AppKit), on a given screen.
-    private func nearestEdge(to center: CGPoint, screen: NSScreen) -> OrbEdge {
-        let v = screen.visibleFrame
-        let candidates: [(OrbEdge, CGFloat)] = [
-            (.left, abs(center.x - v.minX)),
-            (.right, abs(v.maxX - center.x)),
-            (.top, abs(v.maxY - center.y)),
-            (.bottom, abs(center.y - v.minY)),
-        ]
-        return candidates.min(by: { $0.1 < $1.1 })!.0
-    }
-
-    // The strip's leading offset along the edge that aligns it with a point.
-    private func parkOffset(for edge: OrbEdge, at center: CGPoint) -> CGFloat {
-        switch edge {
-        case .left, .right: return center.y - config.stripLength / 2
-        case .top, .bottom: return center.x - config.stripLength / 2
-        }
-    }
-
-    // Park the strip on the edge nearest the window's center, aligned with it
-    // (then overlap-resolved). Re-run on every hide so the strip tracks where
-    // the window is.
-    func parkAtWindowCenter(_ m: ManagedWindow) {
-        let scr = screen(containingQuartz: m.lastFrame)
-        m.parkScreen = scr
-        let center = CGPoint(x: m.lastFrame.midX, y: desktopFrame.maxY - m.lastFrame.midY)
-        m.parkEdge = nearestEdge(to: center, screen: scr)
-        m.parkOffset = parkOffset(for: m.parkEdge, at: center)
-        parkOrb(m)
-    }
-
-    // macOS forces at least 1px of a window to stay on screen. Dock the window
-    // off the NEARER outer edge of the whole desktop (never a display boundary),
-    // so it genuinely disappears instead of sliding onto a neighboring screen.
-    func hiddenPos(for m: ManagedWindow) -> CGPoint {
-        let size = m.lastFrame.size
-        let home = quartzVisibleFrame(of: screen(containingQuartz: m.lastFrame))
-        let y = clamp(m.lastFrame.origin.y, home.minY, home.maxY - size.height)
-        let cx = m.lastFrame.midX
-        if cx - desktopFrame.minX < desktopFrame.maxX - cx {
-            return CGPoint(x: desktopFrame.minX - size.width + 1, y: y)
-        } else {
-            return CGPoint(x: desktopFrame.maxX - 1, y: y)
-        }
-    }
-
-    // Frame of the parked edge-strip (thin, colored) for a window.
-    private func stripRect(_ m: ManagedWindow) -> NSRect {
-        let v = m.parkScreen.visibleFrame
-        let t = config.stripThickness
-        let l = config.stripLength
-        switch m.parkEdge {
-        case .left:
-            return NSRect(x: v.minX, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
-        case .right:
-            return NSRect(x: v.maxX - t, y: clamp(m.parkOffset, v.minY, v.maxY - l), width: t, height: l)
-        case .top:
-            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.maxY - t, width: l, height: t)
-        case .bottom:
-            return NSRect(x: clamp(m.parkOffset, v.minX, v.maxX - l), y: v.minY, width: l, height: t)
-        }
-    }
-
-    // Frame of the revealed tile (square, shows the icon) centered on the strip.
-    private func revealRect(_ m: ManagedWindow) -> NSRect {
-        let v = m.parkScreen.visibleFrame
-        let t = config.orbSize
-        let s = stripRect(m)
-        switch m.parkEdge {
-        case .left:
-            return NSRect(x: v.minX, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
-        case .right:
-            return NSRect(x: v.maxX - t, y: clamp(s.midY - t / 2, v.minY, v.maxY - t), width: t, height: t)
-        case .top:
-            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.maxY - t, width: t, height: t)
-        case .bottom:
-            return NSRect(x: clamp(s.midX - t / 2, v.minX, v.maxX - t), y: v.minY, width: t, height: t)
-        }
-    }
-
-    // Resolve a parked offset so the strip doesn't overlap other parked strips.
-    // Tries the desired offset first, then steps of (strip length + gap) above
-    // and below until a free slot is found, so strips stack along the edge.
-    private func resolvedParkOffset(_ m: ManagedWindow, edge: OrbEdge, screen: NSScreen, desired: CGFloat) -> CGFloat {
-        let v = screen.visibleFrame
-        let l = config.stripLength
-        let t = config.stripThickness
-        let lo: CGFloat
-        let hi: CGFloat
-        switch edge {
-        case .left, .right: lo = v.minY; hi = v.maxY - l
-        case .top, .bottom: lo = v.minX; hi = v.maxX - l
-        }
-        let gap: CGFloat = 8
-        let step = l + gap
-        var candidates: [CGFloat] = []
-        for i in 0...40 {
-            candidates.append(desired - CGFloat(i) * step)
-            candidates.append(desired + CGFloat(i) * step)
-        }
-        for cand in candidates {
-            let off = clamp(cand, lo, hi)
-            var probe: NSRect
-            switch edge {
-            case .left: probe = NSRect(x: v.minX, y: off, width: t, height: l)
-            case .right: probe = NSRect(x: v.maxX - t, y: off, width: t, height: l)
-            case .top: probe = NSRect(x: off, y: v.maxY - t, width: l, height: t)
-            case .bottom: probe = NSRect(x: off, y: v.minY, width: l, height: t)
-            }
-            if !managed.contains(where: { $0 !== m && $0.orb.frame.intersects(probe) }) {
-                return off
-            }
-        }
-        return clamp(desired, lo, hi)
-    }
-
-    // Collapse the orb back to its parked strip at the stored parking spot,
-    // nudged so it never overlaps another parked strip.
-    func parkOrb(_ m: ManagedWindow) {
-        m.parkOffset = resolvedParkOffset(m, edge: m.parkEdge, screen: m.parkScreen, desired: m.parkOffset)
-        m.orb.orbView.stripMode = true
-        m.orb.setFrame(stripRect(m), display: true)
-        m.stripRevealed = false
-    }
-
-    // Expand the parked strip into a square tile showing the icon (hover feedback).
-    func revealOrb(_ m: ManagedWindow) {
-        m.orb.orbView.stripMode = false
-        m.orb.setFrame(revealRect(m), display: true)
-        m.stripRevealed = true
-    }
-
-    // After dragging the strip: dock it flush to the nearest edge of the screen
-    // it is currently on (by its center), and record that as its stable parking
-    // spot. Only the strip's own screen's edges are considered — searching every
-    // display lets a visible-frame offset on a neighbor make the strip hop to
-    // the wrong display.
-    func reParkOrb(_ m: ManagedWindow) {
-        let c = CGPoint(x: m.orb.frame.midX, y: m.orb.frame.midY)
-        let screen = NSScreen.screens.first { $0.frame.contains(c) }
-            ?? NSScreen.screens.min {
-                let d1 = hypot($0.frame.midX - c.x, $0.frame.midY - c.y)
-                let d2 = hypot($1.frame.midX - c.x, $1.frame.midY - c.y)
-                return d1 < d2
-            }
-            ?? NSScreen.main!
-        let v = screen.visibleFrame
-        let candidates: [(OrbEdge, CGFloat)] = [
-            (.left, abs(c.x - v.minX)),
-            (.right, abs(v.maxX - c.x)),
-            (.top, abs(v.maxY - c.y)),
-            (.bottom, abs(c.y - v.minY)),
-        ]
-        guard let best = candidates.min(by: { $0.1 < $1.1 }) else { return }
-        m.parkEdge = best.0
-        m.parkScreen = screen
-        switch best.0 {
-        case .left, .right: m.parkOffset = m.orb.frame.minY
-        case .top, .bottom: m.parkOffset = m.orb.frame.minX
-        }
-        parkOrb(m)
-    }
-
-    // MARK: Poll
-
-    // NSEvent.mouseLocation is bottom-left (AppKit); AX positions and CGWindow
-    // bounds are top-left over the same desktop union.
-    private func appKitToQuartz(_ p: CGPoint) -> CGPoint {
-        CGPoint(x: p.x - desktopFrame.minX, y: desktopFrame.maxY - p.y)
-    }
-
-    private func poll() {
-        guard AXIsProcessTrusted() else { return }
-        let p = NSEvent.mouseLocation
-        let q = appKitToQuartz(p)
-        var toRemove: [ManagedWindow] = []
-        for m in managed {
-            guard let winFrame = axGetFrame(m.ax) else {
-                // Window unreadable: likely closed. Only drop it after ~1s of
-                // consecutive failures so transient AX hiccups don't lose it.
-                m.nilCount += 1
-                if m.nilCount > 30 { toRemove.append(m) }
-                continue
-            }
-            m.nilCount = 0
-
-            let hover = m.orb.frame.insetBy(dx: -8, dy: -8).contains(p)
-            m.orb.orbView.highlighted = hover
-            let inWin = winFrame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
-            let front = appIsFrontmost(m)
-
-            // Track "used it, left" for the sticky-dismiss rule.
-            m.noteHover(inWin)
-
-            // Repositioning the strip (visible only while the window is hidden)
-            // should not peek the window.
-            if m.orb.isDragging { continue }
-
-            // The user is mid-gesture (native move/resize of a shown window):
-            // leave it alone — do not hide — until the button is released.
-            if m.gesture { continue }
-
-            // Strip presentation while parked: hovering expands it to the icon
-            // tile (so you can see which window it summons); leaving collapses
-            // it back to the thin strip.
-            if !m.shown {
-                if hover {
-                    if !m.stripRevealed { revealOrb(m) }
-                } else if m.stripRevealed {
-                    parkOrb(m)
-                }
-            }
-
-            let shouldShow = desiredState(m, hover: hover, inWin: inWin, front: front)
-            if shouldShow != m.shown {
-                m.setShown(shouldShow)
-            }
-        }
-        for m in toRemove { removeManaged(m) }
-    }
-
-    // Pure per-window decision function: whether the window should be shown next
-    // tick. Showing is CLICK-triggered (on the orb). A summoned window is STICKY:
-    // it stays shown even with the mouse elsewhere, and hides only when its app
-    // stops being frontmost (Cmd+Tab), or the mouse has been used inside it and
-    // then left. ESC / hide-all dismiss it as well.
-    private func desiredState(_ m: ManagedWindow, hover: Bool, inWin: Bool, front: Bool) -> Bool {
-        guard m.shown else { return false }
-        // Grace period right after summon: the app is being activated
-        // asynchronously, so don't let the "not frontmost" check kill the
-        // window before the activation lands.
-        if let since = m.shownSince, Date().timeIntervalSince(since) < 0.6 {
-            return true
-        }
-        if !front { return false }
-        if m.touched && !inWin { return false }
-        return true
+    func activateApp(_ m: ManagedWindow) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(m.ax, &pid) == .success else { return }
+        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
     }
 
     private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
@@ -1102,17 +550,138 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return pid == (NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
     }
 
-    func activateApp(_ m: ManagedWindow) {
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(m.ax, &pid) == .success else { return }
-        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+    // MARK: Geometry
+
+    private var desktopFrame: CGRect {
+        var r = NSScreen.screens[0].frame
+        for s in NSScreen.screens.dropFirst() { r = r.union(s.frame) }
+        return r
     }
 
-    private func removeManaged(_ m: ManagedWindow) {
-        m.release()
-        managed.removeAll { $0 === m }
-        rebuildMenu()
-        Log.info("removed window, total managed=\(managed.count)")
+    private func appKitToQuartz(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x - desktopFrame.minX, y: desktopFrame.maxY - p.y)
+    }
+
+    private func quartzVisibleFrame(of s: NSScreen) -> CGRect {
+        let v = s.visibleFrame
+        return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
+    }
+
+    // The screen at the desktop's outer edge in the dock direction (leftmost or
+    // rightmost display) — the docked window parks off its outer edge.
+    private func outerScreen(for edge: DockEdge) -> NSScreen {
+        switch edge {
+        case .left: return NSScreen.screens.min { $0.frame.minX < $1.frame.minX } ?? NSScreen.main!
+        case .right: return NSScreen.screens.max { $0.frame.maxX < $1.frame.maxX } ?? NSScreen.main!
+        }
+    }
+
+    func perpendicular(_ frame: CGRect, for edge: DockEdge) -> CGFloat {
+        frame.minY
+    }
+
+    // Off-screen docked position: mostly past the outer edge, leaving sliverPx
+    // of the window visible (the handle). The perpendicular coordinate is kept.
+    func dockedPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        switch m.dockEdge! {
+        case .left: return CGPoint(x: v.minX - size.width + config.sliverPx, y: m.dockPerp)
+        case .right: return CGPoint(x: v.maxX - config.sliverPx, y: m.dockPerp)
+        }
+    }
+
+    // Flush position the window slides back to when peeked.
+    func peekPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        switch m.dockEdge! {
+        case .left: return CGPoint(x: v.minX, y: m.dockPerp)
+        case .right: return CGPoint(x: v.maxX - size.width, y: m.dockPerp)
+        }
+    }
+
+    // The visible slice of the window when docked (the hover handle).
+    func sliverRect(_ m: ManagedWindow, size: CGSize) -> CGRect {
+        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!))
+        switch m.dockEdge! {
+        case .left: return CGRect(x: v.minX, y: m.dockPerp, width: config.sliverPx, height: size.height)
+        case .right: return CGRect(x: v.maxX - config.sliverPx, y: m.dockPerp, width: config.sliverPx, height: size.height)
+        }
+    }
+
+    // How far a window's docked-side edge sits off its docked edge (used to
+    // decide whether the user dragged it out of the dock).
+    func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge) -> CGFloat {
+        let v = quartzVisibleFrame(of: outerScreen(for: edge))
+        switch edge {
+        case .left: return frame.minX - v.minX
+        case .right: return v.maxX - frame.maxX
+        }
+    }
+
+
+    // True if another docked window whose sliver also sits under the cursor is
+    // smaller (or equally small but earlier in the managed order) — so the
+    // smallest window owns the overlap and the rest stay hidden.
+    private func smallestDockedUnder(_ q: CGPoint, excluding m: ManagedWindow) -> Bool {
+        guard let f = axGetFrame(m.ax) else { return false }
+        let thisSize = f.size.height
+        for other in managed where other !== m && !other.peeked {
+            guard let of = axGetFrame(other.ax) else { continue }
+            guard sliverRect(other, size: of.size).insetBy(dx: -6, dy: -6).contains(q) else { continue }
+            let otherSize = of.size.height
+            if otherSize < thisSize || (otherSize == thisSize && other.id < m.id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: Poll
+
+    private func poll() {
+        guard AXIsProcessTrusted() else { return }
+        let p = NSEvent.mouseLocation
+        let q = appKitToQuartz(p)
+        var toRemove: [ManagedWindow] = []
+        for m in managed {
+            guard let frame = axGetFrame(m.ax) else {
+                m.nilCount += 1
+                if m.nilCount > 30 { toRemove.append(m) }
+                continue
+            }
+            m.nilCount = 0
+            guard m.dockEdge != nil else { continue }
+            if m.gesture { continue }
+
+            if m.peeked {
+                // Track the live parallel position (the user may move it).
+                m.dockPerp = perpendicular(frame, for: m.dockEdge!)
+                let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
+                m.noteHover(inWin)
+                let onSliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6).contains(q)
+                if !appIsFrontmost(m) {
+                    m.dockBack()
+                } else if m.touched && !inWin {
+                    m.dockBack()
+                } else if !m.touched && !inWin && !onSliver {
+                    m.dockBack()
+                }
+            } else {
+                // Docked: hover the sliver to slide the window back in. Only the
+                // smallest window under the cursor peeks, and only one window
+                // peeks at a time — otherwise overlapping slivers flip-flop.
+                let sliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6)
+                if sliver.contains(q),
+                   !managed.contains(where: { $0 !== m && $0.peeked }),
+                   !smallestDockedUnder(q, excluding: m) {
+                    if m.sliverSince == nil { m.sliverSince = Date() }
+                    else if Date().timeIntervalSince(m.sliverSince!) >= config.peekDwell { m.peek() }
+                } else {
+                    m.sliverSince = nil
+                }
+            }
+        }
+        for m in toRemove { removeManaged(m) }
     }
 }
 
@@ -1128,7 +697,7 @@ func runSelfTest() {
     Log.info("=== self-test start ===")
     print("AX trusted:", AXIsProcessTrusted())
     let front = NSWorkspace.shared.frontmostApplication
-    print("frontmost app:", front?.localizedName ?? "nil", "pid:", front?.processIdentifier ?? -1, "bundle:", front?.bundleIdentifier ?? "nil")
+    print("frontmost app:", front?.localizedName ?? "nil", "pid:", front?.processIdentifier ?? -1)
     guard let pid = front?.processIdentifier, pid != ProcessInfo.processInfo.processIdentifier else {
         print("frontmost is self or nil; run from Terminal and keep Terminal frontmost")
         exit(1)
@@ -1138,12 +707,12 @@ func runSelfTest() {
     let err = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &fw)
     print("get focused window err:", err.rawValue)
     guard err == .success, let win = fw else {
-        print("no focused window (is the app window frontmost?)")
+        print("no focused window")
         exit(1)
     }
     let axWin = win as! AXUIElement
     guard let frame = axGetFrame(axWin) else {
-        print("cannot read frame — Accessibility permission missing or app not trusted")
+        print("cannot read frame — Accessibility permission missing")
         exit(1)
     }
     print("focused window frame:", frame)
