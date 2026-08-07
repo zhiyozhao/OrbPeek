@@ -198,8 +198,8 @@ final class SnapshotStrip: NSPanel {
             imageView.imageScaling = .scaleAxesIndependently
             imageView.layer?.backgroundColor = nil
         } else {
-            // Slice not ready yet (or capture unavailable): keep the strip a
-            // visible, hoverable handle with a neutral backing.
+            // Capture genuinely unavailable (e.g. missing screen-recording
+            // permission): keep the strip a visible, hoverable handle.
             imageView.image = nil
             imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
         }
@@ -833,12 +833,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
-        strip.show(image: m.lastSlice, frame: frame)
+        // Show a cached slice instantly; otherwise wait for the capture so the
+        // strip appears with real content (no solid placeholder flash).
+        if m.lastSlice != nil {
+            strip.show(image: m.lastSlice, frame: frame)
+        }
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
               let wid = windowID(for: pid, frame: windowFrame) else { return }
         captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
-            guard let self, let m, let image else { return }
+            guard let self, let m else { return }
             m.lastSlice = image
             m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
         }
