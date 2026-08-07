@@ -192,16 +192,15 @@ final class SnapshotStrip: NSPanel {
         contentView = imageView
     }
 
-    func show(image: NSImage?, icon: NSImage?, frame: NSRect) {
+    func show(image: NSImage?, frame: NSRect) {
         if let image {
             imageView.image = image
             imageView.imageScaling = .scaleAxesIndependently
             imageView.layer?.backgroundColor = nil
         } else {
-            // Fallback when no capture is available (missing screen-recording
-            // permission): keep the strip visible as a clickable/hoverable handle.
-            imageView.image = icon
-            imageView.imageScaling = .scaleProportionallyDown
+            // Slice not ready yet (or capture unavailable): keep the strip a
+            // visible, hoverable handle with a neutral backing.
+            imageView.image = nil
             imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
         }
         setFrame(frame, display: true)
@@ -834,23 +833,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func updateFakeStrip(_ m: ManagedWindow, windowFrame: CGRect, edge: DockEdge) {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
-        strip.show(image: m.lastSlice, icon: appIcon(for: m), frame: frame)
-        Log.info("strip win=\(m.id.uuidString.prefix(6)) cached=\(m.lastSlice != nil)")
+        strip.show(image: m.lastSlice, frame: frame)
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
               let wid = windowID(for: pid, frame: windowFrame) else { return }
         captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
-            guard let self, let m else { Log.info("capture done but m/self nil"); return }
-            guard let image else { return }
+            guard let self, let m, let image else { return }
             m.lastSlice = image
-            m.fakeStrip?.show(image: image, icon: self.appIcon(for: m), frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
+            m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
         }
-    }
-
-    private func appIcon(for m: ManagedWindow) -> NSImage? {
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(m.ax, &pid) == .success else { return nil }
-        return NSRunningApplication(processIdentifier: pid)?.icon
     }
 
     private func windowID(for pid: pid_t, frame: CGRect) -> CGWindowID? {
