@@ -761,12 +761,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let strip = m.fakeStrip else { return }
         let frame = appKitRect(sliverRect(m, size: windowFrame.size))
         strip.show(image: m.lastSlice, frame: frame)
+        Log.info("strip win=\(m.id.uuidString.prefix(6)) cached=\(m.lastSlice != nil)")
         var pid: pid_t = 0
         guard AXUIElementGetPid(m.ax, &pid) == .success,
               let wid = windowID(for: pid, frame: windowFrame) else { return }
         captureSlice(of: wid, windowFrame: windowFrame, for: edge) { [weak self, weak m] image in
-            guard let self, let m, let image else { return }
+            guard let self, let m else { Log.info("capture done but m/self nil"); return }
+            guard let image else { Log.info("capture done for \(m.id.uuidString.prefix(6)) but image nil"); return }
             m.lastSlice = image
+            Log.info("capture done win=\(m.id.uuidString.prefix(6)) set lastSlice")
             m.fakeStrip?.show(image: image, frame: self.appKitRect(self.sliverRect(m, size: windowFrame.size)))
         }
     }
@@ -806,9 +809,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                    abs(cachedWin.frame.height - windowFrame.height) < 10 {
                     content = cached
                 } else {
+                    let t1 = Date()
                     content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                     shareableContent = content
-                    Log.info("SC refetch \(windowID)")
+                    Log.info("SC refetch \(windowID) took \(Int(Date().timeIntervalSince(t1) * 1000))ms")
                 }
                 guard let win = content.windows.first(where: { $0.windowID == windowID }) else {
                     await MainActor.run { completion(nil) }
