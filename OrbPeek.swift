@@ -214,16 +214,25 @@ final class SnapshotStrip: NSPanel {
 }
 
 final class ManagedWindow {
+    // A managed window is either hidden (docked, handle visible) or shown
+    // (peeked, flush against its edge). Transitions are the only places phase
+    // changes, and each one resets the transient dwell state uniformly.
+    enum Phase {
+        case docked, peeked
+        var isDocked: Bool { self == .docked }
+        var isPeeked: Bool { self == .peeked }
+    }
+
     let ax: AXUIElement
     weak var controller: OrbPeekController?
     // Stable ordering tiebreak for overlapping slivers (same-size windows).
     let id = UUID()
 
-    // nil = a normal window; an edge = docked off that edge (sliver visible).
-    var dockEdge: DockEdge? = nil
+    // Which edge the window is docked to (left/right real sliver, up/down fake).
+    var edge: DockEdge
     // Preserved coordinate along the perpendicular axis (y for left/right,
     // x for up/down) — never moved when docking.
-    var dockPerp: CGFloat = 0
+    var perp: CGFloat = 0
     // The on-screen frame at dock time, used to restore on quit.
     var restoreFrame: CGRect = .zero
     // The fake snapshot strip handle, only for up/down docks.
@@ -231,25 +240,23 @@ final class ManagedWindow {
     // Last captured slice, so re-showing the fake strip is instant.
     var lastSlice: NSImage?
 
-    private(set) var peeked = false
+    private(set) var phase: Phase = .docked
 
-    // "Used it, left" tracking: the mouse must dwell inside the peeked window
-    // before leaving counts as a dismiss (avoids brushing past).
-    var touched = false
+    // Dwell state, reset on every transition.
+    private(set) var touched = false
     private var inWinSince: Date?
-    // When the window was peeked — the app is activated asynchronously, so for a
-    // short grace the "not frontmost" check must not dismiss the window.
-    var shownSince: Date?
-    // Hover dwell on the sliver before peeking.
-    var sliverSince: Date?
+    private var shownSince: Date?
+    private var sliverSince: Date?
+
     // User is dragging the peeked window (native move/resize).
     var gesture = false
     // Consecutive ticks where the window frame could not be read (closed window).
     var nilCount = 0
     private var valid = true
 
-    init(ax: AXUIElement, controller: OrbPeekController) {
+    init(ax: AXUIElement, edge: DockEdge, controller: OrbPeekController) {
         self.ax = ax
+        self.edge = edge
         self.controller = controller
     }
 
@@ -257,8 +264,18 @@ final class ManagedWindow {
         controller?.nameForWindow(ax) ?? "窗口"
     }
 
-    // External state guard: if the user minimized the window (⌘M) while it was
-    // peeked, AX position changes are unreliable until it is restored.
+    var isFake: Bool { edge.isFake }
+
+    // MARK: Transitions
+
+    private func resetDwell() {
+        touched = false
+        inWinSince = nil
+        sliverSince = nil
+        shownSince = nil
+    }
+
+    // External guard: a minimized window doesn't respond to AX position changes.
     private func ensureNotMinimized() {
         var v: CFTypeRef?
         if AXUIElementCopyAttributeValue(ax, kAXMinimizedAttribute as CFString, &v) == .success,
@@ -267,98 +284,96 @@ final class ManagedWindow {
         }
     }
 
-    func dock() {
-        guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
-        ensureNotMinimized()
-        peeked = false
-        touched = false
-        inWinSince = nil
-        sliverSince = nil
-        shownSince = nil
-        if edge.isFake {
-            // Fake edges: capture the window's edge slice, show the fake strip,
-            // and tuck the real window fully off a side edge.
-            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            controller?.updateFakeStrip(self, windowFrame: frame, edge: edge)
-            let pos = controller?.hiddenSidePos(self, size: frame.size) ?? frame.origin
-            axSetPosition(ax, pos)
-        } else {
-            fakeStrip?.hide()
-            fakeStrip = nil
-            let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
-            axSetPosition(ax, pos)
-        }
-    }
-
-    // Slide the window back in, flush against its docked edge.
-    func peek() {
-        guard valid, dockEdge != nil, let frame = axGetFrame(ax) else { return }
-        ensureNotMinimized()
-        peeked = true
-        touched = false
-        inWinSince = nil
-        sliverSince = nil
-        shownSince = Date()
-        fakeStrip?.hide()
-        let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
-        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
-        controller?.activateApp(self)
+    private func moveTo(_ pos: CGPoint) {
         axSetPosition(ax, pos)
     }
 
-    // Slide back out to the docked (off-screen) position.
-    func dockBack() {
-        guard valid, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
+    // Dock (hide off the edge). `newEdge` re-docks to a different edge.
+    func dock(to newEdge: DockEdge? = nil) {
+        guard valid, let frame = axGetFrame(ax), let controller else { return }
+        if let newEdge { edge = newEdge }
         ensureNotMinimized()
-        peeked = false
-        touched = false
-        inWinSince = nil
-        sliverSince = nil
-        shownSince = nil
+        phase = .docked
+        resetDwell()
         if edge.isFake {
-            // Re-capture while the window is on-screen, then hide it again.
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            controller?.updateFakeStrip(self, windowFrame: frame, edge: edge)
-            let pos = controller?.hiddenSidePos(self, size: frame.size) ?? frame.origin
-            axSetPosition(ax, pos)
+            controller.updateFakeStrip(self, windowFrame: frame, edge: edge)
+            moveTo(controller.hiddenSidePos(self, size: frame.size))
         } else {
-            let pos = controller?.dockedPos(self, size: frame.size) ?? frame.origin
-            axSetPosition(ax, pos)
+            fakeStrip?.hide()
+            fakeStrip = nil
+            moveTo(controller.dockedPos(self, size: frame.size))
         }
     }
 
-    // Leave the window where it is and stop tracking it. A window that is still
-    // DOCKED (off-screen) is brought back flush against its edge first so it is
-    // never left invisible.
-    func cancelDock() {
+    // Show flush against the edge.
+    func peek() {
+        guard valid, let frame = axGetFrame(ax), let controller else { return }
+        ensureNotMinimized()
+        phase = .peeked
+        resetDwell()
+        shownSince = Date()
+        fakeStrip?.hide()
+        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        controller.activateApp(self)
+        moveTo(controller.peekPos(self, size: frame.size))
+    }
+
+    // Hide again (docked ← peeked).
+    private func dockBack() {
+        guard valid, let frame = axGetFrame(ax), let controller else { return }
+        ensureNotMinimized()
+        phase = .docked
+        resetDwell()
+        if edge.isFake {
+            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
+            controller.updateFakeStrip(self, windowFrame: frame, edge: edge)
+            moveTo(controller.hiddenSidePos(self, size: frame.size))
+        } else {
+            moveTo(controller.dockedPos(self, size: frame.size))
+        }
+    }
+
+    func togglePeek() {
+        phase == .peeked ? dockBack() : peek()
+    }
+
+    // Stop tracking. A still-docked window is brought back flush first so it is
+    // never left invisible; a peeked window stays where it is.
+    func cancel() {
         guard valid else { return }
-        if !peeked, dockEdge != nil, let frame = axGetFrame(ax) {
-            let pos = controller?.peekPos(self, size: frame.size) ?? frame.origin
-            axSetPosition(ax, pos)
+        if phase == .docked, let frame = axGetFrame(ax), let controller {
+            moveTo(controller.peekPos(self, size: frame.size))
         }
         fakeStrip?.hide()
         fakeStrip = nil
-        dockEdge = nil
-        peeked = false
-        touched = false
-        inWinSince = nil
-        sliverSince = nil
-        shownSince = nil
+        valid = false
         controller?.removeManaged(self)
     }
 
     // Called on drag release: pulled off the edge → cancel; otherwise remember
     // the new parallel position.
     func checkDragOut() {
-        guard peeked, let edge = dockEdge, let frame = axGetFrame(ax) else { return }
-        if let controller, controller.distanceFromDockEdge(frame, edge: edge) > controller.config.dockCancelPx {
-            cancelDock()
+        guard phase == .peeked, let frame = axGetFrame(ax), let controller else { return }
+        if controller.distanceFromDockEdge(frame, edge: edge) > controller.config.dockCancelPx {
+            cancel()
         } else {
-            dockPerp = controller?.dockPerp(for: edge, frame: frame) ?? frame.minY
+            perp = controller.dockPerp(for: edge, frame: frame)
         }
     }
 
-    func noteHover(_ inWin: Bool) {
+    // Restore on quit.
+    func restore() {
+        guard valid else { return }
+        fakeStrip?.hide()
+        fakeStrip = nil
+        axSetPosition(ax, restoreFrame.origin)
+        valid = false
+    }
+
+    // MARK: Poll evaluation
+
+    private func noteHover(_ inWin: Bool) {
         if inWin {
             if inWinSince == nil { inWinSince = Date() }
             else if !touched, Date().timeIntervalSince(inWinSince!) >= (controller?.config.touchDwell ?? 0.3) {
@@ -369,12 +384,45 @@ final class ManagedWindow {
         }
     }
 
-    func restore() {
-        guard valid else { return }
-        fakeStrip?.hide()
-        fakeStrip = nil
-        axSetPosition(ax, restoreFrame.origin)
-        valid = false
+    // One poll tick for this window. Returns true when the window should be
+    // dropped (its frame is no longer readable → closed).
+    @discardableResult
+    func evaluate(mouseQ: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) -> Bool {
+        guard valid, let controller else { return false }
+        guard let frame = axGetFrame(ax) else {
+            nilCount += 1
+            return nilCount > 30
+        }
+        nilCount = 0
+        guard !gesture else { return false }
+
+        switch phase {
+        case .peeked:
+            // Remember the live parallel position (the user may move it).
+            perp = controller.dockPerp(for: edge, frame: frame)
+            let inWin = frame.insetBy(dx: -controller.config.edgeBuffer, dy: -controller.config.edgeBuffer).contains(mouseQ)
+            noteHover(inWin)
+            let onSliver = controller.sliverRect(self, size: frame.size).insetBy(dx: -6, dy: -6).contains(mouseQ)
+            let grace = shownSince.map { now.timeIntervalSince($0) < 0.6 } ?? false
+            if !grace, !frontmost || (touched && !inWin) || (!touched && !inWin && !onSliver) {
+                dockBack()
+            }
+        case .docked:
+            // Snap back to the docked position if it was moved externally.
+            let target = edge.isFake ? controller.hiddenSidePos(self, size: frame.size) : controller.dockedPos(self, size: frame.size)
+            if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
+                moveTo(target)
+            }
+            // Hover the handle to slide in (smallest window wins on overlap).
+            let sliver = controller.sliverRect(self, size: frame.size).insetBy(dx: -6, dy: -6)
+            if sliver.contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
+                if sliverSince == nil { sliverSince = now }
+                else if now.timeIntervalSince(sliverSince!) >= controller.config.peekDwell { peek() }
+            } else {
+                sliverSince = nil
+            }
+        }
+        return false
     }
 }
 
@@ -462,7 +510,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func handleGlobalMouseDown() {
         let q = appKitToQuartz(NSEvent.mouseLocation)
-        for m in managed where m.peeked {
+        for m in managed where m.phase.isPeeked {
             guard let f = axGetFrame(m.ax) else { continue }
             if f.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q) {
                 m.gesture = true
@@ -518,7 +566,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         } else {
             for (i, m) in managed.enumerated() {
-                let title = "\(i + 1). \(m.appName) — \(m.peeked ? "已滑出" : "已贴边")"
+                let title = "\(i + 1). \(m.appName) — \(m.phase.isPeeked ? "已滑出" : "已贴边")"
                 let item = NSMenuItem(title: title, action: #selector(togglePeek(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
@@ -562,12 +610,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePeek(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.peeked ? m.dockBack() : m.peek()
+        m.togglePeek()
     }
 
     @objc private func cancelWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.cancelDock()
+        m.cancel()
     }
 
     @objc private func toggleLaunch(_ sender: NSMenuItem) {
@@ -634,16 +682,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if let existing = managed.first(where: { CFEqual($0.ax, axWin) }) {
             // Re-dock to a new edge.
-            existing.dockEdge = edge
-            existing.dockPerp = dockPerp(for: edge, frame: frame)
-            existing.dock()
+            existing.perp = dockPerp(for: edge, frame: frame)
+            existing.dock(to: edge)
             rebuildMenu()
             return
         }
 
-        let m = ManagedWindow(ax: axWin, controller: self)
-        m.dockEdge = edge
-        m.dockPerp = dockPerp(for: edge, frame: frame)
+        let m = ManagedWindow(ax: axWin, edge: edge, controller: self)
+        m.perp = dockPerp(for: edge, frame: frame)
         m.restoreFrame = frame
         managed.append(m)
         m.dock()
@@ -724,10 +770,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Off-screen docked position for LEFT/RIGHT: mostly past the outer edge,
     // leaving sliverPx of the window visible (the handle).
     func dockedPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
-        switch m.dockEdge! {
-        case .left: return CGPoint(x: v.minX - size.width + config.sliverPx, y: m.dockPerp)
-        case .right: return CGPoint(x: v.maxX - config.sliverPx, y: m.dockPerp)
+        let v = quartzVisibleFrame(of: outerScreen(for: m.edge, perp: m.perp))
+        switch m.edge {
+        case .left: return CGPoint(x: v.minX - size.width + config.sliverPx, y: m.perp)
+        case .right: return CGPoint(x: v.maxX - config.sliverPx, y: m.perp)
         default: return .zero
         }
     }
@@ -738,9 +784,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // y matches the peek position so the window only slides horizontally when
     // recalled.
     func hiddenSidePos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
+        let v = quartzVisibleFrame(of: outerScreen(for: m.edge, perp: m.perp))
         let y: CGFloat
-        switch m.dockEdge! {
+        switch m.edge {
         case .up: y = v.minY
         case .down: y = v.maxY - size.height
         default: y = 0
@@ -750,24 +796,24 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Flush position the window slides back to when peeked.
     func peekPos(_ m: ManagedWindow, size: CGSize) -> CGPoint {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
-        switch m.dockEdge! {
-        case .left: return CGPoint(x: v.minX, y: m.dockPerp)
-        case .right: return CGPoint(x: v.maxX - size.width, y: m.dockPerp)
-        case .up: return CGPoint(x: m.dockPerp, y: v.minY)
-        case .down: return CGPoint(x: m.dockPerp, y: v.maxY - size.height)
+        let v = quartzVisibleFrame(of: outerScreen(for: m.edge, perp: m.perp))
+        switch m.edge {
+        case .left: return CGPoint(x: v.minX, y: m.perp)
+        case .right: return CGPoint(x: v.maxX - size.width, y: m.perp)
+        case .up: return CGPoint(x: m.perp, y: v.minY)
+        case .down: return CGPoint(x: m.perp, y: v.maxY - size.height)
         }
     }
 
     // The handle rect (what you hover to peek): the window's own slice for
     // left/right, or the fake snapshot strip's frame for up/down.
     func sliverRect(_ m: ManagedWindow, size: CGSize) -> CGRect {
-        let v = quartzVisibleFrame(of: outerScreen(for: m.dockEdge!, perp: m.dockPerp))
-        switch m.dockEdge! {
-        case .left: return CGRect(x: v.minX, y: m.dockPerp, width: config.sliverPx, height: size.height)
-        case .right: return CGRect(x: v.maxX - config.sliverPx, y: m.dockPerp, width: config.sliverPx, height: size.height)
-        case .up: return CGRect(x: m.dockPerp, y: v.minY, width: size.width, height: config.fakeSliverPx)
-        case .down: return CGRect(x: m.dockPerp, y: v.maxY - config.fakeSliverPx, width: size.width, height: config.fakeSliverPx)
+        let v = quartzVisibleFrame(of: outerScreen(for: m.edge, perp: m.perp))
+        switch m.edge {
+        case .left: return CGRect(x: v.minX, y: m.perp, width: config.sliverPx, height: size.height)
+        case .right: return CGRect(x: v.maxX - config.sliverPx, y: m.perp, width: config.sliverPx, height: size.height)
+        case .up: return CGRect(x: m.perp, y: v.minY, width: size.width, height: config.fakeSliverPx)
+        case .down: return CGRect(x: m.perp, y: v.maxY - config.fakeSliverPx, width: size.width, height: config.fakeSliverPx)
         }
     }
 
@@ -883,7 +929,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // The window's size along the sliver (height for left/right, width for
     // up/down) — used to pick the smallest window when slivers overlap.
     private func sliverSize(_ m: ManagedWindow, size: CGSize) -> CGFloat {
-        switch m.dockEdge! {
+        switch m.edge {
         case .left, .right: return size.height
         case .up, .down: return size.width
         }
@@ -895,7 +941,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func smallestDockedUnder(_ q: CGPoint, excluding m: ManagedWindow) -> Bool {
         guard let f = axGetFrame(m.ax) else { return false }
         let thisSize = sliverSize(m, size: f.size)
-        for other in managed where other !== m && !other.peeked {
+        for other in managed where other !== m && other.phase.isDocked {
             guard let of = axGetFrame(other.ax) else { continue }
             guard sliverRect(other, size: of.size).insetBy(dx: -6, dy: -6).contains(q) else { continue }
             let otherSize = sliverSize(other, size: of.size)
@@ -912,52 +958,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard AXIsProcessTrusted() else { return }
         let p = NSEvent.mouseLocation
         let q = appKitToQuartz(p)
+        let now = Date()
         var toRemove: [ManagedWindow] = []
         for m in managed {
-            guard let frame = axGetFrame(m.ax) else {
-                m.nilCount += 1
-                if m.nilCount > 30 { toRemove.append(m) }
-                continue
-            }
-            m.nilCount = 0
-            guard m.dockEdge != nil else { continue }
-            if m.gesture { continue }
-
-            if m.peeked {
-                // Track the live parallel position (the user may move it).
-                m.dockPerp = dockPerp(for: m.dockEdge!, frame: frame)
-                let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q)
-                m.noteHover(inWin)
-                let onSliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6).contains(q)
-                if let since = m.shownSince, Date().timeIntervalSince(since) < 0.6 {
-                    // Grace: the app was just activated asynchronously; don't
-                    // dismiss the window before the activation lands.
-                } else if !appIsFrontmost(m) {
-                    m.dockBack()
-                } else if m.touched && !inWin {
-                    m.dockBack()
-                } else if !m.touched && !inWin && !onSliver {
-                    m.dockBack()
-                }
-            } else {
-                // Docked: snap the window back to its docked position if it was
-                // moved externally (dragging the 1-6px sliver, or the app moving
-                // its own window), then hover the sliver to slide it back in.
-                let target = m.dockEdge!.isFake ? hiddenSidePos(m, size: frame.size) : dockedPos(m, size: frame.size)
-                if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
-                    axSetPosition(m.ax, target)
-                }
-                // Only the smallest window under the cursor peeks, and only one
-                // window peeks at a time — otherwise overlapping slivers flip-flop.
-                let sliver = sliverRect(m, size: frame.size).insetBy(dx: -6, dy: -6)
-                if sliver.contains(q),
-                   !managed.contains(where: { $0 !== m && $0.peeked }),
-                   !smallestDockedUnder(q, excluding: m) {
-                    if m.sliverSince == nil { m.sliverSince = Date() }
-                    else if Date().timeIntervalSince(m.sliverSince!) >= config.peekDwell { m.peek() }
-                } else {
-                    m.sliverSince = nil
-                }
+            let blockedByPeeked = managed.contains { $0 !== m && $0.phase.isPeeked }
+            let blockedBySmaller = m.phase.isDocked && smallestDockedUnder(q, excluding: m)
+            if m.evaluate(mouseQ: q, frontmost: appIsFrontmost(m),
+                          blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedBySmaller,
+                          now: now) {
+                toRemove.append(m)
             }
         }
         for m in toRemove { removeManaged(m) }
