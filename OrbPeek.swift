@@ -940,28 +940,32 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.stripRevealed = true
     }
 
-    // After dragging the strip: dock it flush to the nearest screen edge and
-    // record that as its stable parking spot (the strip can only live on edges).
+    // After dragging the strip: dock it flush to the nearest edge of the screen
+    // it is currently on (by its center), and record that as its stable parking
+    // spot. Only the strip's own screen's edges are considered — searching every
+    // display lets a visible-frame offset on a neighbor make the strip hop to
+    // the wrong display.
     func reParkOrb(_ m: ManagedWindow) {
         let c = CGPoint(x: m.orb.frame.midX, y: m.orb.frame.midY)
-        var best: (gap: CGFloat, edge: OrbEdge, screen: NSScreen)?
-        for s in NSScreen.screens {
-            let v = s.visibleFrame
-            let candidates: [(OrbEdge, CGFloat)] = [
-                (.left, abs(c.x - v.minX)),
-                (.right, abs(v.maxX - c.x)),
-                (.top, abs(v.maxY - c.y)),
-                (.bottom, abs(c.y - v.minY)),
-            ]
-            for (e, gap) in candidates where best == nil || gap < best!.gap {
-                best = (gap, e, s)
+        let screen = NSScreen.screens.first { $0.frame.contains(c) }
+            ?? NSScreen.screens.min {
+                let d1 = hypot($0.frame.midX - c.x, $0.frame.midY - c.y)
+                let d2 = hypot($1.frame.midX - c.x, $1.frame.midY - c.y)
+                return d1 < d2
             }
-        }
-        guard let b = best else { return }
-        m.parkEdge = b.edge
-        m.parkScreen = b.screen
+            ?? NSScreen.main!
+        let v = screen.visibleFrame
+        let candidates: [(OrbEdge, CGFloat)] = [
+            (.left, abs(c.x - v.minX)),
+            (.right, abs(v.maxX - c.x)),
+            (.top, abs(v.maxY - c.y)),
+            (.bottom, abs(c.y - v.minY)),
+        ]
+        guard let best = candidates.min(by: { $0.1 < $1.1 }) else { return }
+        m.parkEdge = best.0
+        m.parkScreen = screen
         let rect = m.orb.frame
-        switch b.edge {
+        switch best.0 {
         case .left, .right: m.parkOffset = rect.minY
         case .top, .bottom: m.parkOffset = rect.minX
         }
