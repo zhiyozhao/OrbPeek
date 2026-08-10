@@ -15,8 +15,6 @@ struct SettingsView: View {
     @AppStorage("peekDwell") private var peekDwell = 0.15
     @AppStorage("slamVelocity") private var slamVelocity = 1200.0
     @AppStorage("touchDwell") private var touchDwell = 0.3
-    @AppStorage("dockCancelPx") private var dockCancelPx = 40.0
-    @AppStorage("edgeBuffer") private var edgeBuffer = 12.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -45,10 +43,8 @@ struct SettingsView: View {
                 sliderRow("撞边速度阈值", value: $slamVelocity, in: 400 ... 2400, specifier: "%.0f", unit: "px/s")
                 sliderRow("触摸停留", value: $touchDwell, in: 0.1 ... 1.0, specifier: "%.2f", unit: "秒")
             }
-            section("外观与行为") {
+            section("外观") {
                 sliderRow("悬浮条宽度", value: $sliverPx, in: 4 ... 30, specifier: "%.0f", unit: "px")
-                sliderRow("拖出取消距离", value: $dockCancelPx, in: 10 ... 100, specifier: "%.0f", unit: "px")
-                sliderRow("边缘缓冲", value: $edgeBuffer, in: 0 ... 30, specifier: "%.0f", unit: "px")
             }
         }
         .padding(16)

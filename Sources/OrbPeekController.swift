@@ -162,28 +162,17 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         menu.addItem(.separator())
 
         // 已贴边的窗口
-        menu.addItem(headerItem("已贴边的窗口"))
-        if managed.isEmpty {
-            let item = NSMenuItem(title: "无 — 默认 Ctrl+←/→/↑/↓ 贴边", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        } else {
+        if !managed.isEmpty {
+            menu.addItem(headerItem("已贴边的窗口"))
             for m in managed {
-                let item = NSMenuItem(title: "\(m.appName) — \(m.phase.isPeeked ? "已滑出" : "已贴边")", action: nil, keyEquivalent: "")
-                let sub = NSMenu()
-                let toggle = NSMenuItem(title: m.phase.isPeeked ? "收回" : "滑出", action: #selector(togglePeek(_:)), keyEquivalent: "")
-                toggle.target = self
-                toggle.representedObject = m
-                sub.addItem(toggle)
-                let cancel = NSMenuItem(title: "取消贴边", action: #selector(cancelWindow(_:)), keyEquivalent: "")
-                cancel.target = self
-                cancel.representedObject = m
-                sub.addItem(cancel)
-                item.submenu = sub
+                let item = NSMenuItem(title: m.appName, action: #selector(cancelWindow(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = m
+                item.toolTip = "点击取消贴边"
                 menu.addItem(item)
             }
+            menu.addItem(.separator())
         }
-        menu.addItem(.separator())
 
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -222,11 +211,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     // MARK: Actions
-
-    @objc private func togglePeek(_ sender: NSMenuItem) {
-        guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.togglePeek()
-    }
 
     @objc private func cancelWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
@@ -312,9 +296,13 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
     }
 
-    private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
-        guard let pid = m.window.pid else { return false }
+    func isFrontmost(_ window: AXWindow) -> Bool {
+        guard let pid = window.pid else { return false }
         return pid == (NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+    }
+
+    private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
+        isFrontmost(m.window)
     }
 
     // MARK: Poll

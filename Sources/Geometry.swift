@@ -1,11 +1,9 @@
 import AppKit
 
-// Edge a window can be docked to. macOS keeps a titled window's title bar
-// on-screen, so top/bottom docks always use a fake snapshot strip as the
-// handle. Left/right docks use the window's own visible slice when the screen
-// edge is also the desktop's outer edge; when another screen sits beyond the
-// edge (e.g. the right edge of the left monitor) the window can't leave the
-// desktop there, so those docks use the fake strip too.
+// Edge a window can be docked to. A docked window is parked off the desktop's
+// right outer edge with 1px visible (macOS keeps titled windows from leaving
+// the screen in other directions), and a captured strip (`SnapshotStrip`,
+// always floating above other windows) is the handle.
 enum DockEdge {
     case left, right, up, down
 
@@ -79,17 +77,6 @@ struct WindowGeometry {
         NSScreen.screens.first { displayID(of: $0) == id }
     }
 
-    // Whether a dock to this edge of this screen needs the fake strip: always
-    // for up/down (title-bar constraint); for left/right only when another
-    // screen sits further out, so the window can't leave the desktop there.
-    func isFakeEdge(_ edge: DockEdge, on screen: NSScreen) -> Bool {
-        switch edge {
-        case .up, .down: return true
-        case .left: return screen.frame.minX > desktopFrame.minX + 0.5
-        case .right: return screen.frame.maxX < desktopFrame.maxX - 0.5
-        }
-    }
-
     // The perpendicular coordinate to preserve for an edge (y for left/right,
     // x for up/down).
     func dockPerp(for edge: DockEdge, frame: CGRect) -> CGFloat {
@@ -108,29 +95,19 @@ struct WindowGeometry {
         }
     }
 
-    // Where the window sits while hidden:
-    // - real LEFT/RIGHT (a desktop outer edge): mostly past the edge, leaving
-    //   `sliver` px of the window visible (the handle).
-    // - fake edges: the window parks off the desktop's right outer edge with
-    //   1px visible (macOS keeps ~40px visible if fully off, but allows 1px);
-    //   the fake strip on the dock screen is the real handle. y matches the
-    //   peek position so the window only slides horizontally when recalled.
-    func hiddenPosition(for edge: DockEdge, fake: Bool, size: CGSize, perp: CGFloat, screen: NSScreen, sliver: CGFloat) -> CGPoint? {
+    // Where the window sits while hidden: parked off the desktop's right outer
+    // edge with 1px visible (macOS keeps ~40px visible if fully off, but
+    // allows 1px). y matches the peek position so the window only slides
+    // horizontally when recalled. The strip on the dock screen is the handle.
+    func hiddenPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen) -> CGPoint {
         let v = quartzVisibleFrame(of: screen)
-        if fake {
-            let y: CGFloat
-            switch edge {
-            case .up: y = v.minY
-            case .down: y = v.maxY - size.height
-            case .left, .right: y = perp
-            }
-            return CGPoint(x: desktopFrame.maxX - 1, y: y)
-        }
+        let y: CGFloat
         switch edge {
-        case .left: return CGPoint(x: v.minX - size.width + sliver, y: perp)
-        case .right: return CGPoint(x: v.maxX - sliver, y: perp)
-        case .up, .down: return nil // up/down are always fake
+        case .up: y = v.minY
+        case .down: y = v.maxY - size.height
+        case .left, .right: y = perp
         }
+        return CGPoint(x: desktopFrame.maxX - 1, y: y)
     }
 
     // Flush position the window slides back to when peeked.
