@@ -17,19 +17,39 @@ import ScreenCaptureKit
 final class SliceCapturer {
     private var shareableContent: SCShareableContent?
 
-    private struct SliceKey: Hashable {
-        let windowID: CGWindowID
-        let edge: DockEdge
+    // Full-window captures keyed by CGWindowID. One image serves all four
+    // edges and any strip thickness — slices are cropped on read, so changing
+    // sliverPx in settings re-crops instantly without a new capture. (The
+    // capture itself already photographs the whole window frame, so caching
+    // the full image costs nothing but a few MB of memory.)
+    private var windowImages: [CGWindowID: (image: CGImage, size: CGSize)] = [:]
+
+    // The cached slice for a window/edge at the given thickness, only if the
+    // window still has the same size (a resize makes the capture stale).
+    func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize, thickness: CGFloat) -> NSImage? {
+        guard let entry = windowImages[windowID], entry.size == size else { return nil }
+        return slice(from: entry.image, edge: edge, windowSize: size, thickness: thickness)
     }
 
-    private var sliceCache: [SliceKey: (image: NSImage, size: CGSize)] = [:]
-
-    // The last capture for this window/edge, only if the window still has the
-    // same size (a resize makes the cached slice's proportions wrong).
-    func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize) -> NSImage? {
-        guard let entry = sliceCache[SliceKey(windowID: windowID, edge: edge)],
-              entry.size == size else { return nil }
-        return entry.image
+    // Crop the slice for an edge out of a full-window image. Slice choice
+    // mimics the window really sliding off the edge: up -> bottom slice,
+    // down -> title bar, left -> right edge, right -> left edge.
+    func slice(from image: CGImage, edge: DockEdge, windowSize: CGSize, thickness: CGFloat) -> NSImage? {
+        let scale = CGFloat(image.width) / max(windowSize.width, 1)
+        let w = windowSize.width
+        let h = windowSize.height
+        let t = thickness
+        let r: CGRect
+        switch edge {
+        case .up: r = CGRect(x: 0, y: h - t, width: w, height: t)
+        case .down: r = CGRect(x: 0, y: 0, width: w, height: t)
+        case .left: r = CGRect(x: w - t, y: 0, width: t, height: h)
+        case .right: r = CGRect(x: 0, y: 0, width: t, height: h)
+        }
+        let px = CGRect(x: r.minX * scale, y: r.minY * scale, width: r.width * scale, height: r.height * scale)
+            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !px.isNull, !px.isEmpty, let crop = image.cropping(to: px) else { return nil }
+        return NSImage(cgImage: crop, size: r.size)
     }
 
     // Warm the capture pipeline at launch so the first capture doesn't pay the
@@ -66,13 +86,11 @@ final class SliceCapturer {
         return nil
     }
 
-    // Capture ALL FOUR edge slices of the window with a single display capture
-    // of its frame region, then crop per edge. The window must be on screen.
-    // Every slice is cached (keyed by edge), so a later hidden re-dock to ANY
-    // edge has content. Slice choice mimics the window really sliding off the
-    // edge: up -> bottom slice, down -> title bar, left -> right edge,
-    // right -> left edge.
-    func captureAllSlices(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?, thickness: CGFloat) async -> [DockEdge: NSImage]? {
+    // Composited capture of the window's frame region (quartz coordinates).
+    // The window must be on screen. Our own windows (the strip) are excluded
+    // so they can't contaminate the image. A successful capture is cached in
+    // full when `windowID` is given.
+    func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
         guard let content = try? await contentForCaptures(),
               let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return nil }
         let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
@@ -87,34 +105,14 @@ final class SliceCapturer {
         cfg.height = Int(local.height * scale)
         cfg.showsCursor = false
         let t0 = Date()
-        guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else {
-            Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=false")
-            return nil
+        let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
+        guard let img else { return nil }
+        if let windowID {
+            if windowImages.count > 8 { windowImages.removeAll() }
+            windowImages[windowID] = (img, frame.size)
         }
-        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=true")
-        let w = local.width
-        let h = local.height
-        let t = thickness
-        let rects: [DockEdge: CGRect] = [
-            .up: CGRect(x: 0, y: h - t, width: w, height: t),
-            .down: CGRect(x: 0, y: 0, width: w, height: t),
-            .left: CGRect(x: w - t, y: 0, width: t, height: h),
-            .right: CGRect(x: 0, y: 0, width: t, height: h),
-        ]
-        let bounds = CGRect(x: 0, y: 0, width: img.width, height: img.height)
-        var out: [DockEdge: NSImage] = [:]
-        for (edge, r) in rects {
-            let px = CGRect(x: r.minX * scale, y: r.minY * scale,
-                            width: r.width * scale, height: r.height * scale).intersection(bounds)
-            guard !px.isNull, !px.isEmpty, let crop = img.cropping(to: px) else { continue }
-            let image = NSImage(cgImage: crop, size: r.size)
-            out[edge] = image
-            if let windowID {
-                if sliceCache.count > 40 { sliceCache.removeAll() }
-                sliceCache[SliceKey(windowID: windowID, edge: edge)] = (image, frame.size)
-            }
-        }
-        return out
+        return img
     }
 
     // Cached shareable content; refreshed if it doesn't list our own app — a
