@@ -14,6 +14,12 @@ final class AXWindow {
 
     static var isProcessTrusted: Bool { AXIsProcessTrusted() }
 
+    // Trigger the system Accessibility permission prompt.
+    static func requestTrust() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+    }
+
     static func focusedWindow(ofPID pid: pid_t) -> AXWindow? {
         let axApp = AXUIElementCreateApplication(pid)
         var focused: CFTypeRef?

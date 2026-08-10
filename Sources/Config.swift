@@ -1,65 +1,54 @@
-import CoreGraphics
 import Foundation
 
-struct Config {
-    var autoLaunch: Bool = false
+// App settings, backed by UserDefaults so the settings UI applies live.
+// A one-time migration imports the legacy ~/.config/orbpeek/config.json.
+@MainActor
+final class Config {
+    private let defaults = UserDefaults.standard
+
+    init() {
+        defaults.register(defaults: [
+            "autoLaunch": false,
+            "edgeBuffer": 12.0,
+            "sliverPx": 15.0,
+            "peekDwell": 0.15,
+            "touchDwell": 0.3,
+            "dockCancelPx": 40.0,
+            "slamVelocity": 1200.0,
+        ])
+        migrateJSONIfNeeded()
+    }
+
+    var autoLaunch: Bool {
+        get { defaults.bool(forKey: "autoLaunch") }
+        set { defaults.set(newValue, forKey: "autoLaunch") }
+    }
+
     // Margin around the window treated as "inside" so resize/edge interactions
     // don't falsely dismiss a peeked window.
-    var edgeBuffer: CGFloat = 12
+    var edgeBuffer: CGFloat { CGFloat(defaults.double(forKey: "edgeBuffer")) }
     // Visible slice of a docked window — the "handle" you hover to peek it.
-    // Used for the real sliver (left/right outer edges) and the fake strip
-    // alike, so both look identical.
-    var sliverPx: CGFloat = 15
+    // Used for the real sliver (left/right outer edges) and the fake strip alike.
+    var sliverPx: CGFloat { CGFloat(defaults.double(forKey: "sliverPx")) }
     // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
-    var peekDwell: Double = 0.15
+    var peekDwell: Double { defaults.double(forKey: "peekDwell") }
+    // Dwell inside the peeked window before leaving counts as "used it, left".
+    var touchDwell: Double { defaults.double(forKey: "touchDwell") }
+    // Dragging the peeked window this far off its docked edge cancels the dock.
+    var dockCancelPx: CGFloat { CGFloat(defaults.double(forKey: "dockCancelPx")) }
     // Mouse speed (px/s toward the dock edge) above which a hover is treated
     // as a deliberate slam — peek instantly, skipping the dwell.
-    var slamVelocity: Double = 1200
-    // Dwell inside the peeked window before leaving counts as "used it, left".
-    var touchDwell: Double = 0.3
-    // Dragging the peeked window this far off its docked edge cancels the dock.
-    var dockCancelPx: CGFloat = 40
+    var slamVelocity: Double { defaults.double(forKey: "slamVelocity") }
 
-    static let dir = NSHomeDirectory() + "/.config/orbpeek"
-    static let path = dir + "/config.json"
-    private static let url = URL(fileURLWithPath: path)
-
-    // Reads the config file, falling back to defaults per-key (so an old or
-    // hand-edited file with missing keys keeps its other values). Writes the
-    // file only when it is missing or unreadable.
-    static func load() -> Config {
-        var c = Config()
-        guard let data = try? Data(contentsOf: url),
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            c.save()
-            return c
+    private func migrateJSONIfNeeded() {
+        let path = NSHomeDirectory() + "/.config/orbpeek/config.json"
+        guard !defaults.bool(forKey: "didMigrateJSONConfig"),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        for (key, value) in json where value is NSNumber {
+            defaults.set(value, forKey: key)
         }
-        c.apply(json: json)
-        return c
-    }
-
-    private mutating func apply(json: [String: Any]) {
-        if let v = json["autoLaunch"] as? Bool { autoLaunch = v }
-        if let v = num(json, "edgeBuffer") { edgeBuffer = CGFloat(v) }
-        if let v = num(json, "sliverPx") { sliverPx = CGFloat(v) }
-        if let v = num(json, "peekDwell") { peekDwell = v }
-        if let v = num(json, "slamVelocity") { slamVelocity = v }
-        if let v = num(json, "touchDwell") { touchDwell = v }
-        if let v = num(json, "dockCancelPx") { dockCancelPx = CGFloat(v) }
-    }
-
-    private func num(_ json: [String: Any], _ key: String) -> Double? {
-        (json[key] as? NSNumber)?.doubleValue
-    }
-
-    func save() {
-        try? FileManager.default.createDirectory(atPath: Self.dir, withIntermediateDirectories: true)
-        let dict: [String: Any] = [
-            "autoLaunch": autoLaunch, "edgeBuffer": edgeBuffer,
-            "sliverPx": sliverPx, "peekDwell": peekDwell, "touchDwell": touchDwell,
-            "dockCancelPx": dockCancelPx, "slamVelocity": slamVelocity,
-        ]
-        let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
-        try? data?.write(to: Self.url)
+        defaults.set(true, forKey: "didMigrateJSONConfig")
+        Log.info("migrated settings from config.json")
     }
 }

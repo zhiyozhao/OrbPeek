@@ -1,5 +1,7 @@
-import Carbon.HIToolbox
 import Cocoa
+import KeyboardShortcuts
+import ServiceManagement
+import SwiftUI
 
 @MainActor
 @main
@@ -20,18 +22,18 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     let capturer = SliceCapturer()
 
     private let statusItem: NSStatusItem
-    private let hotkeys = HotkeyManager()
     private var managed: [ManagedWindow] = []
     private var pollTimer: Timer?
+    private var settingsWindow: NSWindow?
 
     override init() {
-        config = Config.load()
+        config = Config()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         if let button = statusItem.button {
             button.title = "◉"
             button.font = NSFont.systemFont(ofSize: 12)
-            button.toolTip = "OrbPeek — Ctrl+←/→/↑/↓ 把窗口贴到屏幕外,悬停边缘滑出"
+            button.toolTip = "OrbPeek — 把窗口贴到屏幕外,悬停边缘滑出"
         }
         rebuildMenu()
         statusItem.menu?.delegate = self
@@ -40,27 +42,22 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("launched, pid=\(ProcessInfo.processInfo.processIdentifier), AX trusted=\(AXWindow.isProcessTrusted)")
 
-        hotkeys.install()
-        let mods = UInt32(controlKey)
-        hotkeys.register(id: 1, key: UInt32(kVK_LeftArrow), modifiers: mods) { [weak self] in
-            Task { @MainActor in self?.dockFrontmost(.left) }
-        }
-        hotkeys.register(id: 2, key: UInt32(kVK_RightArrow), modifiers: mods) { [weak self] in
-            Task { @MainActor in self?.dockFrontmost(.right) }
-        }
-        hotkeys.register(id: 3, key: UInt32(kVK_UpArrow), modifiers: mods) { [weak self] in
-            Task { @MainActor in self?.dockFrontmost(.up) }
-        }
-        hotkeys.register(id: 4, key: UInt32(kVK_DownArrow), modifiers: mods) { [weak self] in
-            Task { @MainActor in self?.dockFrontmost(.down) }
-        }
+        KeyboardShortcuts.onKeyDown(for: .dockLeft) { [weak self] in Task { @MainActor in self?.dockFrontmost(.left) } }
+        KeyboardShortcuts.onKeyDown(for: .dockRight) { [weak self] in Task { @MainActor in self?.dockFrontmost(.right) } }
+        KeyboardShortcuts.onKeyDown(for: .dockUp) { [weak self] in Task { @MainActor in self?.dockFrontmost(.up) } }
+        KeyboardShortcuts.onKeyDown(for: .dockDown) { [weak self] in Task { @MainActor in self?.dockFrontmost(.down) } }
 
         installSignalHandlers()
         installMouseMonitors()
         capturer.prewarm()
+        migrateLaunchAtLogin()
 
         if !AXWindow.isProcessTrusted {
             promptAccessibility()
+        }
+
+        if CommandLine.arguments.contains("--show-settings") {
+            openSettings()
         }
 
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
@@ -68,6 +65,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
+    }
+
+    // Move from the legacy hand-written LaunchAgent plist to SMAppService.
+    private func migrateLaunchAtLogin() {
+        try? FileManager.default.removeItem(atPath: NSHomeDirectory() + "/Library/LaunchAgents/com.orbpeek.OrbPeek.plist")
+        if config.autoLaunch {
+            try? SMAppService.mainApp.register()
+        }
     }
 
     private func installSignalHandlers() {
@@ -124,7 +129,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private func promptAccessibility() {
         let alert = NSAlert()
         alert.messageText = "OrbPeek 需要「辅助功能」权限"
-        alert.informativeText = "否则无法移动窗口。请在系统设置 → 隐私与安全性 → 辅助功能 中勾选 OrbPeek（若未列出,点 + 添加）。\n\n授权后重新运行: ~/Codes/OrbPeek/OrbPeek"
+        alert.informativeText = "否则无法移动窗口。请在系统设置 → 隐私与安全性 → 辅助功能 中勾选 OrbPeek（若未列出,点 + 添加）。授权后重新运行 OrbPeek。"
         alert.addButton(withTitle: "打开设置")
         alert.addButton(withTitle: "稍后")
         if alert.runModal() == .alertFirstButtonReturn {
@@ -135,44 +140,54 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     // MARK: Menu
 
+    private func headerItem(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+        ])
+        item.isEnabled = false
+        return item
+    }
+
     private func rebuildMenu() {
         let menu = NSMenu()
 
-        let trusted = AXWindow.isProcessTrusted
-        let permItem = NSMenuItem(title: trusted ? "权限:辅助功能 ✓" : "权限:辅助功能 ✗ (未授权)", action: nil, keyEquivalent: "")
-        permItem.isEnabled = false
-        menu.addItem(permItem)
+        // 权限
+        menu.addItem(headerItem("权限"))
+        let axOK = AXWindow.isProcessTrusted
+        menu.addItem(permissionItem("辅助功能", ok: axOK, action: #selector(requestAccessibility)))
+        let srOK = CGPreflightScreenCaptureAccess()
+        menu.addItem(permissionItem("屏幕录制", ok: srOK, action: #selector(requestScreenRecording)))
         menu.addItem(.separator())
 
+        // 已贴边的窗口
+        menu.addItem(headerItem("已贴边的窗口"))
         if managed.isEmpty {
-            let item = NSMenuItem(title: "没有贴边的窗口(Ctrl+←/→/↑/↓ 贴边)", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "无 — 默认 Ctrl+←/→/↑/↓ 贴边", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
-            for (i, m) in managed.enumerated() {
-                let title = "\(i + 1). \(m.appName) — \(m.phase.isPeeked ? "已滑出" : "已贴边")"
-                let item = NSMenuItem(title: title, action: #selector(togglePeek(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = m
-                menu.addItem(item)
-
-                let cancel = NSMenuItem(title: "  取消贴边", action: #selector(cancelWindow(_:)), keyEquivalent: "")
+            for m in managed {
+                let item = NSMenuItem(title: "\(m.appName) — \(m.phase.isPeeked ? "已滑出" : "已贴边")", action: nil, keyEquivalent: "")
+                let sub = NSMenu()
+                let toggle = NSMenuItem(title: m.phase.isPeeked ? "收回" : "滑出", action: #selector(togglePeek(_:)), keyEquivalent: "")
+                toggle.target = self
+                toggle.representedObject = m
+                sub.addItem(toggle)
+                let cancel = NSMenuItem(title: "取消贴边", action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 cancel.target = self
                 cancel.representedObject = m
-                menu.addItem(cancel)
+                sub.addItem(cancel)
+                item.submenu = sub
+                menu.addItem(item)
             }
         }
-
         menu.addItem(.separator())
 
-        let launchItem = NSMenuItem(title: "开机自启动", action: #selector(toggleLaunch(_:)), keyEquivalent: "")
-        launchItem.target = self
-        launchItem.state = config.autoLaunch ? .on : .off
-        menu.addItem(launchItem)
-
-        let openCfg = NSMenuItem(title: "打开配置文件…", action: #selector(openConfig), keyEquivalent: "")
-        openCfg.target = self
-        menu.addItem(openCfg)
+        let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
 
         let viewLog = NSMenuItem(title: "打开日志…", action: #selector(openLog), keyEquivalent: "")
         viewLog.target = self
@@ -184,6 +199,22 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
         menu.delegate = self
         statusItem.menu = menu
+    }
+
+    private func permissionItem(_ title: String, ok: Bool, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: "\(ok ? "✓" : "✗")  \(title)\(ok ? "" : " — 点击授权")",
+                              action: ok ? nil : action, keyEquivalent: "")
+        item.target = self
+        item.isEnabled = !ok
+        return item
+    }
+
+    @objc private func requestAccessibility() {
+        AXWindow.requestTrust()
+    }
+
+    @objc private func requestScreenRecording() {
+        CGRequestScreenCaptureAccess()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -202,15 +233,26 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         m.cancel()
     }
 
-    @objc private func toggleLaunch(_ sender: NSMenuItem) {
-        setLaunchAtLogin(!config.autoLaunch)
-        config.autoLaunch = !config.autoLaunch
-        config.save()
-    }
-
-    @objc private func openConfig() {
-        if !FileManager.default.fileExists(atPath: Config.path) { _ = Config.load() }
-        NSWorkspace.shared.open(URL(fileURLWithPath: Config.path))
+    @objc func openSettings() {
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsView())
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "OrbPeek 设置"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 492, height: 620))
+            window.center()
+            settingsWindow = window
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+                Task { @MainActor in
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
+        }
+        NSApp.setActivationPolicy(.regular)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
+        NSApp.activate()
     }
 
     @objc private func openLog() {
@@ -220,21 +262,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     @objc private func quit() {
         NSApp.terminate(nil)
-    }
-
-    private func setLaunchAtLogin(_ enable: Bool) {
-        let path = NSHomeDirectory() + "/Library/LaunchAgents/com.orbpeek.OrbPeek.plist"
-        if enable {
-            let exe = CommandLine.arguments[0]
-            let plist: [String: Any] = [
-                "Label": "com.orbpeek.OrbPeek",
-                "ProgramArguments": [exe],
-                "RunAtLoad": true,
-            ]
-            (plist as NSDictionary).write(to: URL(fileURLWithPath: path), atomically: true)
-        } else {
-            try? FileManager.default.removeItem(atPath: path)
-        }
     }
 
     // MARK: Docking
@@ -280,8 +307,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     func activate(window: AXWindow) {
-        guard let pid = window.pid else { return }
-        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+        guard let pid = window.pid,
+              let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
     }
 
     private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
