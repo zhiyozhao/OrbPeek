@@ -66,14 +66,16 @@ final class SliceCapturer {
         return nil
     }
 
-    // Composited capture of a screen region (quartz coordinates). Must be
-    // called while the window is still on screen at that region. Our own
-    // windows (the strip) are excluded so they can't contaminate the image.
-    // A successful capture updates the cache when `windowID` is given.
-    func captureSlice(screenRect: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?, edge: DockEdge, windowSize: CGSize) async -> NSImage? {
+    // Capture ALL FOUR edge slices of the window with a single display capture
+    // of its frame region, then crop per edge. The window must be on screen.
+    // Every slice is cached (keyed by edge), so a later hidden re-dock to ANY
+    // edge has content. Slice choice mimics the window really sliding off the
+    // edge: up -> bottom slice, down -> title bar, left -> right edge,
+    // right -> left edge.
+    func captureAllSlices(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?, thickness: CGFloat) async -> [DockEdge: NSImage]? {
         guard let content = try? await contentForCaptures(),
               let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return nil }
-        let local = screenRect.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
         guard local.width > 0, local.height > 0 else { return nil }
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let excluding = content.applications.filter { $0.processID == ownPID }
@@ -85,15 +87,34 @@ final class SliceCapturer {
         cfg.height = Int(local.height * scale)
         cfg.showsCursor = false
         let t0 = Date()
-        let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
-        guard let img else { return nil }
-        let result = NSImage(cgImage: img, size: screenRect.size)
-        if let windowID {
-            if sliceCache.count > 20 { sliceCache.removeAll() }
-            sliceCache[SliceKey(windowID: windowID, edge: edge)] = (result, windowSize)
+        guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else {
+            Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=false")
+            return nil
         }
-        return result
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=true")
+        let w = local.width
+        let h = local.height
+        let t = thickness
+        let rects: [DockEdge: CGRect] = [
+            .up: CGRect(x: 0, y: h - t, width: w, height: t),
+            .down: CGRect(x: 0, y: 0, width: w, height: t),
+            .left: CGRect(x: w - t, y: 0, width: t, height: h),
+            .right: CGRect(x: 0, y: 0, width: t, height: h),
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: img.width, height: img.height)
+        var out: [DockEdge: NSImage] = [:]
+        for (edge, r) in rects {
+            let px = CGRect(x: r.minX * scale, y: r.minY * scale,
+                            width: r.width * scale, height: r.height * scale).intersection(bounds)
+            guard !px.isNull, !px.isEmpty, let crop = img.cropping(to: px) else { continue }
+            let image = NSImage(cgImage: crop, size: r.size)
+            out[edge] = image
+            if let windowID {
+                if sliceCache.count > 40 { sliceCache.removeAll() }
+                sliceCache[SliceKey(windowID: windowID, edge: edge)] = (image, frame.size)
+            }
+        }
+        return out
     }
 
     // Cached shareable content; refreshed if never fetched (the display/app

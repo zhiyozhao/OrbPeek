@@ -157,25 +157,6 @@ struct WindowGeometry {
         }
     }
 
-    // The screen-region (quartz) to capture for the strip image, given the
-    // window's current on-screen frame. The strip mimics the window really
-    // being pushed off that edge — what would stay visible is the window's
-    // OPPOSITE edge (same as the real left/right slivers, which show the
-    // window's trailing 6px). So: up shows the bottom slice, down the top
-    // (title bar), left the right edge, right the left edge.
-    func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
-        switch edge {
-        case .up:
-            return CGRect(x: frame.minX, y: frame.maxY - thickness, width: frame.width, height: thickness)
-        case .down:
-            return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: thickness)
-        case .left:
-            return CGRect(x: frame.maxX - thickness, y: frame.minY, width: thickness, height: frame.height)
-        case .right:
-            return CGRect(x: frame.minX, y: frame.minY, width: thickness, height: frame.height)
-        }
-    }
-
     // How far a window's docked-side edge sits off its docked edge (used to
     // decide whether the user dragged it out of the dock).
     func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge, screen: NSScreen) -> CGFloat {

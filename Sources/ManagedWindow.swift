@@ -150,16 +150,15 @@ final class ManagedWindow {
             Log.info("strip shown from cache edge=\(edge)")
             fakeStrip.show(image: cached, frame: stripFrame)
         }
-        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx)
         let displayID = dockScreenID
-        let image = await withTimeout(0.3) {
-            await capturer.captureSlice(screenRect: sliceRect, displayID: displayID, windowID: wid, edge: edge, windowSize: frame.size)
+        let slices = await withTimeout(0.3) {
+            await capturer.captureAllSlices(frame: frame, displayID: displayID, windowID: wid, thickness: config.sliverPx)
         }
         if Task.isCancelled { return }
-        if image == nil { Log.info("capture failed or timed out edge=\(edge)") }
+        if slices == nil { Log.info("capture failed or timed out edge=\(edge)") }
         moveTo(hiddenPos)
         phase = .docked
-        if let image {
+        if let image = slices?[edge] {
             fakeStrip.show(image: image, frame: stripFrame)
         } else if !fakeStrip.hasContent {
             fakeStrip.show(image: nil, frame: stripFrame)
