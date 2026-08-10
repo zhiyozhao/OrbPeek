@@ -39,4 +39,5 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Re-docking a hidden window: the live frame is the parked position, so perp comes from `restoreFrame` and the dock screen is kept as-is — never derive either from the parked frame.
 - `SliceCapturer` caches `SCShareableContent` and only refreshes when the cached window frame no longer matches — stale window lists are a known cause of slow/missing fake-strip captures.
 - `SCScreenshotManager.captureImage` **randomly stalls ~1s** (observed on visible and parked windows alike) — never let the strip wait on a capture: show the `CGWindowID`-keyed cached slice instantly, refresh captures fire on peek (window visible) and dockBack, and a placeholder appears only if a cold capture exceeds 250ms.
+- Slice captures **must** set `ignoreShadowsSingleWindow` (else the window shadow bleeds into the slice — squished content + gray fringe) and `ignoreGlobalClipSingleWindow` (else parked/off-screen windows capture as dark garbage), and scale by `filter.pointPixelScale`, not a hardcoded 2.
 - On SIGTERM/SIGINT/terminate, docked windows are restored via `restoreAll()` before exit.
