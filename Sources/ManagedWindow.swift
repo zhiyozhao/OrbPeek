@@ -238,7 +238,7 @@ final class ManagedWindow {
     // MARK: Poll evaluation
 
     @discardableResult
-    func evaluate(mouseQ: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) -> Bool {
+    func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) -> Bool {
         guard valid, let delegate else { return false }
         guard let frame = window.frame else {
             nilCount += 1
@@ -296,12 +296,26 @@ final class ManagedWindow {
             if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
                 if dwell.sliverSince == nil {
                     dwell.sliverSince = now
+                    // Fast movement toward the edge = deliberate slam: skip the dwell.
+                    let toward: CGFloat
+                    switch edge {
+                    case .up: toward = -mouseVelocity.y
+                    case .down: toward = mouseVelocity.y
+                    case .left: toward = -mouseVelocity.x
+                    case .right: toward = mouseVelocity.x
+                    }
+                    dwell.slammed = toward > config.slamVelocity
+                }
+                if dwell.slammed {
+                    Log.info("slam -> peek edge=\(edge)")
+                    peek()
                 } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
                     Log.info("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
                     peek()
                 }
             } else {
                 dwell.sliverSince = nil
+                dwell.slammed = false
             }
         case .docking:
             // Transition in flight: window still on screen, strip not shown
@@ -332,6 +346,7 @@ private struct DwellTracker {
     private(set) var inWinSince: Date?
     var sliverSince: Date?
     var shownSince: Date?
+    var slammed = false
 
     mutating func noteHover(_ inWin: Bool, touchDwell: TimeInterval, now: Date) {
         if inWin {
@@ -350,5 +365,6 @@ private struct DwellTracker {
         inWinSince = nil
         sliverSince = nil
         shownSince = nil
+        slammed = false
     }
 }
