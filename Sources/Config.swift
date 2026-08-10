@@ -9,7 +9,7 @@ struct Config {
     // Visible slice of a docked window — the "handle" you hover to peek it.
     // Used for the real sliver (left/right outer edges) and the fake strip
     // alike, so both look identical.
-    var sliverPx: CGFloat = 6
+    var sliverPx: CGFloat = 15
     // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
     var peekDwell: Double = 0.15
     // Dwell inside the peeked window before leaving counts as "used it, left".

@@ -19,7 +19,6 @@ final class SnapshotStrip: NSPanel {
         ignoresMouseEvents = true
         imageView.imageScaling = .scaleAxesIndependently
         imageView.wantsLayer = true
-        imageView.layer?.cornerRadius = 2
         imageView.layer?.masksToBounds = true
         contentView = imageView
     }
@@ -31,7 +30,7 @@ final class SnapshotStrip: NSPanel {
     // The currently displayed capture, if any.
     var image: NSImage? { imageView.image }
 
-    func show(image: NSImage?, frame: NSRect) {
+    func show(image: NSImage?, frame: NSRect, edge: DockEdge) {
         hasContent = image != nil
         if let image {
             imageView.image = image
@@ -44,7 +43,28 @@ final class SnapshotStrip: NSPanel {
             imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
         }
         setFrame(frame, display: true)
+        applyCornerMask(edge: edge)
         orderFrontRegardless()
+    }
+
+    // Real windows have rounded corners, so the captured slice's corner pixels
+    // are whatever was behind the window at capture time — they show up as
+    // dark blocks when the strip is displayed at the edge. Clip the corners
+    // that correspond to the window's rounded corners so the live backdrop
+    // shows through, like a real window edge.
+    private func applyCornerMask(edge: DockEdge) {
+        guard let bounds = contentView?.bounds, bounds.width > 0, bounds.height > 0 else { return }
+        let r = min(10, bounds.width / 2, bounds.height / 2)
+        var rect = bounds
+        switch edge {
+        case .up: rect.size.height += r // window's bottom edge -> round bottom corners
+        case .down: rect.origin.y -= r; rect.size.height += r // title bar -> round top corners
+        case .left: rect.origin.x -= r; rect.size.width += r // window's right edge -> round right corners
+        case .right: rect.size.width += r // window's left edge -> round left corners
+        }
+        let mask = CAShapeLayer()
+        mask.path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
+        imageView.layer?.mask = mask
     }
 
     func hide() {

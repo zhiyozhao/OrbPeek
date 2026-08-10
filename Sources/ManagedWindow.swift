@@ -145,7 +145,7 @@ final class ManagedWindow {
             phase = .docked
             if isFake, let fakeStrip {
                 Log.info("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
-                fakeStrip.show(image: cached, frame: stripFrame) // cached or placeholder
+                fakeStrip.show(image: cached, frame: stripFrame, edge: edge) // cached or placeholder
             }
             return
         }
@@ -158,9 +158,9 @@ final class ManagedWindow {
         phase = .docked
         guard isFake, let fakeStrip else { return }
         if let image = slices?[edge] ?? cached {
-            fakeStrip.show(image: image, frame: stripFrame)
+            fakeStrip.show(image: image, frame: stripFrame, edge: edge)
         } else {
-            fakeStrip.show(image: nil, frame: stripFrame)
+            fakeStrip.show(image: nil, frame: stripFrame, edge: edge)
         }
     }
 
