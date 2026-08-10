@@ -38,7 +38,7 @@ struct SettingsView: View {
             Section("外观") {
                 HStack {
                     Text("悬浮条宽度")
-                    Slider(value: $sliverPx, in: 4 ... 30)
+                    Slider(value: $sliverPx, in: 5 ... 50)
                     Text("\(sliverPx, specifier: "%.0f")px")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
