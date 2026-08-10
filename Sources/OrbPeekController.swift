@@ -292,17 +292,28 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // MARK: Poll
 
     private var launchedAt = Date()
+    private var lastMouseQ: CGPoint?
+    private var lastMouseAt: Date?
 
     private func poll() {
         guard AXWindow.isProcessTrusted else { return }
         let q = DebugMouse.location(sinceLaunch: Date().timeIntervalSince(launchedAt))
             ?? geometry.toQuartz(NSEvent.mouseLocation)
         let now = Date()
+        var velocity = CGPoint.zero
+        if let lastQ = lastMouseQ, let lastT = lastMouseAt {
+            let dt = now.timeIntervalSince(lastT)
+            if dt > 0.001 {
+                velocity = CGPoint(x: (q.x - lastQ.x) / dt, y: (q.y - lastQ.y) / dt)
+            }
+        }
+        lastMouseQ = q
+        lastMouseAt = now
         let anyPeeked = managed.contains { $0.phase.isPeeked }
         var toRemove: [ManagedWindow] = []
         for m in managed {
             let blockedBySmaller = m.phase.isDocked && smallestDockedUnder(q, excluding: m)
-            if m.evaluate(mouseQ: q, frontmost: appIsFrontmost(m),
+            if m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
                           blockedByPeeked: anyPeeked, blockedBySmaller: blockedBySmaller,
                           now: now) {
                 toRemove.append(m)

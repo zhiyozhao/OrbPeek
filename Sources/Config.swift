@@ -12,6 +12,9 @@ struct Config {
     var sliverPx: CGFloat = 15
     // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
     var peekDwell: Double = 0.15
+    // Mouse speed (px/s toward the dock edge) above which a hover is treated
+    // as a deliberate slam — peek instantly, skipping the dwell.
+    var slamVelocity: Double = 1200
     // Dwell inside the peeked window before leaving counts as "used it, left".
     var touchDwell: Double = 0.3
     // Dragging the peeked window this far off its docked edge cancels the dock.
@@ -40,6 +43,7 @@ struct Config {
         if let v = num(json, "edgeBuffer") { edgeBuffer = CGFloat(v) }
         if let v = num(json, "sliverPx") { sliverPx = CGFloat(v) }
         if let v = num(json, "peekDwell") { peekDwell = v }
+        if let v = num(json, "slamVelocity") { slamVelocity = v }
         if let v = num(json, "touchDwell") { touchDwell = v }
         if let v = num(json, "dockCancelPx") { dockCancelPx = CGFloat(v) }
     }
@@ -53,7 +57,7 @@ struct Config {
         let dict: [String: Any] = [
             "autoLaunch": autoLaunch, "edgeBuffer": edgeBuffer,
             "sliverPx": sliverPx, "peekDwell": peekDwell, "touchDwell": touchDwell,
-            "dockCancelPx": dockCancelPx,
+            "dockCancelPx": dockCancelPx, "slamVelocity": slamVelocity,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: Self.url)
