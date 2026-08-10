@@ -92,7 +92,6 @@ final class ManagedWindow {
         // "Hidden" means a previous dock already parked the window. During
         // .docking the window is still on screen, so it's not hidden.
         let wasHidden = dockScreenID != nil && phase == .docked
-        let edgeChanged = newEdge != nil && newEdge != edge
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
         if dockScreenID == nil || phase == .peeked, let screen = geometry.screen(containing: frame) {
@@ -106,7 +105,7 @@ final class ManagedWindow {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
             phase = .docking
             transition = Task { [weak self] in
-                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden, edgeChanged: edgeChanged)
+                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden)
             }
         } else {
             detachStrip()
@@ -118,15 +117,15 @@ final class ManagedWindow {
 
     // The async half of a fake dock: capture the composited slice while the
     // window is still on screen (~50ms, 300ms timeout), then park and show the
-    // strip. Runs on the MainActor; discards itself if a newer transition
-    // cancelled it (cancellation is only observed at these explicit checks,
-    // which is enough because everything between them runs atomically on main).
+    // strip. The strip shows the last cached capture instantly when available.
     //
     // A hidden re-dock takes no capture: the window is parked off-screen, and
     // capturing would require flashing it on screen. It just re-parks at the
-    // new edge and keeps the existing strip image (same edge) or shows a
-    // placeholder (new edge) — the next dockBack captures fresh content.
-    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool, edgeChanged: Bool) async {
+    // new edge and shows the cached slice (same edge+size) or a placeholder —
+    // the next dockBack captures fresh content.
+    //
+    // Runs on the MainActor; discards itself if a newer transition cancelled it.
+    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool) async {
         if Task.isCancelled { return }
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
@@ -136,17 +135,25 @@ final class ManagedWindow {
         )
         let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
                                                 screen: screen, sliver: config.sliverPx)
+        let capturer = delegate.capturer
+        let edge = edge
+        let wid = window.pid.flatMap { capturer.windowID(for: $0, matching: frame) }
+        let cached = wid.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size) }
+
         if wasHidden {
             moveTo(hiddenPos)
             phase = .docked
-            fakeStrip.show(image: edgeChanged ? nil : fakeStrip.image, frame: stripFrame)
+            fakeStrip.show(image: cached, frame: stripFrame) // cached or placeholder
             return
+        }
+        if let cached {
+            Log.info("strip shown from cache edge=\(edge)")
+            fakeStrip.show(image: cached, frame: stripFrame)
         }
         let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx)
         let displayID = dockScreenID
-        let capturer = delegate.capturer
         let image = await withTimeout(0.3) {
-            await capturer.captureSlice(screenRect: sliceRect, displayID: displayID)
+            await capturer.captureSlice(screenRect: sliceRect, displayID: displayID, windowID: wid, edge: edge, windowSize: frame.size)
         }
         if Task.isCancelled { return }
         if image == nil { Log.info("capture failed or timed out edge=\(edge)") }

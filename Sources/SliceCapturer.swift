@@ -7,10 +7,30 @@ import ScreenCaptureKit
 // look exactly as the real window does on screen), unlike a window-filter
 // capture which returns the raw, flattened surface. Display captures are fast
 // (~50ms) and never hit the ~1s stalls window-filter captures have on parked
-// windows, so there's no caching — every dock captures fresh.
+// windows, so every dock captures fresh.
+//
+// Every successful capture is cached by (windowID, edge, size). The cache is
+// only a fallback for the one case where a live capture is impossible —
+// re-docking a window that is parked off-screen — and for showing the strip
+// instantly while the fresh capture is in flight.
 @MainActor
 final class SliceCapturer {
     private var shareableContent: SCShareableContent?
+
+    private struct SliceKey: Hashable {
+        let windowID: CGWindowID
+        let edge: DockEdge
+    }
+
+    private var sliceCache: [SliceKey: (image: NSImage, size: CGSize)] = [:]
+
+    // The last capture for this window/edge, only if the window still has the
+    // same size (a resize makes the cached slice's proportions wrong).
+    func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize) -> NSImage? {
+        guard let entry = sliceCache[SliceKey(windowID: windowID, edge: edge)],
+              entry.size == size else { return nil }
+        return entry.image
+    }
 
     // Warm the capture pipeline at launch so the first capture doesn't pay the
     // one-time enumeration/setup cost.
@@ -30,10 +50,27 @@ final class SliceCapturer {
         }
     }
 
+    // Find the CGWindowID for a window by owner PID and frame.
+    func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        for w in list {
+            guard (w[kCGWindowOwnerPID as String] as? Int) == Int(pid) else { continue }
+            guard let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let bx = b["X"] as? Double, let by = b["Y"] as? Double,
+                  let bw = b["Width"] as? Double, let bh = b["Height"] as? Double else { continue }
+            if abs(bx - frame.minX) < 5 && abs(by - frame.minY) < 5
+                && abs(bw - frame.width) < 5 && abs(bh - frame.height) < 5 {
+                return CGWindowID(w[kCGWindowNumber as String] as? Int ?? 0)
+            }
+        }
+        return nil
+    }
+
     // Composited capture of a screen region (quartz coordinates). Must be
     // called while the window is still on screen at that region. Our own
     // windows (the strip) are excluded so they can't contaminate the image.
-    func captureSlice(screenRect: CGRect, displayID: CGDirectDisplayID?) async -> NSImage? {
+    // A successful capture updates the cache when `windowID` is given.
+    func captureSlice(screenRect: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?, edge: DockEdge, windowSize: CGSize) async -> NSImage? {
         guard let content = try? await contentForCaptures(),
               let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return nil }
         let local = screenRect.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
@@ -51,7 +88,12 @@ final class SliceCapturer {
         let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
         Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
         guard let img else { return nil }
-        return NSImage(cgImage: img, size: screenRect.size)
+        let result = NSImage(cgImage: img, size: screenRect.size)
+        if let windowID {
+            if sliceCache.count > 20 { sliceCache.removeAll() }
+            sliceCache[SliceKey(windowID: windowID, edge: edge)] = (result, windowSize)
+        }
+        return result
     }
 
     // Cached shareable content; refreshed if never fetched (the display/app

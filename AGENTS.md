@@ -15,7 +15,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - `ManagedWindow.swift` — per-window state machine; talks to the app only through the `WindowDockDelegate` protocol (defined here)
 - `Geometry.swift` — `DockEdge` + `WindowGeometry`: **all** coordinate conversion and dock/peek/sliver position math, in one place
 - `AXWindow.swift` — `AXUIElement` wrapper (safe frame/position/title/pid access)
-- `SliceCapturer.swift` — composited **display-region** captures (NOT window-filter captures); no caching — captures are ~50ms so every dock captures fresh
+- `SliceCapturer.swift` — composited **display-region** captures (NOT window-filter captures); every successful capture is cached by `(windowID, edge, size)` — the cache is the fallback for the one case a live capture is impossible (hidden re-dock) and makes the strip appear instantly
 - `SnapshotStrip.swift`, `HotkeyManager.swift`, `Config.swift`, `Log.swift`, `SelfTest.swift` — small supporting types
 
 ## Permissions
