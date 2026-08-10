@@ -214,7 +214,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     @objc private func cancelWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.cancel()
+        m.terminate(exit: .peek)
     }
 
     @objc func openSettings() {
@@ -329,16 +329,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         lastMouseQ = q
         lastMouseAt = now
         let anyPeeked = managed.contains { $0.phase.isPeeked }
-        var toRemove: [ManagedWindow] = []
         for m in managed {
             let blockedBySmaller = m.phase.isDocked && smallestDockedUnder(q, excluding: m)
-            if m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
-                          blockedByPeeked: anyPeeked, blockedBySmaller: blockedBySmaller,
-                          now: now) {
-                toRemove.append(m)
-            }
+            m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
+                       blockedByPeeked: anyPeeked, blockedBySmaller: blockedBySmaller,
+                       now: now)
         }
-        for m in toRemove { removeManaged(m) }
     }
 
     // True if another docked window whose sliver also sits under the cursor is
