@@ -95,10 +95,13 @@ struct WindowGeometry {
         }
     }
 
-    // Where the window sits while hidden: parked off the desktop's right outer
-    // edge with 1px visible (macOS keeps ~40px visible if fully off, but
-    // allows 1px). y matches the peek position so the window only slides
-    // horizontally when recalled. The strip on the dock screen is the handle.
+    // Where the window sits while hidden: parked off a desktop outer edge with
+    // 1px visible (macOS keeps ~40px visible if fully off, but allows 1px).
+    // The 1px stays on the DOCK screen whenever possible — park off the
+    // desktop's right edge when the dock screen is rightmost, off the left
+    // edge when it's leftmost — so the window's screen ownership never
+    // changes. y matches the peek position so the window only slides
+    // horizontally when recalled.
     func hiddenPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen) -> CGPoint {
         let v = quartzVisibleFrame(of: screen)
         let y: CGFloat
@@ -107,6 +110,14 @@ struct WindowGeometry {
         case .down: y = v.maxY - size.height
         case .left, .right: y = perp
         }
+        if screen.frame.maxX >= desktopFrame.maxX - 0.5 {
+            return CGPoint(x: desktopFrame.maxX - 1, y: y)
+        }
+        if screen.frame.minX <= desktopFrame.minX + 0.5 {
+            return CGPoint(x: desktopFrame.minX - size.width + 1, y: y)
+        }
+        // Middle screen in a 3+ display row: no desktop edge of its own —
+        // fall back to the right edge.
         return CGPoint(x: desktopFrame.maxX - 1, y: y)
     }
 
