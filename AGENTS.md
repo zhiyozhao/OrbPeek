@@ -7,6 +7,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Build: `./build.sh` (runs `swiftc Sources/*.swift -o OrbPeek`; the app entry is `@main static func main()` on `OrbPeekController`, frameworks auto-link — no extra flags)
 - Run: `~/Codes/OrbPeek/OrbPeek` (binary and logs are gitignored)
 - Self-test: `OrbPeek --self-test` — verifies Accessibility trust and moves the focused window +30px, then restores it. Must keep Terminal frontmost, else it exits(1).
+- Debug driver: `OrbPeek --debug-mouse "t:x,y t:x,y ..."` — scripted cursor positions (t = seconds since launch, quartz top-left coords) replace the real mouse in `poll()`, so dock/peek behavior can be tested while the machine is in use. `Scripts/test-window.swift` (`swiftc` it, pass AppKit x y) creates a dedicated frontmost test window that prints its real frame; drive the dock hotkey via `osascript -e 'tell application "System Events" to key code 126 using {control down}'` (123/124/125/126 = ←/→/↓/↑).
 
 ## Source layout (`Sources/`)
 

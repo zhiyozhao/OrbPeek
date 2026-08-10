@@ -65,6 +65,7 @@ final class ManagedWindow {
     // Dock (hide off the edge). `newEdge` re-docks to a different edge; nil
     // re-docks to the current edge (also how a peeked window hides again).
     func dock(to newEdge: DockEdge? = nil) {
+        let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         if let newEdge { edge = newEdge }
         window.unminimize()
@@ -77,10 +78,12 @@ final class ManagedWindow {
             detachStrip()
         }
         moveTo(delegate.geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, sliver: delegate.config.sliverPx))
+        Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
     // Show flush against the edge.
     func peek() {
+        let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         window.unminimize()
         phase = .peeked
@@ -90,6 +93,7 @@ final class ManagedWindow {
         window.raise()
         delegate.activate(window: window)
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp))
+        Log.info("peek applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
     func togglePeek() {
@@ -162,6 +166,9 @@ final class ManagedWindow {
             let image = await capturer.captureSlice(of: wid, frame: frame, edge: edge, sliceThickness: thickness)
             guard let self, let fakeStrip else { return }
             self.lastSlice = image
+            // A slow capture can land after the user already peeked — never
+            // re-show the strip over a peeked window.
+            guard self.phase == .docked else { return }
             fakeStrip.show(image: image, frame: stripFrame)
         }
     }
@@ -210,9 +217,10 @@ final class ManagedWindow {
             if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
                 if dwell.sliverSince == nil {
                     dwell.sliverSince = now
-                } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
-                    peek()
-                }
+            } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
+                Log.info("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
+                peek()
+            }
             } else {
                 dwell.sliverSince = nil
             }

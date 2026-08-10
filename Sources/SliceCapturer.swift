@@ -9,15 +9,31 @@ final class SliceCapturer {
     private var shareableContent: SCShareableContent?
 
     // Warm the capture pipeline at launch so the first fake-strip capture
-    // doesn't pay the one-time enumeration/setup cost.
+    // doesn't pay the one-time enumeration/setup cost. The tiny capture is
+    // needed too: SCScreenshotManager.captureImage has its own ~130ms first-
+    // call pipeline setup that SCShareableContent prewarming alone doesn't cover.
     func prewarm() {
         Task {
-            _ = try? await refreshContent()
+            guard let content = try? await refreshContent() else { return }
+            guard let win = content.windows.first(where: {
+                $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier
+            }) else { return }
+            let filter = SCContentFilter(desktopIndependentWindow: win)
+            let cfg = SCStreamConfiguration()
+            cfg.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            cfg.width = 2
+            cfg.height = 2
+            cfg.showsCursor = false
+            let t0 = Date()
+            _ = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+            Log.info("capture pipeline prewarmed in \(Int(Date().timeIntervalSince(t0) * 1000))ms")
         }
     }
 
     // Find the CGWindowID for a window by owner PID and frame.
     func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID? {
+        let t0 = Date()
+        defer { Log.info("windowID lookup \(Int(Date().timeIntervalSince(t0) * 1000))ms") }
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
         for w in list {
             guard (w[kCGWindowOwnerPID as String] as? Int) == Int(pid) else { continue }

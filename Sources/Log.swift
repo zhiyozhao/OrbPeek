@@ -3,8 +3,15 @@ import Foundation
 enum Log {
     static let path = NSHomeDirectory() + "/Library/Logs/orbpeek.log"
 
+    // Millisecond timestamps so event timelines can be reconstructed.
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
     static func info(_ s: String) {
-        let line = "[OrbPeek \(Date())] \(s)\n"
+        let line = "[OrbPeek \(formatter.string(from: Date()))] \(s)\n"
         FileHandle.standardError.write(line.data(using: .utf8)!)
         do {
             let dir = (path as NSString).deletingLastPathComponent
