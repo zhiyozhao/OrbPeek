@@ -54,7 +54,7 @@ final class SnapshotStrip: NSPanel {
     // shows through, like a real window edge.
     private func applyCornerMask(edge: DockEdge) {
         guard let bounds = contentView?.bounds, bounds.width > 0, bounds.height > 0 else { return }
-        let r = min(10, bounds.width / 2, bounds.height / 2)
+        let r = min(12, bounds.width / 2, bounds.height / 2)
         var rect = bounds
         switch edge {
         case .up: rect.size.height += r // window's bottom edge -> round bottom corners
