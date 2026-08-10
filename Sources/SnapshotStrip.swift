@@ -28,6 +28,9 @@ final class SnapshotStrip: NSPanel {
     // or hidden) — used to decide if a delayed placeholder is still needed.
     private(set) var hasContent = false
 
+    // The currently displayed capture, if any.
+    var image: NSImage? { imageView.image }
+
     func show(image: NSImage?, frame: NSRect) {
         hasContent = image != nil
         if let image {

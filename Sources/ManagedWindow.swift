@@ -92,6 +92,7 @@ final class ManagedWindow {
         // "Hidden" means a previous dock already parked the window. During
         // .docking the window is still on screen, so it's not hidden.
         let wasHidden = dockScreenID != nil && phase == .docked
+        let edgeChanged = newEdge != nil && newEdge != edge
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
         if dockScreenID == nil || phase == .peeked, let screen = geometry.screen(containing: frame) {
@@ -105,7 +106,7 @@ final class ManagedWindow {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
             phase = .docking
             transition = Task { [weak self] in
-                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden)
+                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden, edgeChanged: edgeChanged)
             }
         } else {
             detachStrip()
@@ -120,7 +121,12 @@ final class ManagedWindow {
     // strip. Runs on the MainActor; discards itself if a newer transition
     // cancelled it (cancellation is only observed at these explicit checks,
     // which is enough because everything between them runs atomically on main).
-    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool) async {
+    //
+    // A hidden re-dock takes no capture: the window is parked off-screen, and
+    // capturing would require flashing it on screen. It just re-parks at the
+    // new edge and keeps the existing strip image (same edge) or shows a
+    // placeholder (new edge) — the next dockBack captures fresh content.
+    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool, edgeChanged: Bool) async {
         if Task.isCancelled { return }
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
@@ -130,14 +136,13 @@ final class ManagedWindow {
         )
         let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
                                                 screen: screen, sliver: config.sliverPx)
-        // A hidden window being re-docked is off-screen — move it to the new
-        // edge's peek position first so the capture has real content.
-        var captureFrame = frame
-        if wasHidden, let peekPos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen) {
-            moveTo(peekPos)
-            captureFrame = CGRect(origin: peekPos, size: frame.size)
+        if wasHidden {
+            moveTo(hiddenPos)
+            phase = .docked
+            fakeStrip.show(image: edgeChanged ? nil : fakeStrip.image, frame: stripFrame)
+            return
         }
-        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: captureFrame, thickness: config.sliverPx)
+        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx)
         let displayID = dockScreenID
         let capturer = delegate.capturer
         let image = await withTimeout(0.3) {
@@ -232,7 +237,11 @@ final class ManagedWindow {
         guard valid, let delegate else { return false }
         guard let frame = window.frame else {
             nilCount += 1
-            if nilCount > 30 { Log.info("window frame unreadable, dropping edge=\(edge)") }
+            if nilCount > 30 {
+                Log.info("window frame unreadable, dropping edge=\(edge)")
+                // Best effort: never leave a dropped window parked off-screen.
+                window.position = restoreFrame.origin
+            }
             return nilCount > 30
         }
         nilCount = 0
@@ -253,11 +262,21 @@ final class ManagedWindow {
             // A short settle window right after peeking, so none of the hide
             // conditions below fire while the user is still approaching.
             let inGrace = dwell.shownSince.map { now.timeIntervalSince($0) < 0.6 } ?? false
-            let lostFocus = !frontmost
-            let touchedAndLeft = dwell.touched && !inWin
-            let untouchedAndAway = !dwell.touched && !inWin && !onSliver
-            if !inGrace, lostFocus || touchedAndLeft || untouchedAndAway {
-                dock(to: nil)
+            if !inGrace {
+                // Externally displaced (another tool moved/resized it away from
+                // the edge; user drags set `gesture` and never reach here) —
+                // treat like a drag-out: undock, leave the window where it is.
+                if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
+                    Log.info("peeked window displaced externally, undocking edge=\(edge)")
+                    cancel()
+                    return false
+                }
+                let lostFocus = !frontmost
+                let touchedAndLeft = dwell.touched && !inWin
+                let untouchedAndAway = !dwell.touched && !inWin && !onSliver
+                if lostFocus || touchedAndLeft || untouchedAndAway {
+                    dock(to: nil)
+                }
             }
         case .docked:
             // Snap back to the hidden position if it was moved externally.
