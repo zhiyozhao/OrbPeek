@@ -184,11 +184,12 @@ final class ManagedWindow {
     }
 
     // Stop tracking. A still-docked window is brought back flush first so it is
-    // never left invisible; a peeked (or still-visible docking) window stays.
-    func cancel() {
+    // never left invisible — unless `leaveInPlace`, used when something
+    // external already moved the window somewhere visible on purpose.
+    func cancel(leaveInPlace: Bool = false) {
         guard valid else { return }
         transition?.cancel()
-        if phase == .docked, let frame = window.frame, let delegate,
+        if !leaveInPlace, phase == .docked, let frame = window.frame, let delegate,
            let screen = dockScreen(in: delegate.geometry) {
             moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         }
@@ -282,10 +283,18 @@ final class ManagedWindow {
                 }
             }
         case .docked:
-            // Snap back to the hidden position if it was moved externally.
             let target = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
-            if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
-                moveTo(target)
+            let drift = max(abs(frame.origin.x - target.x), abs(frame.origin.y - target.y))
+            if drift > config.dockCancelPx {
+                // Something external deliberately moved the window away — the
+                // user wants it there, so release the dock instead of fighting
+                // over the position every tick.
+                Log.info("docked window moved externally, releasing edge=\(edge)")
+                cancel(leaveInPlace: true)
+                return false
+            }
+            if drift > 2 {
+                moveTo(target) // minor drift — snap back
             }
             // Keep the strip in sync (e.g. sliverPx changed in settings):
             // re-crop from the full-image cache at the new thickness, else
