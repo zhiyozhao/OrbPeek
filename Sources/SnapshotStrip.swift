@@ -53,15 +53,15 @@ final class SnapshotStrip: NSPanel {
     // that correspond to the window's rounded corners so the live backdrop
     // shows through, like a real window edge.
     //
-    // The radius isn't queryable; 16pt matches titlebar windows on macOS 26
-    // (toolbar/sidebar windows use 20–26pt — slightly under-clipped there, but
-    // 16 is exact for plain windows). Points are resolution-independent; no
+    // The radius isn't queryable; 10pt matches titlebar-only windows on
+    // macOS 26 (measured from real captures; toolbar/sidebar windows use a
+    // larger ~16–26pt squircle). Points are resolution-independent; no
     // display-scale handling needed. The rect is extended by 2r on the square
     // side so CGPath's radius cap (half the smaller side) never shrinks the
     // arc on thin strips.
     private func applyCornerMask(edge: DockEdge) {
         guard let bounds = contentView?.bounds, bounds.width > 0, bounds.height > 0 else { return }
-        let r: CGFloat = 16
+        let r: CGFloat = 10
         var rect = bounds
         switch edge {
         case .up: rect.size.height += 2 * r // window's bottom edge -> round bottom corners
