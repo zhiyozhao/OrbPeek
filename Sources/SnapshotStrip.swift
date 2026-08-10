@@ -52,15 +52,20 @@ final class SnapshotStrip: NSPanel {
     // dark blocks when the strip is displayed at the edge. Clip the corners
     // that correspond to the window's rounded corners so the live backdrop
     // shows through, like a real window edge.
+    //
+    // The radius isn't queryable; ~16pt matches titlebar windows on macOS 26
+    // (toolbar/sidebar windows use 20–26pt — close enough at this size). The
+    // rect is extended by 2r on the square side so CGPath's radius cap (half
+    // the smaller side) never shrinks the arc on thin strips.
     private func applyCornerMask(edge: DockEdge) {
         guard let bounds = contentView?.bounds, bounds.width > 0, bounds.height > 0 else { return }
-        let r = min(12, bounds.width / 2, bounds.height / 2)
+        let r: CGFloat = 16
         var rect = bounds
         switch edge {
-        case .up: rect.size.height += r // window's bottom edge -> round bottom corners
-        case .down: rect.origin.y -= r; rect.size.height += r // title bar -> round top corners
-        case .left: rect.origin.x -= r; rect.size.width += r // window's right edge -> round right corners
-        case .right: rect.size.width += r // window's left edge -> round left corners
+        case .up: rect.size.height += 2 * r // window's bottom edge -> round bottom corners
+        case .down: rect.origin.y -= 2 * r; rect.size.height += 2 * r // title bar -> round top corners
+        case .left: rect.origin.x -= 2 * r; rect.size.width += 2 * r // window's right edge -> round right corners
+        case .right: rect.size.width += 2 * r // window's left edge -> round left corners
         }
         let mask = CAShapeLayer()
         mask.path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
