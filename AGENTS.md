@@ -21,7 +21,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 ## Permissions
 
 - **Accessibility** (`AXWindow.isProcessTrusted`) — required for moving/resizing windows; prompted at launch, status shown in the status-bar menu.
-- **Screen Recording** — only needed for up/down docks (`DockEdge.isFake`), which use a captured `SnapshotStrip` handle because macOS won't let a titled window leave the top/bottom screen edge.
+- **Screen Recording** — needed for fake-strip docks: up/down always, plus left/right on screen edges that are NOT the desktop's outer edge (a window can't leave the desktop there). The strip is a captured `SnapshotStrip` handle because macOS won't let a titled window leave those edges.
 
 ## State & paths
 
@@ -35,7 +35,8 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - **Main-thread model is enforced at compile time**: `OrbPeekController`, `ManagedWindow`, `SliceCapturer`, and the `WindowDockDelegate` protocol are all `@MainActor`. Nonisolated callbacks (Timer, `NSEvent` monitors, hotkey/signal handlers) hop to the main actor via `Task { @MainActor in ... }` — follow that pattern for any new callback.
 - **Phase transitions are the only place `ManagedWindow.phase` changes**, and each transition resets transient dwell state (`DwellTracker`) — put phase changes in transitions, not in `evaluate`.
 - Coordinate gotcha: AX frames are top-left origin, `NSEvent.mouseLocation` is bottom-left. Always convert through `WindowGeometry.toQuartz`/`toAppKit`; never mix spaces (geometry functions return `CGPoint?`/`CGRect` computed from `outerScreen`, which falls back safely when no screen is found).
-- Dock edges: left/right use the window's own visible sliver; up/down use the fake snapshot strip. `sliverRect` computes the hover hit region; `sliverLength` is the size along the sliver used to pick the smallest window on overlap.
+- Dock edges are **per-screen**: each window records its dock screen (`ManagedWindow.dockScreenID`, picked from the on-screen frame at dock time). left/right use the window's own visible sliver only on the desktop's outer edges; up/down and middle edges use the fake snapshot strip (`isFakeEdge`). `sliverRect` computes the hover hit region (thickness = `sliverPx` real / `fakeSliverPx` fake); `sliverLength` is the size along the sliver used to pick the smallest window on overlap.
+- Re-docking a hidden window: the live frame is the parked position, so perp comes from `restoreFrame` and the dock screen is kept as-is — never derive either from the parked frame.
 - `SliceCapturer` caches `SCShareableContent` and only refreshes when the cached window frame no longer matches — stale window lists are a known cause of slow/missing fake-strip captures.
 - `SCScreenshotManager.captureImage` **randomly stalls ~1s** (observed on visible and parked windows alike) — never let the strip wait on a capture: show the `CGWindowID`-keyed cached slice instantly, refresh captures fire on peek (window visible) and dockBack, and a placeholder appears only if a cold capture exceeds 250ms.
 - On SIGTERM/SIGINT/terminate, docked windows are restored via `restoreAll()` before exit.

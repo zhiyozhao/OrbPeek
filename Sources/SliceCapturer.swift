@@ -71,14 +71,18 @@ final class SliceCapturer {
             guard let win = try await window(withID: windowID, matching: frame) else { return nil }
             let t1 = Date()
             let filter = SCContentFilter(desktopIndependentWindow: win)
+            // The slice opposite the dock edge (down shows the title bar;
+            // left/right show the far vertical edge) — most recognizable.
             let sliceRect: CGRect
             switch edge {
             case .up:
                 sliceRect = CGRect(x: 0, y: frame.height - sliceThickness, width: frame.width, height: sliceThickness)
             case .down:
                 sliceRect = CGRect(x: 0, y: 0, width: frame.width, height: sliceThickness)
-            default:
-                return nil
+            case .left:
+                sliceRect = CGRect(x: frame.width - sliceThickness, y: 0, width: sliceThickness, height: frame.height)
+            case .right:
+                sliceRect = CGRect(x: 0, y: 0, width: sliceThickness, height: frame.height)
             }
             let cfg = SCStreamConfiguration()
             cfg.sourceRect = sliceRect

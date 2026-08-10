@@ -30,13 +30,21 @@ final class ManagedWindow {
     let id = UUID()
     weak var delegate: WindowDockDelegate?
 
-    // Which edge the window is docked to (left/right real sliver, up/down fake).
+    // Which edge the window is docked to.
     private(set) var edge: DockEdge
+    // The screen whose edge the window is docked to (stable display ID, so
+    // screen hot-plug falls back gracefully). Picked from the window's frame
+    // whenever the window is on-screen; kept as-is when re-docking hidden,
+    // because a parked frame resolves to the wrong screen.
+    private var dockScreenID: CGDirectDisplayID?
+    // Whether this dock uses the fake snapshot strip (up/down always; left/
+    // right when another screen sits beyond the edge). Set on every dock.
+    private(set) var isFake = false
     // Preserved coordinate along the perpendicular axis — never moved when docking.
     var perp: CGFloat = 0
     // The on-screen frame at dock time, used to restore on quit.
     var restoreFrame: CGRect = .zero
-    // The fake snapshot strip handle, only for up/down docks.
+    // The fake snapshot strip handle, only for fake-edge docks.
     private var fakeStrip: SnapshotStrip?
 
     private(set) var phase: Phase = .docked
@@ -58,6 +66,18 @@ final class ManagedWindow {
 
     var appName: String { delegate?.nameForWindow(window) ?? "窗口" }
 
+    // The stored dock screen, with fallbacks if it was unplugged.
+    func dockScreen(in geometry: WindowGeometry) -> NSScreen? {
+        if let id = dockScreenID, let s = geometry.screen(withDisplayID: id) { return s }
+        return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    // Handle thickness: the window's own slice for real left/right docks, the
+    // fake strip for fake docks.
+    func sliverThickness(_ config: Config) -> CGFloat {
+        isFake ? config.fakeSliverPx : config.sliverPx
+    }
+
     // MARK: Transitions
 
     // Dock (hide off the edge). `newEdge` re-docks to a different edge; nil
@@ -66,23 +86,30 @@ final class ManagedWindow {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         if let newEdge { edge = newEdge }
+        let geometry = delegate.geometry
+        if dockScreenID == nil || phase == .peeked, let screen = geometry.screen(containing: frame) {
+            dockScreenID = geometry.displayID(of: screen)
+        }
+        guard let screen = dockScreen(in: geometry) else { return }
+        isFake = geometry.isFakeEdge(edge, on: screen)
         window.unminimize()
         phase = .docked
         dwell.reset()
-        if edge.isFake {
+        if isFake {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
             showFakeStrip(frame: frame)
         } else {
             detachStrip()
         }
-        moveTo(delegate.geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, sliver: delegate.config.sliverPx))
-        Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
+        moveTo(geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
+        Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge) fake=\(isFake)")
     }
 
     // Show flush against the edge.
     func peek() {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
+        guard let screen = dockScreen(in: delegate.geometry) else { return }
         window.unminimize()
         phase = .peeked
         dwell.reset()
@@ -91,7 +118,7 @@ final class ManagedWindow {
         refreshSliceCache(frame: frame)
         window.raise()
         delegate.activate(window: window)
-        moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp))
+        moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         Log.info("peek applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
@@ -103,8 +130,9 @@ final class ManagedWindow {
     // never left invisible; a peeked window stays where it is.
     func cancel() {
         guard valid else { return }
-        if phase == .docked, let frame = window.frame, let delegate {
-            moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp))
+        if phase == .docked, let frame = window.frame, let delegate,
+           let screen = dockScreen(in: delegate.geometry) {
+            moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         }
         detachStrip()
         valid = false
@@ -115,11 +143,12 @@ final class ManagedWindow {
     // the new parallel position.
     func checkDragOut() {
         guard phase == .peeked, let frame = window.frame, let delegate else { return }
-        if let distance = delegate.geometry.distanceFromDockEdge(frame, edge: edge),
-           distance > delegate.config.dockCancelPx {
+        let geometry = delegate.geometry
+        guard let screen = dockScreen(in: geometry) else { return }
+        if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > delegate.config.dockCancelPx {
             cancel()
         } else {
-            perp = delegate.geometry.dockPerp(for: edge, frame: frame)
+            perp = geometry.dockPerp(for: edge, frame: frame)
         }
     }
 
@@ -150,8 +179,9 @@ final class ManagedWindow {
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
         let config = delegate.config
+        guard let screen = dockScreen(in: geometry) else { return }
         let stripFrame = geometry.toAppKit(
-            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, sliver: config.sliverPx, fakeSliver: config.fakeSliverPx)
+            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.fakeSliverPx)
         )
         guard let pid = window.pid,
               let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
@@ -185,7 +215,7 @@ final class ManagedWindow {
     // captures of a parked (1px-visible) window can stall ~1s inside
     // ScreenCaptureKit, so the cache is only trustworthy when filled here.
     private func refreshSliceCache(frame: CGRect) {
-        guard edge.isFake, let delegate,
+        guard isFake, let delegate,
               let pid = window.pid,
               let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
         let capturer = delegate.capturer
@@ -210,14 +240,15 @@ final class ManagedWindow {
 
         let config = delegate.config
         let geometry = delegate.geometry
+        guard let screen = dockScreen(in: geometry) else { return false }
 
         switch phase {
         case .peeked:
             perp = geometry.dockPerp(for: edge, frame: frame)
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
             dwell.noteHover(inWin, touchDwell: config.touchDwell, now: now)
-            let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp,
-                                             sliver: config.sliverPx, fakeSliver: config.fakeSliverPx)
+            let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
+                                             thickness: sliverThickness(config))
             let onSliver = sliver.insetBy(dx: -6, dy: -6).contains(mouseQ)
             // A short settle window right after peeking, so none of the hide
             // conditions below fire while the user is still approaching.
@@ -230,20 +261,21 @@ final class ManagedWindow {
             }
         case .docked:
             // Snap back to the hidden position if it was moved externally.
-            if let target = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, sliver: config.sliverPx),
+            if let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
+                                                    screen: screen, sliver: config.sliverPx),
                abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)
             }
             // Hover the handle to slide in (smallest window wins on overlap).
-            let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp,
-                                             sliver: config.sliverPx, fakeSliver: config.fakeSliverPx)
+            let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
+                                             thickness: sliverThickness(config))
             if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
                 if dwell.sliverSince == nil {
                     dwell.sliverSince = now
-            } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
-                Log.info("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
-                peek()
-            }
+                } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
+                    Log.info("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
+                    peek()
+                }
             } else {
                 dwell.sliverSince = nil
             }

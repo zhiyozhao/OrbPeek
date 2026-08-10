@@ -247,8 +247,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard let frame = window.frame, frame.size.width > 0, frame.size.height > 0 else { return }
 
         if let existing = managed.first(where: { CFEqual($0.window.element, window.element) }) {
-            // Re-dock to a new edge.
-            existing.perp = geometry.dockPerp(for: edge, frame: frame)
+            // Re-dock to a new edge. A still-hidden window's live frame is the
+            // parked position — derive the perpendicular coordinate from the
+            // original on-screen frame instead.
+            let basis = existing.phase.isDocked ? existing.restoreFrame : frame
+            existing.perp = geometry.dockPerp(for: edge, frame: basis)
             existing.dock(to: edge)
             rebuildMenu()
             return
@@ -314,9 +317,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard let f = m.window.frame else { return false }
         let thisSize = geometry.sliverLength(edge: m.edge, size: f.size)
         for other in managed where other !== m && other.phase.isDocked {
-            guard let of = other.window.frame else { continue }
+            guard let of = other.window.frame, let oscreen = other.dockScreen(in: geometry) else { continue }
             let sliver = geometry.sliverRect(edge: other.edge, size: of.size, perp: other.perp,
-                                             sliver: config.sliverPx, fakeSliver: config.fakeSliverPx)
+                                             screen: oscreen, thickness: other.sliverThickness(config))
             guard sliver.insetBy(dx: -6, dy: -6).contains(q) else { continue }
             let otherSize = geometry.sliverLength(edge: other.edge, size: of.size)
             if otherSize < thisSize || (otherSize == thisSize && other.id < m.id) {

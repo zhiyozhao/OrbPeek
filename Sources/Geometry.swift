@@ -1,12 +1,13 @@
 import AppKit
 
 // Edge a window can be docked to. macOS keeps a titled window's title bar
-// on-screen, so the top/bottom edges use a fake snapshot sliver as the handle
-// (left/right use the window's own visible slice).
+// on-screen, so top/bottom docks always use a fake snapshot strip as the
+// handle. Left/right docks use the window's own visible slice when the screen
+// edge is also the desktop's outer edge; when another screen sits beyond the
+// edge (e.g. the right edge of the left monitor) the window can't leave the
+// desktop there, so those docks use the fake strip too.
 enum DockEdge {
     case left, right, up, down
-
-    var isFake: Bool { self == .up || self == .down }
 
     // The axis the window is moved along when docking/peeking.
     var slideAxis: Axis {
@@ -48,19 +49,44 @@ struct WindowGeometry {
         return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
     }
 
-    // The screen at the desktop's outer edge in the dock direction. For up/down
-    // this is the screen under the window's perpendicular (x), resolved in
-    // quartz space so multi-monitor origin offsets can't pick the wrong screen.
-    func outerScreen(for edge: DockEdge, perp: CGFloat) -> NSScreen? {
-        let screens = NSScreen.screens
-        guard !screens.isEmpty else { return nil }
+    // A screen's full frame in quartz coordinates.
+    func quartzFrame(of screen: NSScreen) -> CGRect {
+        let f = screen.frame
+        return CGRect(x: f.minX, y: desktopFrame.maxY - f.maxY, width: f.width, height: f.height)
+    }
+
+    // The screen a quartz frame mostly sits on (largest intersection; falls
+    // back to origin containment, then the main screen).
+    func screen(containing frame: CGRect) -> NSScreen? {
+        var best: NSScreen?
+        var bestArea: CGFloat = 0
+        for s in NSScreen.screens {
+            let inter = quartzFrame(of: s).intersection(frame)
+            let area = inter.isNull ? 0 : inter.width * inter.height
+            if area > bestArea { best = s; bestArea = area }
+        }
+        if let best { return best }
+        return NSScreen.screens.first { quartzFrame(of: $0).contains(frame.origin) }
+            ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    // Stable identity for a screen (survives NSScreen object churn).
+    func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    func screen(withDisplayID id: CGDirectDisplayID) -> NSScreen? {
+        NSScreen.screens.first { displayID(of: $0) == id }
+    }
+
+    // Whether a dock to this edge of this screen needs the fake strip: always
+    // for up/down (title-bar constraint); for left/right only when another
+    // screen sits further out, so the window can't leave the desktop there.
+    func isFakeEdge(_ edge: DockEdge, on screen: NSScreen) -> Bool {
         switch edge {
-        case .left: return screens.min { $0.frame.minX < $1.frame.minX }
-        case .right: return screens.max { $0.frame.maxX < $1.frame.maxX }
-        case .up, .down:
-            let appKitX = perp + desktopFrame.minX
-            return screens.first { $0.frame.contains(CGPoint(x: appKitX, y: $0.frame.midY)) }
-                ?? NSScreen.main ?? screens.first
+        case .up, .down: return true
+        case .left: return screen.frame.minX > desktopFrame.minX + 0.5
+        case .right: return screen.frame.maxX < desktopFrame.maxX - 0.5
         }
     }
 
@@ -82,28 +108,33 @@ struct WindowGeometry {
         }
     }
 
-    // Where the window sits while hidden, for any edge:
-    // - LEFT/RIGHT: mostly past the outer edge, leaving `sliver` px of the
-    //   window visible (the handle).
-    // - UP/DOWN: the real window tucks off the desktop's right outer edge
-    //   leaving a 1px sliver (macOS keeps ~40px visible if fully off, but
-    //   allows 1px). The fake strip at the top/bottom is the real handle; its
-    //   y matches the peek position so the window only slides horizontally
-    //   when recalled.
-    func hiddenPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, sliver: CGFloat) -> CGPoint? {
-        guard let screen = outerScreen(for: edge, perp: perp) else { return nil }
+    // Where the window sits while hidden:
+    // - real LEFT/RIGHT (a desktop outer edge): mostly past the edge, leaving
+    //   `sliver` px of the window visible (the handle).
+    // - fake edges: the window parks off the desktop's right outer edge with
+    //   1px visible (macOS keeps ~40px visible if fully off, but allows 1px);
+    //   the fake strip on the dock screen is the real handle. y matches the
+    //   peek position so the window only slides horizontally when recalled.
+    func hiddenPosition(for edge: DockEdge, fake: Bool, size: CGSize, perp: CGFloat, screen: NSScreen, sliver: CGFloat) -> CGPoint? {
         let v = quartzVisibleFrame(of: screen)
+        if fake {
+            let y: CGFloat
+            switch edge {
+            case .up: y = v.minY
+            case .down: y = v.maxY - size.height
+            case .left, .right: y = perp
+            }
+            return CGPoint(x: desktopFrame.maxX - 1, y: y)
+        }
         switch edge {
         case .left: return CGPoint(x: v.minX - size.width + sliver, y: perp)
         case .right: return CGPoint(x: v.maxX - sliver, y: perp)
-        case .up: return CGPoint(x: desktopFrame.maxX - 1, y: v.minY)
-        case .down: return CGPoint(x: desktopFrame.maxX - 1, y: v.maxY - size.height)
+        case .up, .down: return nil // up/down are always fake
         }
     }
 
     // Flush position the window slides back to when peeked.
-    func peekPosition(for edge: DockEdge, size: CGSize, perp: CGFloat) -> CGPoint? {
-        guard let screen = outerScreen(for: edge, perp: perp) else { return nil }
+    func peekPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen) -> CGPoint? {
         let v = quartzVisibleFrame(of: screen)
         switch edge {
         case .left: return CGPoint(x: v.minX, y: perp)
@@ -114,22 +145,21 @@ struct WindowGeometry {
     }
 
     // The handle rect (what you hover to peek): the window's own slice for
-    // left/right, or the fake snapshot strip's frame for up/down.
-    func sliverRect(edge: DockEdge, size: CGSize, perp: CGFloat, sliver: CGFloat, fakeSliver: CGFloat) -> CGRect {
-        guard let screen = outerScreen(for: edge, perp: perp) else { return .zero }
+    // real left/right (thickness = sliverPx), or the fake strip's frame for
+    // fake edges (thickness = fakeSliverPx).
+    func sliverRect(edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen, thickness: CGFloat) -> CGRect {
         let v = quartzVisibleFrame(of: screen)
         switch edge {
-        case .left: return CGRect(x: v.minX, y: perp, width: sliver, height: size.height)
-        case .right: return CGRect(x: v.maxX - sliver, y: perp, width: sliver, height: size.height)
-        case .up: return CGRect(x: perp, y: v.minY, width: size.width, height: fakeSliver)
-        case .down: return CGRect(x: perp, y: v.maxY - fakeSliver, width: size.width, height: fakeSliver)
+        case .left: return CGRect(x: v.minX, y: perp, width: thickness, height: size.height)
+        case .right: return CGRect(x: v.maxX - thickness, y: perp, width: thickness, height: size.height)
+        case .up: return CGRect(x: perp, y: v.minY, width: size.width, height: thickness)
+        case .down: return CGRect(x: perp, y: v.maxY - thickness, width: size.width, height: thickness)
         }
     }
 
     // How far a window's docked-side edge sits off its docked edge (used to
     // decide whether the user dragged it out of the dock).
-    func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge) -> CGFloat? {
-        guard let screen = outerScreen(for: edge, perp: frame.minX) else { return nil }
+    func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge, screen: NSScreen) -> CGFloat {
         let v = quartzVisibleFrame(of: screen)
         switch edge {
         case .left: return frame.minX - v.minX
