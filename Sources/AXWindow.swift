@@ -75,6 +75,16 @@ final class AXWindow {
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
+    // Bring the owning app frontmost and make this window its main window.
+    // AX-level activation — reliable regardless of our own app's activation
+    // state, unlike NSRunningApplication.activate which can silently no-op.
+    func activate() {
+        guard let pid else { return }
+        let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(axApp, kAXMainWindowAttribute as CFString, element)
+    }
+
     var title: String? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &v) == .success else { return nil }
