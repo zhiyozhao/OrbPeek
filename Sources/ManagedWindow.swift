@@ -11,6 +11,7 @@ protocol WindowDockDelegate: AnyObject {
     var capturer: SliceCapturer { get }
     func nameForWindow(_ window: AXWindow) -> String
     func activate(window: AXWindow)
+    func isFrontmost(_ window: AXWindow) -> Bool
     func removeManaged(_ m: ManagedWindow)
 }
 
@@ -43,9 +44,6 @@ final class ManagedWindow {
     // whenever the window is on-screen; kept as-is when re-docking hidden,
     // because a parked frame resolves to the wrong screen.
     private var dockScreenID: CGDirectDisplayID?
-    // Whether this dock uses the fake snapshot strip (up/down always; left/
-    // right when another screen sits beyond the edge). Set on every dock.
-    private(set) var isFake = false
     // Preserved coordinate along the perpendicular axis — never moved when docking.
     var perp: CGFloat = 0
     // The on-screen frame at dock time, used to restore on quit.
@@ -98,14 +96,13 @@ final class ManagedWindow {
             dockScreenID = geometry.displayID(of: screen)
         }
         guard let screen = dockScreen(in: geometry) else { return }
-        isFake = geometry.isFakeEdge(edge, on: screen)
         window.unminimize()
         dwell.reset()
         phase = .docking
         transition = Task { [weak self] in
             await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
         }
-        Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge) fake=\(isFake)")
+        Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
     // The async half of every dock: while the window is still on screen,
@@ -129,39 +126,34 @@ final class ManagedWindow {
         let stripFrame = geometry.toAppKit(
             geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
         )
-        let hiddenPos = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
-                                                screen: screen, sliver: config.sliverPx)
+        let hiddenPos = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
         let wid = window.pid.flatMap { capturer.windowID(for: $0, matching: frame) }
         let cached = wid.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size) }
 
-        if isFake {
-            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-        } else {
-            detachStrip()
-        }
+        if fakeStrip == nil { fakeStrip = SnapshotStrip() }
 
         if wasHidden {
             moveTo(hiddenPos)
             phase = .docked
-            if isFake, let fakeStrip {
-                Log.info("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
-                fakeStrip.show(image: cached, frame: stripFrame, edge: edge) // cached or placeholder
-            }
+            Log.info("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
+            fakeStrip?.show(image: cached, frame: stripFrame, edge: edge) // cached or placeholder
             return
         }
 
-        let slices = await withTimeout(0.3) { [dockScreenID] in
-            await capturer.captureAllSlices(frame: frame, displayID: dockScreenID, windowID: wid, thickness: config.sliverPx)
-        }
+        // Only capture when the window is frontmost — a dockBack triggered by
+        // focus loss can find another window already covering the region, and
+        // a composited display capture would then photograph the WRONG window.
+        let canCapture = delegate.isFrontmost(window)
+        let slices = canCapture
+            ? await withTimeout(0.3) { [dockScreenID] in
+                await capturer.captureAllSlices(frame: frame, displayID: dockScreenID, windowID: wid, thickness: config.sliverPx)
+            }
+            : nil
         if Task.isCancelled { return }
         moveTo(hiddenPos)
         phase = .docked
-        guard isFake, let fakeStrip else { return }
-        if let image = slices?[edge] ?? cached {
-            fakeStrip.show(image: image, frame: stripFrame, edge: edge)
-        } else {
-            fakeStrip.show(image: nil, frame: stripFrame, edge: edge)
-        }
+        guard let fakeStrip else { return }
+        fakeStrip.show(image: slices?[edge] ?? cached, frame: stripFrame, edge: edge)
     }
 
     // Show flush against the edge.
@@ -285,9 +277,8 @@ final class ManagedWindow {
             }
         case .docked:
             // Snap back to the hidden position if it was moved externally.
-            if let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
-                                                    screen: screen, sliver: config.sliverPx),
-               abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
+            let target = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
+            if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)
             }
             // Hover the handle to slide in (smallest window wins on overlap).
