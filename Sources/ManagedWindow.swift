@@ -50,6 +50,10 @@ final class ManagedWindow {
     // on screen, so parking waits for it (bounded by a timeout). While set, the
     // poll's snap-back must not fire.
     private var parking = false
+    // Bumped on every dock — capture/timeout tasks from an older dock are
+    // discarded, so rapid re-docks can't apply a stale strip frame or park
+    // position out of order.
+    private var dockGeneration = 0
 
     private(set) var phase: Phase = .docked
 
@@ -83,6 +87,7 @@ final class ManagedWindow {
     func dock(to newEdge: DockEdge? = nil) {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
+        let wasHidden = dockScreenID != nil && phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
         if dockScreenID == nil || phase == .peeked, let screen = geometry.screen(containing: frame) {
@@ -90,12 +95,13 @@ final class ManagedWindow {
         }
         guard let screen = dockScreen(in: geometry) else { return }
         isFake = geometry.isFakeEdge(edge, on: screen)
+        dockGeneration += 1
         window.unminimize()
         phase = .docked
         dwell.reset()
         if isFake {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            showFakeStripAndPark(frame: frame, screen: screen)
+            showFakeStripAndPark(frame: frame, screen: screen, wasHidden: wasHidden)
         } else {
             detachStrip()
             moveTo(geometry.hiddenPosition(for: edge, fake: false, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
@@ -135,6 +141,7 @@ final class ManagedWindow {
         }
         detachStrip()
         valid = false
+        Log.info("cancel edge=\(edge)")
         delegate?.removeManaged(self)
     }
 
@@ -177,7 +184,7 @@ final class ManagedWindow {
     // flow is simply: capture -> park -> show strip. `parking` suppresses the
     // poll's snap-back meanwhile; the timeout is the backstop against stalls.
     // Tasks inherit MainActor, so the strip is only ever touched on the main thread.
-    private func showFakeStripAndPark(frame: CGRect, screen: NSScreen) {
+    private func showFakeStripAndPark(frame: CGRect, screen: NSScreen, wasHidden: Bool) {
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
         let config = delegate.config
@@ -186,15 +193,23 @@ final class ManagedWindow {
         )
         let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
                                                 screen: screen, sliver: config.sliverPx)
+        // A hidden window being re-docked is off-screen — move it to the new
+        // edge's peek position first so the capture has real content.
+        var captureFrame = frame
+        if wasHidden, let peekPos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen) {
+            moveTo(peekPos)
+            captureFrame = CGRect(origin: peekPos, size: frame.size)
+        }
         parking = true
-        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx)
+        let gen = dockGeneration
+        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: captureFrame, thickness: config.sliverPx)
         let displayID = dockScreenID
         let edge = edge
         let capturer = delegate.capturer
 
         Task { [weak self, weak fakeStrip] in
             let image = await capturer.captureSlice(screenRect: sliceRect, displayID: displayID)
-            guard let self, self.valid else { return }
+            guard let self, self.valid, gen == self.dockGeneration else { return }
             if self.parking {
                 self.parking = false
                 self.moveTo(hiddenPos)
@@ -210,7 +225,7 @@ final class ManagedWindow {
         }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
-            guard let self, self.valid, self.parking else { return }
+            guard let self, self.valid, self.parking, gen == self.dockGeneration else { return }
             Log.info("park after capture timeout edge=\(edge)")
             self.parking = false
             self.moveTo(hiddenPos)
@@ -224,6 +239,7 @@ final class ManagedWindow {
         guard valid, let delegate else { return false }
         guard let frame = window.frame else {
             nilCount += 1
+            if nilCount > 30 { Log.info("window frame unreadable, dropping edge=\(edge)") }
             return nilCount > 30
         }
         nilCount = 0

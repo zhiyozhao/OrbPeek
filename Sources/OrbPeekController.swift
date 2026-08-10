@@ -269,6 +269,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     func removeManaged(_ m: ManagedWindow) {
         m.detachStrip()
         managed.removeAll { $0 === m }
+        Log.info("removed managed window, total=\(managed.count)")
         rebuildMenu()
     }
 
