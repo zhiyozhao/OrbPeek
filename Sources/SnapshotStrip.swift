@@ -30,8 +30,13 @@ final class SnapshotStrip: NSPanel {
     // The currently displayed capture, if any.
     var image: NSImage? { imageView.image }
 
+    // The strip thickness the current image/frame was laid out with — used to
+    // detect sliverPx changes and re-crop.
+    private(set) var thickness: CGFloat = 0
+
     func show(image: NSImage?, frame: NSRect, edge: DockEdge) {
         hasContent = image != nil
+        thickness = edge.slideAxis == .vertical ? frame.height : frame.width
         if let image {
             imageView.image = image
             imageView.imageScaling = .scaleAxesIndependently
@@ -82,6 +87,7 @@ final class SnapshotStrip: NSPanel {
     // Move/resize the strip without touching its image (e.g. the user changed
     // the strip width in settings while windows are docked).
     func updateFrame(_ frame: NSRect, edge: DockEdge) {
+        thickness = edge.slideAxis == .vertical ? frame.height : frame.width
         setFrame(frame, display: true)
         applyCornerMask(edge: edge)
     }

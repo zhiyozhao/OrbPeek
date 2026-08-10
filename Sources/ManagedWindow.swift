@@ -48,8 +48,10 @@ final class ManagedWindow {
     var perp: CGFloat = 0
     // The on-screen frame at dock time, used to restore on quit.
     var restoreFrame: CGRect = .zero
-    // The fake snapshot strip handle, only for fake-edge docks.
+    // The fake snapshot strip handle.
     private var fakeStrip: SnapshotStrip?
+    // The window's CGWindowID (stable for its lifetime), resolved on first dock.
+    private var windowID: CGWindowID?
     // The in-flight transition task (only fake docks are async — they capture
     // before parking). A new transition cancels it.
     private var transition: Task<Void, Never>?
@@ -127,8 +129,10 @@ final class ManagedWindow {
             geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
         )
         let hiddenPos = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
-        let wid = window.pid.flatMap { capturer.windowID(for: $0, matching: frame) }
-        let cached = wid.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size) }
+        if windowID == nil {
+            windowID = window.pid.flatMap { capturer.windowID(for: $0, matching: frame) }
+        }
+        let cached = windowID.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size, thickness: config.sliverPx) }
 
         if fakeStrip == nil { fakeStrip = SnapshotStrip() }
 
@@ -144,16 +148,17 @@ final class ManagedWindow {
         // focus loss can find another window already covering the region, and
         // a composited display capture would then photograph the WRONG window.
         let canCapture = delegate.isFrontmost(window)
-        let slices = canCapture
-            ? await withTimeout(0.3) { [dockScreenID] in
-                await capturer.captureAllSlices(frame: frame, displayID: dockScreenID, windowID: wid, thickness: config.sliverPx)
+        let fullImage = canCapture
+            ? await withTimeout(0.3) { [dockScreenID, windowID] in
+                await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
             }
             : nil
         if Task.isCancelled { return }
         moveTo(hiddenPos)
         phase = .docked
         guard let fakeStrip else { return }
-        fakeStrip.show(image: slices?[edge] ?? cached, frame: stripFrame, edge: edge)
+        let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: frame.size, thickness: config.sliverPx) }
+        fakeStrip.show(image: fresh ?? cached, frame: stripFrame, edge: edge)
     }
 
     // Show flush against the edge.
@@ -246,6 +251,7 @@ final class ManagedWindow {
 
         let config = delegate.config
         let geometry = delegate.geometry
+        let capturer = delegate.capturer
         guard let screen = dockScreen(in: geometry) else { return false }
 
         switch phase {
@@ -281,12 +287,17 @@ final class ManagedWindow {
             if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)
             }
-            // Keep the strip frame in sync (e.g. sliverPx changed in settings).
+            // Keep the strip in sync (e.g. sliverPx changed in settings):
+            // re-crop from the full-image cache at the new thickness, else
+            // just update the frame.
             if let fakeStrip {
                 let expected = geometry.toAppKit(
                     geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
                 )
-                if fakeStrip.frame != expected {
+                if fakeStrip.thickness != config.sliverPx, let wid = windowID,
+                   let img = capturer.cachedSlice(for: wid, edge: edge, size: frame.size, thickness: config.sliverPx) {
+                    fakeStrip.show(image: img, frame: expected, edge: edge)
+                } else if fakeStrip.frame != expected {
                     fakeStrip.updateFrame(expected, edge: edge)
                 }
             }
