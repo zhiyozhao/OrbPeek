@@ -15,9 +15,9 @@ protocol WindowDockDelegate: AnyObject {
     func removeManaged(_ m: ManagedWindow)
 }
 
-// Per-window state machine. Phases: `.docked` (hidden, handle visible),
-// `.docking` (transitioning to docked — a fake dock's capture is in flight and
-// the window is still on screen), `.peeked` (shown flush against the edge).
+// Per-window state machine. Phases: `.idle` (created, never docked), `.docked`
+// (hidden, handle visible), `.docking` (transitioning to docked — capture in
+// flight, window still on screen), `.peeked` (shown flush against the edge).
 //
 // Transitions are the only places `phase` changes, and each transition resets
 // the transient dwell state. A transition is at most one in-flight Task per
@@ -27,7 +27,7 @@ protocol WindowDockDelegate: AnyObject {
 @MainActor
 final class ManagedWindow {
     enum Phase {
-        case docked, docking, peeked
+        case idle, docked, docking, peeked
         var isDocked: Bool { self == .docked }
         var isPeeked: Bool { self == .peeked }
     }
@@ -52,11 +52,11 @@ final class ManagedWindow {
     private var fakeStrip: SnapshotStrip?
     // The window's CGWindowID (stable for its lifetime), resolved on first dock.
     private var windowID: CGWindowID?
-    // The in-flight transition task (only fake docks are async — they capture
-    // before parking). A new transition cancels it.
+    // The in-flight transition task (docks are async — they capture before
+    // parking). A new transition cancels it.
     private var transition: Task<Void, Never>?
 
-    private(set) var phase: Phase = .docked
+    private(set) var phase: Phase = .idle
 
     // User is dragging the peeked window (native move/resize).
     var gesture = false
@@ -89,12 +89,13 @@ final class ManagedWindow {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         transition?.cancel()
-        // "Hidden" means a previous dock already parked the window. During
-        // .docking the window is still on screen, so it's not hidden.
-        let wasHidden = dockScreenID != nil && phase == .docked
+        // "Hidden" == parked by a previous dock. During .idle/.docking/.peeked
+        // the window is on screen.
+        let wasHidden = phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
-        if dockScreenID == nil || phase == .peeked, let screen = geometry.screen(containing: frame) {
+        // Re-pick the dock screen whenever the window is on screen.
+        if phase != .docked, let screen = geometry.screen(containing: frame) {
             dockScreenID = geometry.displayID(of: screen)
         }
         guard let screen = dockScreen(in: geometry) else { return }
@@ -179,23 +180,33 @@ final class ManagedWindow {
         Log.info("peek applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
-    func togglePeek() {
-        phase == .peeked ? dock(to: nil) : peek()
+    // Where the window is left when tracking stops.
+    enum ExitPosition {
+        case peek // pull back flush to the edge so it's visible (menu cancel)
+        case restore // the original pre-dock frame (quit / dropped window)
+        case leave // something external already put it somewhere visible
     }
 
-    // Stop tracking. A still-docked window is brought back flush first so it is
-    // never left invisible — unless `leaveInPlace`, used when something
-    // external already moved the window somewhere visible on purpose.
-    func cancel(leaveInPlace: Bool = false) {
+    // Stop tracking. The only terminal path — every exit (menu cancel, drag
+    // out, external takeover, window gone, quit) funnels through here.
+    func terminate(exit: ExitPosition) {
         guard valid else { return }
         transition?.cancel()
-        if !leaveInPlace, phase == .docked, let frame = window.frame, let delegate,
-           let screen = dockScreen(in: delegate.geometry) {
-            moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
+        switch exit {
+        case .peek:
+            // A parked window must be pulled back on screen first.
+            if phase == .docked, let frame = window.frame, let delegate,
+               let screen = dockScreen(in: delegate.geometry) {
+                moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
+            }
+        case .restore:
+            window.position = restoreFrame.origin
+        case .leave:
+            break
         }
         detachStrip()
         valid = false
-        Log.info("cancel edge=\(edge)")
+        Log.info("terminate edge=\(edge) exit=\(exit)")
         delegate?.removeManaged(self)
     }
 
@@ -206,13 +217,13 @@ final class ManagedWindow {
         let geometry = delegate.geometry
         guard let screen = dockScreen(in: geometry) else { return }
         if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > delegate.config.dockCancelPx {
-            cancel()
+            terminate(exit: .leave)
         } else {
             perp = geometry.dockPerp(for: edge, frame: frame)
         }
     }
 
-    // Restore on quit.
+    // Restore on quit (no removal — the controller tears down the list itself).
     func restore() {
         guard valid else { return }
         transition?.cancel()
@@ -235,25 +246,23 @@ final class ManagedWindow {
 
     // MARK: Poll evaluation
 
-    @discardableResult
-    func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) -> Bool {
-        guard valid, let delegate else { return false }
+    func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) {
+        guard valid, let delegate else { return }
         guard let frame = window.frame else {
             nilCount += 1
             if nilCount > 30 {
                 Log.info("window frame unreadable, dropping edge=\(edge)")
-                // Best effort: never leave a dropped window parked off-screen.
-                window.position = restoreFrame.origin
+                terminate(exit: .restore)
             }
-            return nilCount > 30
+            return
         }
         nilCount = 0
-        guard !gesture else { return false }
+        guard !gesture else { return }
 
         let config = delegate.config
         let geometry = delegate.geometry
         let capturer = delegate.capturer
-        guard let screen = dockScreen(in: geometry) else { return false }
+        guard let screen = dockScreen(in: geometry) else { return }
 
         switch phase {
         case .peeked:
@@ -272,8 +281,8 @@ final class ManagedWindow {
                 // treat like a drag-out: undock, leave the window where it is.
                 if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
                     Log.info("peeked window displaced externally, undocking edge=\(edge)")
-                    cancel()
-                    return false
+                    terminate(exit: .leave)
+                    return
                 }
                 let lostFocus = !frontmost
                 let touchedAndLeft = dwell.touched && !inWin
@@ -290,8 +299,8 @@ final class ManagedWindow {
                 // user wants it there, so release the dock instead of fighting
                 // over the position every tick.
                 Log.info("docked window moved externally, releasing edge=\(edge)")
-                cancel(leaveInPlace: true)
-                return false
+                terminate(exit: .leave)
+                return
             }
             if drift > 2 {
                 moveTo(target) // minor drift — snap back
@@ -337,12 +346,11 @@ final class ManagedWindow {
                 dwell.sliverSince = nil
                 dwell.slammed = false
             }
-        case .docking:
-            // Transition in flight: window still on screen, strip not shown
-            // yet — nothing to evaluate until it settles.
+        case .idle, .docking:
+            // Never docked yet, or a transition is in flight (window still on
+            // screen, strip not shown) — nothing to evaluate.
             break
         }
-        return false
     }
 }
 
