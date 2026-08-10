@@ -224,6 +224,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             window.title = "OrbPeek 设置"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
+            // Settings windows are opaque with the standard background —
+            // otherwise the desktop wallpaper bleeds through and warms the color.
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
             window.setContentSize(NSSize(width: 492, height: 430))
             window.center()
             settingsWindow = window
