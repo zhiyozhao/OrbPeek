@@ -293,7 +293,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     func activate(window: AXWindow) {
         guard let pid = window.pid,
               let app = NSRunningApplication(processIdentifier: pid) else { return }
-        app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+        // NB: activate(from:options:) needs the source to be the currently
+        // active app — we are an accessory and never are, so it silently fails
+        // and the peeked window stays buried. The simple form always works.
+        app.activate(options: [.activateAllWindows])
     }
 
     func isFrontmost(_ window: AXWindow) -> Bool {
