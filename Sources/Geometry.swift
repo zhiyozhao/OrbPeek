@@ -157,6 +157,21 @@ struct WindowGeometry {
         }
     }
 
+    // The screen-region (quartz) to capture for the strip image, given the
+    // window's current on-screen frame. Mimics what a real drag to that edge
+    // leaves visible: the title bar for up/down (macOS keeps it on screen),
+    // the adjacent vertical edge slice for left/right.
+    func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
+        switch edge {
+        case .up, .down:
+            return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: thickness)
+        case .left:
+            return CGRect(x: frame.minX, y: frame.minY, width: thickness, height: frame.height)
+        case .right:
+            return CGRect(x: frame.maxX - thickness, y: frame.minY, width: thickness, height: frame.height)
+        }
+    }
+
     // How far a window's docked-side edge sits off its docked edge (used to
     // decide whether the user dragged it out of the dock).
     func distanceFromDockEdge(_ frame: CGRect, edge: DockEdge, screen: NSScreen) -> CGFloat {

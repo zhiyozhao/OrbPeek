@@ -46,6 +46,10 @@ final class ManagedWindow {
     var restoreFrame: CGRect = .zero
     // The fake snapshot strip handle, only for fake-edge docks.
     private var fakeStrip: SnapshotStrip?
+    // A capture-then-park is in flight: the composited capture needs the window
+    // on screen, so parking waits for it (bounded by a timeout). While set, the
+    // poll's snap-back must not fire.
+    private var parking = false
 
     private(set) var phase: Phase = .docked
 
@@ -97,11 +101,11 @@ final class ManagedWindow {
         dwell.reset()
         if isFake {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            showFakeStrip(frame: frame)
+            showFakeStripAndPark(frame: frame, screen: screen)
         } else {
             detachStrip()
+            moveTo(geometry.hiddenPosition(for: edge, fake: false, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
         }
-        moveTo(geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
         Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge) fake=\(isFake)")
     }
 
@@ -110,12 +114,12 @@ final class ManagedWindow {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         guard let screen = dockScreen(in: delegate.geometry) else { return }
+        parking = false
         window.unminimize()
         phase = .peeked
         dwell.reset()
         dwell.shownSince = Date()
         fakeStrip?.hide()
-        refreshSliceCache(frame: frame)
         window.raise()
         delegate.activate(window: window)
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
@@ -130,6 +134,7 @@ final class ManagedWindow {
     // never left invisible; a peeked window stays where it is.
     func cancel() {
         guard valid else { return }
+        parking = false
         if phase == .docked, let frame = window.frame, let delegate,
            let screen = dockScreen(in: delegate.geometry) {
             moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
@@ -155,6 +160,7 @@ final class ManagedWindow {
     // Restore on quit.
     func restore() {
         guard valid else { return }
+        parking = false
         detachStrip()
         window.position = restoreFrame.origin
         valid = false
@@ -172,57 +178,57 @@ final class ManagedWindow {
         window.position = pos
     }
 
-    // Capture and show the fake strip handle (async — the cached slice shows
-    // instantly, the fresh capture lands after). The Task inherits MainActor,
-    // so the strip is only ever touched on the main thread.
-    private func showFakeStrip(frame: CGRect) {
+    // Show the fake strip handle, then capture-then-park: the composited
+    // display capture needs the window on screen, so parking waits for the
+    // capture (bounded by a timeout — a stall never leaves the window visible).
+    // Tasks inherit MainActor, so the strip is only ever touched on the main thread.
+    private func showFakeStripAndPark(frame: CGRect, screen: NSScreen) {
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
         let config = delegate.config
-        guard let screen = dockScreen(in: geometry) else { return }
         let stripFrame = geometry.toAppKit(
             geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.fakeSliverPx)
         )
+        let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
+                                                screen: screen, sliver: config.sliverPx)
         guard let pid = window.pid,
-              let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
+              let wid = delegate.capturer.windowID(for: pid, matching: frame) else {
+            moveTo(hiddenPos) // can't capture — just park
+            return
+        }
         if let cached = delegate.capturer.cachedSlice(for: wid, edge: edge) {
             Log.info("strip shown from cache edge=\(edge)")
             fakeStrip.show(image: cached, frame: stripFrame)
-        } else {
-            Log.info("strip waiting for capture edge=\(edge)")
-            // A cold capture occasionally stalls ~1s inside ScreenCaptureKit —
-            // show the placeholder if the real slice doesn't land quickly.
-            Task { [weak self, weak fakeStrip] in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                guard let self, let fakeStrip, self.phase == .docked, !fakeStrip.hasContent else { return }
+        }
+        parking = true
+        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.fakeSliverPx)
+        let displayID = dockScreenID
+        let edge = edge
+        let capturer = delegate.capturer
+
+        Task { [weak self, weak fakeStrip] in
+            let image = await capturer.captureSlice(screenRect: sliceRect, displayID: displayID, windowID: wid, edge: edge)
+            guard let self, self.valid else { return }
+            if self.parking {
+                self.parking = false
+                self.moveTo(hiddenPos)
+            }
+            // A capture can land after the user already peeked — never re-show
+            // the strip over a peeked window.
+            guard let fakeStrip, self.phase == .docked else { return }
+            if let image {
+                fakeStrip.show(image: image, frame: stripFrame)
+            } else if !fakeStrip.hasContent {
                 fakeStrip.show(image: nil, frame: stripFrame)
             }
         }
-        let edge = edge
-        let thickness = config.fakeSliverPx
-        let capturer = delegate.capturer
-        Task { [weak self, weak fakeStrip] in
-            let image = await capturer.captureSlice(of: wid, frame: frame, edge: edge, sliceThickness: thickness)
-            guard let self, let fakeStrip else { return }
-            // A slow capture can land after the user already peeked — never
-            // re-show the strip over a peeked window.
-            guard self.phase == .docked else { return }
-            fakeStrip.show(image: image, frame: stripFrame)
-        }
-    }
-
-    // Refresh the strip image cache while the window is fully on-screen —
-    // captures of a parked (1px-visible) window can stall ~1s inside
-    // ScreenCaptureKit, so the cache is only trustworthy when filled here.
-    private func refreshSliceCache(frame: CGRect) {
-        guard isFake, let delegate,
-              let pid = window.pid,
-              let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
-        let capturer = delegate.capturer
-        let thickness = delegate.config.fakeSliverPx
-        let edge = edge
-        Task {
-            _ = await capturer.captureSlice(of: wid, frame: frame, edge: edge, sliceThickness: thickness)
+        // Parking timeout: never leave the window on screen if a capture stalls.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, self.valid, self.parking else { return }
+            Log.info("park after capture timeout edge=\(edge)")
+            self.parking = false
+            self.moveTo(hiddenPos)
         }
     }
 
@@ -260,8 +266,11 @@ final class ManagedWindow {
                 dock(to: nil)
             }
         case .docked:
-            // Snap back to the hidden position if it was moved externally.
-            if let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
+            // Snap back to the hidden position if it was moved externally
+            // (but not while a capture-then-park is in flight — the window is
+            // deliberately still on screen then).
+            if !parking,
+               let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
                                                     screen: screen, sliver: config.sliverPx),
                abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)

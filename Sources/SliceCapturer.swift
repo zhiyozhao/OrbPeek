@@ -2,15 +2,17 @@ import AppKit
 import CoreGraphics
 import ScreenCaptureKit
 
-// ScreenCaptureKit-based capture of a window's edge slice, with a cached
-// SCShareableContent so we don't re-enumerate all windows on every capture.
+// ScreenCaptureKit-based capture of the strip image. Captures a REGION OF THE
+// DISPLAY (composited pixels — translucency, shadow and rounded corners all
+// look exactly as the real window does on screen), unlike a window-filter
+// capture which returns the raw, flattened surface. Display captures also
+// never hit the ~1s stalls that window-filter captures do on parked windows.
 @MainActor
 final class SliceCapturer {
     private var shareableContent: SCShareableContent?
-    // Last captured slice per window AND edge — up captures the window's
-    // bottom slice, down the top (title bar) slice, so the same window docked
-    // to a different edge must not reuse the other edge's image. Keyed by ID
-    // (not ManagedWindow) so the cache survives cancel/re-dock.
+    // Last captured slice per window AND edge — up/down show the title bar,
+    // left/right the adjacent vertical edge. Keyed by ID (not ManagedWindow)
+    // so the cache survives cancel/re-dock.
     private struct SliceKey: Hashable {
         let windowID: CGWindowID
         let edge: DockEdge
@@ -22,17 +24,13 @@ final class SliceCapturer {
         sliceCache[SliceKey(windowID: windowID, edge: edge)]
     }
 
-    // Warm the capture pipeline at launch so the first fake-strip capture
-    // doesn't pay the one-time enumeration/setup cost. The tiny capture is
-    // needed too: SCScreenshotManager.captureImage has its own ~130ms first-
-    // call pipeline setup that SCShareableContent prewarming alone doesn't cover.
+    // Warm the capture pipeline at launch so the first capture doesn't pay the
+    // one-time enumeration/setup cost.
     func prewarm() {
         Task {
-            guard let content = try? await refreshContent() else { return }
-            guard let win = content.windows.first(where: {
-                $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier
-            }) else { return }
-            let filter = SCContentFilter(desktopIndependentWindow: win)
+            guard let content = try? await refreshContent(),
+                  let display = content.displays.first else { return }
+            let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             let cfg = SCStreamConfiguration()
             cfg.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
             cfg.width = 2
@@ -62,61 +60,38 @@ final class SliceCapturer {
         return nil
     }
 
-    // Capture a thin slice of the window along `edge` (crops via the filter's
-    // sourceRect so only the slice is captured — fast).
-    func captureSlice(of windowID: CGWindowID, frame: CGRect, edge: DockEdge, sliceThickness: CGFloat) async -> NSImage? {
-        guard windowID != 0, frame.width > 0 else { return nil }
+    // Composited capture of a screen region (quartz coordinates). Must be
+    // called while the window is still on screen at that region. Our own
+    // windows (the strip) are excluded so they can't contaminate the image.
+    func captureSlice(screenRect: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID, edge: DockEdge) async -> NSImage? {
+        guard let content = try? await contentForCaptures(),
+              let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return nil }
+        let local = screenRect.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        guard local.width > 0, local.height > 0 else { return nil }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let excluding = content.applications.filter { $0.processID == ownPID }
+        let filter = SCContentFilter(display: display, excludingApplications: excluding, exceptingWindows: [])
+        let cfg = SCStreamConfiguration()
+        cfg.sourceRect = local
+        let scale = CGFloat(filter.pointPixelScale)
+        cfg.width = Int(local.width * scale)
+        cfg.height = Int(local.height * scale)
+        cfg.showsCursor = false
         let t0 = Date()
-        do {
-            guard let win = try await window(withID: windowID, matching: frame) else { return nil }
-            let t1 = Date()
-            let filter = SCContentFilter(desktopIndependentWindow: win)
-            // The slice opposite the dock edge (down shows the title bar;
-            // left/right show the far vertical edge) — most recognizable.
-            let sliceRect: CGRect
-            switch edge {
-            case .up:
-                sliceRect = CGRect(x: 0, y: frame.height - sliceThickness, width: frame.width, height: sliceThickness)
-            case .down:
-                sliceRect = CGRect(x: 0, y: 0, width: frame.width, height: sliceThickness)
-            case .left:
-                sliceRect = CGRect(x: frame.width - sliceThickness, y: 0, width: sliceThickness, height: frame.height)
-            case .right:
-                sliceRect = CGRect(x: 0, y: 0, width: sliceThickness, height: frame.height)
-            }
-            let cfg = SCStreamConfiguration()
-            cfg.sourceRect = sliceRect
-            let scale = CGFloat(filter.pointPixelScale)
-            cfg.width = Int(sliceRect.width * scale)
-            cfg.height = Int(sliceRect.height * scale)
-            cfg.showsCursor = false
-            // Without these the capture includes the window shadow (content
-            // squished + gray fringe) and clips off-screen content (dark
-            // garbage when the window is parked).
-            cfg.ignoreShadowsSingleWindow = true
-            cfg.ignoreGlobalClipSingleWindow = true
-            let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-            Log.info("capture resolve \(Int(t1.timeIntervalSince(t0) * 1000))ms image \(Int(Date().timeIntervalSince(t1) * 1000))ms got=\(img != nil)")
-            guard let img else { return nil }
-            let result = NSImage(cgImage: img, size: NSSize(width: sliceRect.width, height: sliceRect.height))
-            if sliceCache.count > 20 { sliceCache.removeAll() }
-            sliceCache[SliceKey(windowID: windowID, edge: edge)] = result
-            return result
-        } catch {
-            return nil
-        }
+        let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
+        guard let img else { return nil }
+        let result = NSImage(cgImage: img, size: screenRect.size)
+        if sliceCache.count > 20 { sliceCache.removeAll() }
+        sliceCache[SliceKey(windowID: windowID, edge: edge)] = result
+        return result
     }
 
-    // Map a window ID + frame to an SCWindow, refreshing the cached content if
-    // the frame no longer matches (stale cache -> slow/missing captures).
-    private func window(withID windowID: CGWindowID, matching frame: CGRect) async throws -> SCWindow? {
-        if let cached = shareableContent,
-           let win = cached.windows.first(where: { $0.windowID == windowID }),
-           frameMatches(win.frame, frame) {
-            return win
-        }
-        let content = try await refreshContent()
-        return content.windows.first { $0.windowID == windowID }
+    // Cached shareable content; refreshed if never fetched (display/app lists
+    // change rarely, and a stale list only costs us the self-exclusion).
+    private func contentForCaptures() async throws -> SCShareableContent {
+        if let shareableContent { return shareableContent }
+        return try await refreshContent()
     }
 
     private func refreshContent() async throws -> SCShareableContent {
@@ -125,10 +100,5 @@ final class SliceCapturer {
         shareableContent = content
         Log.info("SC refetch took \(Int(Date().timeIntervalSince(t1) * 1000))ms")
         return content
-    }
-
-    private func frameMatches(_ a: CGRect, _ b: CGRect, tolerance: CGFloat = 10) -> Bool {
-        abs(a.minX - b.minX) < tolerance && abs(a.minY - b.minY) < tolerance
-            && abs(a.width - b.width) < tolerance && abs(a.height - b.height) < tolerance
     }
 }

@@ -15,7 +15,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - `ManagedWindow.swift` — per-window state machine; talks to the app only through the `WindowDockDelegate` protocol (defined here)
 - `Geometry.swift` — `DockEdge` + `WindowGeometry`: **all** coordinate conversion and dock/peek/sliver position math, in one place
 - `AXWindow.swift` — `AXUIElement` wrapper (safe frame/position/title/pid access)
-- `SliceCapturer.swift` — ScreenCaptureKit slice capture + cached `SCShareableContent` + per-window slice cache keyed by `CGWindowID` (survives cancel/re-dock)
+- `SliceCapturer.swift` — composited **display-region** captures (NOT window-filter captures) + per-window slice cache keyed by `(CGWindowID, DockEdge)` (survives cancel/re-dock)
 - `SnapshotStrip.swift`, `HotkeyManager.swift`, `Config.swift`, `Log.swift`, `SelfTest.swift` — small supporting types
 
 ## Permissions
@@ -38,6 +38,6 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Dock edges are **per-screen**: each window records its dock screen (`ManagedWindow.dockScreenID`, picked from the on-screen frame at dock time). left/right use the window's own visible sliver only on the desktop's outer edges; up/down and middle edges use the fake snapshot strip (`isFakeEdge`). `sliverRect` computes the hover hit region (thickness = `sliverPx` real / `fakeSliverPx` fake); `sliverLength` is the size along the sliver used to pick the smallest window on overlap.
 - Re-docking a hidden window: the live frame is the parked position, so perp comes from `restoreFrame` and the dock screen is kept as-is — never derive either from the parked frame.
 - `SliceCapturer` caches `SCShareableContent` and only refreshes when the cached window frame no longer matches — stale window lists are a known cause of slow/missing fake-strip captures.
-- `SCScreenshotManager.captureImage` **randomly stalls ~1s** (observed on visible and parked windows alike) — never let the strip wait on a capture: show the `CGWindowID`-keyed cached slice instantly, refresh captures fire on peek (window visible) and dockBack, and a placeholder appears only if a cold capture exceeds 250ms.
-- Slice captures **must** set `ignoreShadowsSingleWindow` (else the window shadow bleeds into the slice — squished content + gray fringe) and `ignoreGlobalClipSingleWindow` (else parked/off-screen windows capture as dark garbage), and scale by `filter.pointPixelScale`, not a hardcoded 2.
+- Strip images come from **display-region** captures (`SCContentFilter(display:...)` of `sliceScreenRect`) so translucency/shadow/rounded corners look exactly like the real window on screen. Window-filter captures return the raw flattened surface (vibrancy loses its backdrop blend) — don't use them. Window-filter `captureImage` also **randomly stalls ~1s**; display captures don't (~50ms).
+- The composited capture needs the window on screen, so fake docks **capture first, park after** (`ManagedWindow.parking` suppresses the poll's snap-back meanwhile; 300ms timeout parks regardless). Slice content mimics a real drag's clamp: title bar for up/down, adjacent vertical edge for left/right.
 - On SIGTERM/SIGINT/terminate, docked windows are restored via `restoreAll()` before exit.
