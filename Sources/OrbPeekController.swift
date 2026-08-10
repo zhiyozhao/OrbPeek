@@ -224,7 +224,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             window.title = "OrbPeek 设置"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
-            window.setContentSize(NSSize(width: 492, height: 620))
+            window.setContentSize(NSSize(width: 492, height: 430))
             window.center()
             settingsWindow = window
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
