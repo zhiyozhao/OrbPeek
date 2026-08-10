@@ -76,12 +76,6 @@ final class ManagedWindow {
         return NSScreen.main ?? NSScreen.screens.first
     }
 
-    // Handle thickness: the window's own slice for real left/right docks, the
-    // fake strip for fake docks.
-    func sliverThickness(_ config: Config) -> CGFloat {
-        isFake ? config.fakeSliverPx : config.sliverPx
-    }
-
     // MARK: Transitions
 
     // Dock (hide off the edge). `newEdge` re-docks to a different edge; nil
@@ -178,36 +172,28 @@ final class ManagedWindow {
         window.position = pos
     }
 
-    // Show the fake strip handle, then capture-then-park: the composited
-    // display capture needs the window on screen, so parking waits for the
-    // capture (bounded by a timeout — a stall never leaves the window visible).
+    // Capture-then-park with the strip showing the fresh slice: the composited
+    // display capture needs the window on screen and is fast (~50ms), so the
+    // flow is simply: capture -> park -> show strip. `parking` suppresses the
+    // poll's snap-back meanwhile; the timeout is the backstop against stalls.
     // Tasks inherit MainActor, so the strip is only ever touched on the main thread.
     private func showFakeStripAndPark(frame: CGRect, screen: NSScreen) {
         guard let fakeStrip, let delegate else { return }
         let geometry = delegate.geometry
         let config = delegate.config
         let stripFrame = geometry.toAppKit(
-            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.fakeSliverPx)
+            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
         )
         let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
                                                 screen: screen, sliver: config.sliverPx)
-        guard let pid = window.pid,
-              let wid = delegate.capturer.windowID(for: pid, matching: frame) else {
-            moveTo(hiddenPos) // can't capture — just park
-            return
-        }
-        if let cached = delegate.capturer.cachedSlice(for: wid, edge: edge) {
-            Log.info("strip shown from cache edge=\(edge)")
-            fakeStrip.show(image: cached, frame: stripFrame)
-        }
         parking = true
-        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.fakeSliverPx)
+        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx)
         let displayID = dockScreenID
         let edge = edge
         let capturer = delegate.capturer
 
         Task { [weak self, weak fakeStrip] in
-            let image = await capturer.captureSlice(screenRect: sliceRect, displayID: displayID, windowID: wid, edge: edge)
+            let image = await capturer.captureSlice(screenRect: sliceRect, displayID: displayID)
             guard let self, self.valid else { return }
             if self.parking {
                 self.parking = false
@@ -222,7 +208,6 @@ final class ManagedWindow {
                 fakeStrip.show(image: nil, frame: stripFrame)
             }
         }
-        // Parking timeout: never leave the window on screen if a capture stalls.
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self, self.valid, self.parking else { return }
@@ -254,7 +239,7 @@ final class ManagedWindow {
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
             dwell.noteHover(inWin, touchDwell: config.touchDwell, now: now)
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
-                                             thickness: sliverThickness(config))
+                                             thickness: config.sliverPx)
             let onSliver = sliver.insetBy(dx: -6, dy: -6).contains(mouseQ)
             // A short settle window right after peeking, so none of the hide
             // conditions below fire while the user is still approaching.
@@ -277,7 +262,7 @@ final class ManagedWindow {
             }
             // Hover the handle to slide in (smallest window wins on overlap).
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
-                                             thickness: sliverThickness(config))
+                                             thickness: config.sliverPx)
             if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
                 if dwell.sliverSince == nil {
                     dwell.sliverSince = now

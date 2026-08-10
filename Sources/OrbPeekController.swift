@@ -319,7 +319,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         for other in managed where other !== m && other.phase.isDocked {
             guard let of = other.window.frame, let oscreen = other.dockScreen(in: geometry) else { continue }
             let sliver = geometry.sliverRect(edge: other.edge, size: of.size, perp: other.perp,
-                                             screen: oscreen, thickness: other.sliverThickness(config))
+                                             screen: oscreen, thickness: config.sliverPx)
             guard sliver.insetBy(dx: -6, dy: -6).contains(q) else { continue }
             let otherSize = geometry.sliverLength(edge: other.edge, size: of.size)
             if otherSize < thisSize || (otherSize == thisSize && other.id < m.id) {

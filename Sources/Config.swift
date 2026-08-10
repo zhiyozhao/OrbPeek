@@ -7,6 +7,8 @@ struct Config {
     // don't falsely dismiss a peeked window.
     var edgeBuffer: CGFloat = 12
     // Visible slice of a docked window — the "handle" you hover to peek it.
+    // Used for the real sliver (left/right outer edges) and the fake strip
+    // alike, so both look identical.
     var sliverPx: CGFloat = 6
     // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
     var peekDwell: Double = 0.15
@@ -14,10 +16,6 @@ struct Config {
     var touchDwell: Double = 0.3
     // Dragging the peeked window this far off its docked edge cancels the dock.
     var dockCancelPx: CGFloat = 40
-    // Thickness of the fake snapshot sliver used for up/down docks (macOS won't
-    // let a titled window leave the top/bottom, so those edges use a captured
-    // slice of the window as the handle).
-    var fakeSliverPx: CGFloat = 10
 
     static let dir = NSHomeDirectory() + "/.config/orbpeek"
     static let path = dir + "/config.json"
@@ -44,7 +42,6 @@ struct Config {
         if let v = num(json, "peekDwell") { peekDwell = v }
         if let v = num(json, "touchDwell") { touchDwell = v }
         if let v = num(json, "dockCancelPx") { dockCancelPx = CGFloat(v) }
-        if let v = num(json, "fakeSliverPx") { fakeSliverPx = CGFloat(v) }
     }
 
     private func num(_ json: [String: Any], _ key: String) -> Double? {
@@ -56,7 +53,7 @@ struct Config {
         let dict: [String: Any] = [
             "autoLaunch": autoLaunch, "edgeBuffer": edgeBuffer,
             "sliverPx": sliverPx, "peekDwell": peekDwell, "touchDwell": touchDwell,
-            "dockCancelPx": dockCancelPx, "fakeSliverPx": fakeSliverPx,
+            "dockCancelPx": dockCancelPx,
         ]
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
         try? data?.write(to: Self.url)
