@@ -155,7 +155,7 @@ final class ManagedWindow {
         )
         guard let pid = window.pid,
               let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
-        if let cached = delegate.capturer.cachedSlice(for: wid) {
+        if let cached = delegate.capturer.cachedSlice(for: wid, edge: edge) {
             Log.info("strip shown from cache edge=\(edge)")
             fakeStrip.show(image: cached, frame: stripFrame)
         } else {

@@ -7,13 +7,19 @@ import ScreenCaptureKit
 @MainActor
 final class SliceCapturer {
     private var shareableContent: SCShareableContent?
-    // Last captured slice per window, keyed by CGWindowID — survives cancel/
-    // re-dock (a new ManagedWindow is created, but the window ID is stable for
-    // the window's lifetime), so the strip can show real content instantly.
-    private var sliceCache: [CGWindowID: NSImage] = [:]
+    // Last captured slice per window AND edge — up captures the window's
+    // bottom slice, down the top (title bar) slice, so the same window docked
+    // to a different edge must not reuse the other edge's image. Keyed by ID
+    // (not ManagedWindow) so the cache survives cancel/re-dock.
+    private struct SliceKey: Hashable {
+        let windowID: CGWindowID
+        let edge: DockEdge
+    }
 
-    func cachedSlice(for windowID: CGWindowID) -> NSImage? {
-        sliceCache[windowID]
+    private var sliceCache: [SliceKey: NSImage] = [:]
+
+    func cachedSlice(for windowID: CGWindowID, edge: DockEdge) -> NSImage? {
+        sliceCache[SliceKey(windowID: windowID, edge: edge)]
     }
 
     // Warm the capture pipeline at launch so the first fake-strip capture
@@ -84,7 +90,7 @@ final class SliceCapturer {
             guard let img else { return nil }
             let result = NSImage(cgImage: img, size: NSSize(width: sliceRect.width, height: sliceRect.height))
             if sliceCache.count > 20 { sliceCache.removeAll() }
-            sliceCache[windowID] = result
+            sliceCache[SliceKey(windowID: windowID, edge: edge)] = result
             return result
         } catch {
             return nil
