@@ -101,66 +101,65 @@ final class ManagedWindow {
         isFake = geometry.isFakeEdge(edge, on: screen)
         window.unminimize()
         dwell.reset()
-        if isFake {
-            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            phase = .docking
-            transition = Task { [weak self] in
-                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden)
-            }
-        } else {
-            detachStrip()
-            phase = .docked
-            moveTo(geometry.hiddenPosition(for: edge, fake: false, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
+        phase = .docking
+        transition = Task { [weak self] in
+            await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
         }
         Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge) fake=\(isFake)")
     }
 
-    // The async half of a fake dock: capture the composited slice while the
-    // window is still on screen (~50ms, 300ms timeout), then park and show the
-    // strip. The strip shows the last cached capture instantly when available.
+    // The async half of every dock: while the window is still on screen,
+    // capture all four edge slices (~50ms, 300ms timeout), then park and show
+    // the strip. Real edges capture too — purely to fill the cache, so a later
+    // hidden re-dock to a fake edge always has content. The strip is shown
+    // only after the capture, so it can never photograph itself.
     //
     // A hidden re-dock takes no capture: the window is parked off-screen, and
     // capturing would require flashing it on screen. It just re-parks at the
-    // new edge and shows the cached slice (same edge+size) or a placeholder —
-    // the next dockBack captures fresh content.
+    // new edge and shows the cached slice or a placeholder.
     //
     // Runs on the MainActor; discards itself if a newer transition cancelled it.
-    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool) async {
+    private func finishDock(frame: CGRect, screen: NSScreen, wasHidden: Bool) async {
         if Task.isCancelled { return }
-        guard let fakeStrip, let delegate else { return }
+        guard let delegate else { return }
         let geometry = delegate.geometry
         let config = delegate.config
+        let capturer = delegate.capturer
+        let edge = edge
         let stripFrame = geometry.toAppKit(
             geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
         )
-        let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
+        let hiddenPos = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
                                                 screen: screen, sliver: config.sliverPx)
-        let capturer = delegate.capturer
-        let edge = edge
         let wid = window.pid.flatMap { capturer.windowID(for: $0, matching: frame) }
         let cached = wid.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size) }
+
+        if isFake {
+            if fakeStrip == nil { fakeStrip = SnapshotStrip() }
+        } else {
+            detachStrip()
+        }
 
         if wasHidden {
             moveTo(hiddenPos)
             phase = .docked
-            fakeStrip.show(image: cached, frame: stripFrame) // cached or placeholder
+            if isFake, let fakeStrip {
+                Log.info("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
+                fakeStrip.show(image: cached, frame: stripFrame) // cached or placeholder
+            }
             return
         }
-        if let cached {
-            Log.info("strip shown from cache edge=\(edge)")
-            fakeStrip.show(image: cached, frame: stripFrame)
-        }
-        let displayID = dockScreenID
-        let slices = await withTimeout(0.3) {
-            await capturer.captureAllSlices(frame: frame, displayID: displayID, windowID: wid, thickness: config.sliverPx)
+
+        let slices = await withTimeout(0.3) { [dockScreenID] in
+            await capturer.captureAllSlices(frame: frame, displayID: dockScreenID, windowID: wid, thickness: config.sliverPx)
         }
         if Task.isCancelled { return }
-        if slices == nil { Log.info("capture failed or timed out edge=\(edge)") }
         moveTo(hiddenPos)
         phase = .docked
-        if let image = slices?[edge] {
+        guard isFake, let fakeStrip else { return }
+        if let image = slices?[edge] ?? cached {
             fakeStrip.show(image: image, frame: stripFrame)
-        } else if !fakeStrip.hasContent {
+        } else {
             fakeStrip.show(image: nil, frame: stripFrame)
         }
     }

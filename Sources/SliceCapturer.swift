@@ -117,10 +117,15 @@ final class SliceCapturer {
         return out
     }
 
-    // Cached shareable content; refreshed if never fetched (the display/app
-    // lists change rarely, and staleness only costs us the self-exclusion).
+    // Cached shareable content; refreshed if it doesn't list our own app — a
+    // process only appears there once it has a window, and we must be able to
+    // exclude our strip panels from captures.
     private func contentForCaptures() async throws -> SCShareableContent {
-        if let shareableContent { return shareableContent }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        if let shareableContent,
+           shareableContent.applications.contains(where: { $0.processID == pid }) {
+            return shareableContent
+        }
         return try await refreshContent()
     }
 
