@@ -7,6 +7,14 @@ import ScreenCaptureKit
 @MainActor
 final class SliceCapturer {
     private var shareableContent: SCShareableContent?
+    // Last captured slice per window, keyed by CGWindowID — survives cancel/
+    // re-dock (a new ManagedWindow is created, but the window ID is stable for
+    // the window's lifetime), so the strip can show real content instantly.
+    private var sliceCache: [CGWindowID: NSImage] = [:]
+
+    func cachedSlice(for windowID: CGWindowID) -> NSImage? {
+        sliceCache[windowID]
+    }
 
     // Warm the capture pipeline at launch so the first fake-strip capture
     // doesn't pay the one-time enumeration/setup cost. The tiny capture is
@@ -55,6 +63,7 @@ final class SliceCapturer {
         let t0 = Date()
         do {
             guard let win = try await window(withID: windowID, matching: frame) else { return nil }
+            let t1 = Date()
             let filter = SCContentFilter(desktopIndependentWindow: win)
             let sliceRect: CGRect
             switch edge {
@@ -71,9 +80,12 @@ final class SliceCapturer {
             cfg.height = Int(sliceRect.height * 2)
             cfg.showsCursor = false
             let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-            Log.info("captureImage took \(Int(Date().timeIntervalSince(t0) * 1000))ms, got=\(img != nil)")
+            Log.info("capture resolve \(Int(t1.timeIntervalSince(t0) * 1000))ms image \(Int(Date().timeIntervalSince(t1) * 1000))ms got=\(img != nil)")
             guard let img else { return nil }
-            return NSImage(cgImage: img, size: NSSize(width: sliceRect.width, height: sliceRect.height))
+            let result = NSImage(cgImage: img, size: NSSize(width: sliceRect.width, height: sliceRect.height))
+            if sliceCache.count > 20 { sliceCache.removeAll() }
+            sliceCache[windowID] = result
+            return result
         } catch {
             return nil
         }

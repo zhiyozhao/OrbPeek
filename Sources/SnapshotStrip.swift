@@ -24,7 +24,12 @@ final class SnapshotStrip: NSPanel {
         contentView = imageView
     }
 
+    // Whether the strip is currently showing a captured image (vs placeholder
+    // or hidden) — used to decide if a delayed placeholder is still needed.
+    private(set) var hasContent = false
+
     func show(image: NSImage?, frame: NSRect) {
+        hasContent = image != nil
         if let image {
             imageView.image = image
             imageView.imageScaling = .scaleAxesIndependently
@@ -40,6 +45,7 @@ final class SnapshotStrip: NSPanel {
     }
 
     func hide() {
+        hasContent = false
         orderOut(nil)
     }
 }

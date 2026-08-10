@@ -15,7 +15,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - `ManagedWindow.swift` — per-window state machine; talks to the app only through the `WindowDockDelegate` protocol (defined here)
 - `Geometry.swift` — `DockEdge` + `WindowGeometry`: **all** coordinate conversion and dock/peek/sliver position math, in one place
 - `AXWindow.swift` — `AXUIElement` wrapper (safe frame/position/title/pid access)
-- `SliceCapturer.swift` — ScreenCaptureKit slice capture + cached `SCShareableContent`
+- `SliceCapturer.swift` — ScreenCaptureKit slice capture + cached `SCShareableContent` + per-window slice cache keyed by `CGWindowID` (survives cancel/re-dock)
 - `SnapshotStrip.swift`, `HotkeyManager.swift`, `Config.swift`, `Log.swift`, `SelfTest.swift` — small supporting types
 
 ## Permissions
@@ -37,4 +37,5 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Coordinate gotcha: AX frames are top-left origin, `NSEvent.mouseLocation` is bottom-left. Always convert through `WindowGeometry.toQuartz`/`toAppKit`; never mix spaces (geometry functions return `CGPoint?`/`CGRect` computed from `outerScreen`, which falls back safely when no screen is found).
 - Dock edges: left/right use the window's own visible sliver; up/down use the fake snapshot strip. `sliverRect` computes the hover hit region; `sliverLength` is the size along the sliver used to pick the smallest window on overlap.
 - `SliceCapturer` caches `SCShareableContent` and only refreshes when the cached window frame no longer matches — stale window lists are a known cause of slow/missing fake-strip captures.
+- `SCScreenshotManager.captureImage` **randomly stalls ~1s** (observed on visible and parked windows alike) — never let the strip wait on a capture: show the `CGWindowID`-keyed cached slice instantly, refresh captures fire on peek (window visible) and dockBack, and a placeholder appears only if a cold capture exceeds 250ms.
 - On SIGTERM/SIGINT/terminate, docked windows are restored via `restoreAll()` before exit.

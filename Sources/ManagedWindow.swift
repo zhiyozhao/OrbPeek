@@ -38,8 +38,6 @@ final class ManagedWindow {
     var restoreFrame: CGRect = .zero
     // The fake snapshot strip handle, only for up/down docks.
     private var fakeStrip: SnapshotStrip?
-    // Last captured slice, so re-showing the fake strip is instant.
-    private var lastSlice: NSImage?
 
     private(set) var phase: Phase = .docked
 
@@ -90,6 +88,7 @@ final class ManagedWindow {
         dwell.reset()
         dwell.shownSince = Date()
         fakeStrip?.hide()
+        refreshSliceCache(frame: frame)
         window.raise()
         delegate.activate(window: window)
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp))
@@ -154,22 +153,46 @@ final class ManagedWindow {
         let stripFrame = geometry.toAppKit(
             geometry.sliverRect(edge: edge, size: frame.size, perp: perp, sliver: config.sliverPx, fakeSliver: config.fakeSliverPx)
         )
-        if let lastSlice {
-            fakeStrip.show(image: lastSlice, frame: stripFrame)
-        }
         guard let pid = window.pid,
               let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
+        if let cached = delegate.capturer.cachedSlice(for: wid) {
+            Log.info("strip shown from cache edge=\(edge)")
+            fakeStrip.show(image: cached, frame: stripFrame)
+        } else {
+            Log.info("strip waiting for capture edge=\(edge)")
+            // A cold capture occasionally stalls ~1s inside ScreenCaptureKit —
+            // show the placeholder if the real slice doesn't land quickly.
+            Task { [weak self, weak fakeStrip] in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self, let fakeStrip, self.phase == .docked, !fakeStrip.hasContent else { return }
+                fakeStrip.show(image: nil, frame: stripFrame)
+            }
+        }
         let edge = edge
         let thickness = config.fakeSliverPx
         let capturer = delegate.capturer
         Task { [weak self, weak fakeStrip] in
             let image = await capturer.captureSlice(of: wid, frame: frame, edge: edge, sliceThickness: thickness)
             guard let self, let fakeStrip else { return }
-            self.lastSlice = image
             // A slow capture can land after the user already peeked — never
             // re-show the strip over a peeked window.
             guard self.phase == .docked else { return }
             fakeStrip.show(image: image, frame: stripFrame)
+        }
+    }
+
+    // Refresh the strip image cache while the window is fully on-screen —
+    // captures of a parked (1px-visible) window can stall ~1s inside
+    // ScreenCaptureKit, so the cache is only trustworthy when filled here.
+    private func refreshSliceCache(frame: CGRect) {
+        guard edge.isFake, let delegate,
+              let pid = window.pid,
+              let wid = delegate.capturer.windowID(for: pid, matching: frame) else { return }
+        let capturer = delegate.capturer
+        let thickness = delegate.config.fakeSliverPx
+        let edge = edge
+        Task {
+            _ = await capturer.captureSlice(of: wid, frame: frame, edge: edge, sliceThickness: thickness)
         }
     }
 
