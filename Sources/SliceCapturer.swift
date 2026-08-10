@@ -86,9 +86,15 @@ final class SliceCapturer {
             }
             let cfg = SCStreamConfiguration()
             cfg.sourceRect = sliceRect
-            cfg.width = Int(sliceRect.width * 2)
-            cfg.height = Int(sliceRect.height * 2)
+            let scale = CGFloat(filter.pointPixelScale)
+            cfg.width = Int(sliceRect.width * scale)
+            cfg.height = Int(sliceRect.height * scale)
             cfg.showsCursor = false
+            // Without these the capture includes the window shadow (content
+            // squished + gray fringe) and clips off-screen content (dark
+            // garbage when the window is parked).
+            cfg.ignoreShadowsSingleWindow = true
+            cfg.ignoreGlobalClipSingleWindow = true
             let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
             Log.info("capture resolve \(Int(t1.timeIntervalSince(t0) * 1000))ms image \(Int(Date().timeIntervalSince(t1) * 1000))ms got=\(img != nil)")
             guard let img else { return nil }
