@@ -14,13 +14,19 @@ protocol WindowDockDelegate: AnyObject {
     func removeManaged(_ m: ManagedWindow)
 }
 
-// Per-window state machine. A managed window is either hidden (docked, handle
-// visible) or shown (peeked, flush against its edge). Transitions are the only
-// places `phase` changes, and each transition resets the transient dwell state.
+// Per-window state machine. Phases: `.docked` (hidden, handle visible),
+// `.docking` (transitioning to docked — a fake dock's capture is in flight and
+// the window is still on screen), `.peeked` (shown flush against the edge).
+//
+// Transitions are the only places `phase` changes, and each transition resets
+// the transient dwell state. A transition is at most one in-flight Task per
+// window (`transition`): starting a new transition cancels the previous one,
+// and superseded tasks discard themselves at the `Task.isCancelled` check —
+// so rapid re-docks can't apply stale state out of order.
 @MainActor
 final class ManagedWindow {
     enum Phase {
-        case docked, peeked
+        case docked, docking, peeked
         var isDocked: Bool { self == .docked }
         var isPeeked: Bool { self == .peeked }
     }
@@ -46,14 +52,9 @@ final class ManagedWindow {
     var restoreFrame: CGRect = .zero
     // The fake snapshot strip handle, only for fake-edge docks.
     private var fakeStrip: SnapshotStrip?
-    // A capture-then-park is in flight: the composited capture needs the window
-    // on screen, so parking waits for it (bounded by a timeout). While set, the
-    // poll's snap-back must not fire.
-    private var parking = false
-    // Bumped on every dock — capture/timeout tasks from an older dock are
-    // discarded, so rapid re-docks can't apply a stale strip frame or park
-    // position out of order.
-    private var dockGeneration = 0
+    // The in-flight transition task (only fake docks are async — they capture
+    // before parking). A new transition cancels it.
+    private var transition: Task<Void, Never>?
 
     private(set) var phase: Phase = .docked
 
@@ -87,6 +88,9 @@ final class ManagedWindow {
     func dock(to newEdge: DockEdge? = nil) {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
+        transition?.cancel()
+        // "Hidden" means a previous dock already parked the window. During
+        // .docking the window is still on screen, so it's not hidden.
         let wasHidden = dockScreenID != nil && phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
@@ -95,18 +99,59 @@ final class ManagedWindow {
         }
         guard let screen = dockScreen(in: geometry) else { return }
         isFake = geometry.isFakeEdge(edge, on: screen)
-        dockGeneration += 1
         window.unminimize()
-        phase = .docked
         dwell.reset()
         if isFake {
             if fakeStrip == nil { fakeStrip = SnapshotStrip() }
-            showFakeStripAndPark(frame: frame, screen: screen, wasHidden: wasHidden)
+            phase = .docking
+            transition = Task { [weak self] in
+                await self?.finishFakeDock(frame: frame, screen: screen, wasHidden: wasHidden)
+            }
         } else {
             detachStrip()
+            phase = .docked
             moveTo(geometry.hiddenPosition(for: edge, fake: false, size: frame.size, perp: perp, screen: screen, sliver: delegate.config.sliverPx))
         }
         Log.info("dock applied in \(Int(Date().timeIntervalSince(t0) * 1000))ms edge=\(edge) fake=\(isFake)")
+    }
+
+    // The async half of a fake dock: capture the composited slice while the
+    // window is still on screen (~50ms, 300ms timeout), then park and show the
+    // strip. Runs on the MainActor; discards itself if a newer transition
+    // cancelled it (cancellation is only observed at these explicit checks,
+    // which is enough because everything between them runs atomically on main).
+    private func finishFakeDock(frame: CGRect, screen: NSScreen, wasHidden: Bool) async {
+        if Task.isCancelled { return }
+        guard let fakeStrip, let delegate else { return }
+        let geometry = delegate.geometry
+        let config = delegate.config
+        let stripFrame = geometry.toAppKit(
+            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
+        )
+        let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
+                                                screen: screen, sliver: config.sliverPx)
+        // A hidden window being re-docked is off-screen — move it to the new
+        // edge's peek position first so the capture has real content.
+        var captureFrame = frame
+        if wasHidden, let peekPos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen) {
+            moveTo(peekPos)
+            captureFrame = CGRect(origin: peekPos, size: frame.size)
+        }
+        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: captureFrame, thickness: config.sliverPx)
+        let displayID = dockScreenID
+        let capturer = delegate.capturer
+        let image = await withTimeout(0.3) {
+            await capturer.captureSlice(screenRect: sliceRect, displayID: displayID)
+        }
+        if Task.isCancelled { return }
+        if image == nil { Log.info("capture failed or timed out edge=\(edge)") }
+        moveTo(hiddenPos)
+        phase = .docked
+        if let image {
+            fakeStrip.show(image: image, frame: stripFrame)
+        } else if !fakeStrip.hasContent {
+            fakeStrip.show(image: nil, frame: stripFrame)
+        }
     }
 
     // Show flush against the edge.
@@ -114,7 +159,8 @@ final class ManagedWindow {
         let t0 = Date()
         guard valid, let frame = window.frame, let delegate else { return }
         guard let screen = dockScreen(in: delegate.geometry) else { return }
-        parking = false
+        transition?.cancel()
+        transition = nil
         window.unminimize()
         phase = .peeked
         dwell.reset()
@@ -131,10 +177,10 @@ final class ManagedWindow {
     }
 
     // Stop tracking. A still-docked window is brought back flush first so it is
-    // never left invisible; a peeked window stays where it is.
+    // never left invisible; a peeked (or still-visible docking) window stays.
     func cancel() {
         guard valid else { return }
-        parking = false
+        transition?.cancel()
         if phase == .docked, let frame = window.frame, let delegate,
            let screen = dockScreen(in: delegate.geometry) {
             moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
@@ -161,7 +207,7 @@ final class ManagedWindow {
     // Restore on quit.
     func restore() {
         guard valid else { return }
-        parking = false
+        transition?.cancel()
         detachStrip()
         window.position = restoreFrame.origin
         valid = false
@@ -177,59 +223,6 @@ final class ManagedWindow {
     private func moveTo(_ pos: CGPoint?) {
         guard let pos else { return }
         window.position = pos
-    }
-
-    // Capture-then-park with the strip showing the fresh slice: the composited
-    // display capture needs the window on screen and is fast (~50ms), so the
-    // flow is simply: capture -> park -> show strip. `parking` suppresses the
-    // poll's snap-back meanwhile; the timeout is the backstop against stalls.
-    // Tasks inherit MainActor, so the strip is only ever touched on the main thread.
-    private func showFakeStripAndPark(frame: CGRect, screen: NSScreen, wasHidden: Bool) {
-        guard let fakeStrip, let delegate else { return }
-        let geometry = delegate.geometry
-        let config = delegate.config
-        let stripFrame = geometry.toAppKit(
-            geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
-        )
-        let hiddenPos = geometry.hiddenPosition(for: edge, fake: true, size: frame.size, perp: perp,
-                                                screen: screen, sliver: config.sliverPx)
-        // A hidden window being re-docked is off-screen — move it to the new
-        // edge's peek position first so the capture has real content.
-        var captureFrame = frame
-        if wasHidden, let peekPos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen) {
-            moveTo(peekPos)
-            captureFrame = CGRect(origin: peekPos, size: frame.size)
-        }
-        parking = true
-        let gen = dockGeneration
-        let sliceRect = geometry.sliceScreenRect(edge: edge, frame: captureFrame, thickness: config.sliverPx)
-        let displayID = dockScreenID
-        let edge = edge
-        let capturer = delegate.capturer
-
-        Task { [weak self, weak fakeStrip] in
-            let image = await capturer.captureSlice(screenRect: sliceRect, displayID: displayID)
-            guard let self, self.valid, gen == self.dockGeneration else { return }
-            if self.parking {
-                self.parking = false
-                self.moveTo(hiddenPos)
-            }
-            // A capture can land after the user already peeked — never re-show
-            // the strip over a peeked window.
-            guard let fakeStrip, self.phase == .docked else { return }
-            if let image {
-                fakeStrip.show(image: image, frame: stripFrame)
-            } else if !fakeStrip.hasContent {
-                fakeStrip.show(image: nil, frame: stripFrame)
-            }
-        }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard let self, self.valid, self.parking, gen == self.dockGeneration else { return }
-            Log.info("park after capture timeout edge=\(edge)")
-            self.parking = false
-            self.moveTo(hiddenPos)
-        }
     }
 
     // MARK: Poll evaluation
@@ -267,11 +260,8 @@ final class ManagedWindow {
                 dock(to: nil)
             }
         case .docked:
-            // Snap back to the hidden position if it was moved externally
-            // (but not while a capture-then-park is in flight — the window is
-            // deliberately still on screen then).
-            if !parking,
-               let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
+            // Snap back to the hidden position if it was moved externally.
+            if let target = geometry.hiddenPosition(for: edge, fake: isFake, size: frame.size, perp: perp,
                                                     screen: screen, sliver: config.sliverPx),
                abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)
@@ -289,8 +279,26 @@ final class ManagedWindow {
             } else {
                 dwell.sliverSince = nil
             }
+        case .docking:
+            // Transition in flight: window still on screen, strip not shown
+            // yet — nothing to evaluate until it settles.
+            break
         }
         return false
+    }
+}
+
+// Race an async value against a timeout; nil means timeout (or the work failed).
+private func withTimeout<T>(_ seconds: Double, _ work: @escaping () async -> T?) async -> T? {
+    await withTaskGroup(of: T?.self) { group in
+        group.addTask { await work() }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
     }
 }
 
