@@ -78,4 +78,11 @@ final class SnapshotStrip: NSPanel {
         hasContent = false
         orderOut(nil)
     }
+
+    // Move/resize the strip without touching its image (e.g. the user changed
+    // the strip width in settings while windows are docked).
+    func updateFrame(_ frame: NSRect, edge: DockEdge) {
+        setFrame(frame, display: true)
+        applyCornerMask(edge: edge)
+    }
 }

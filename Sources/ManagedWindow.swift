@@ -281,6 +281,15 @@ final class ManagedWindow {
             if abs(frame.origin.x - target.x) > 2 || abs(frame.origin.y - target.y) > 2 {
                 moveTo(target)
             }
+            // Keep the strip frame in sync (e.g. sliverPx changed in settings).
+            if let fakeStrip {
+                let expected = geometry.toAppKit(
+                    geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
+                )
+                if fakeStrip.frame != expected {
+                    fakeStrip.updateFrame(expected, edge: edge)
+                }
+            }
             // Hover the handle to slide in (smallest window wins on overlap).
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
                                              thickness: config.sliverPx)
