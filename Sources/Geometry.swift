@@ -158,17 +158,21 @@ struct WindowGeometry {
     }
 
     // The screen-region (quartz) to capture for the strip image, given the
-    // window's current on-screen frame. Mimics what a real drag to that edge
-    // leaves visible: the title bar for up/down (macOS keeps it on screen),
-    // the adjacent vertical edge slice for left/right.
+    // window's current on-screen frame. The strip mimics the window really
+    // being pushed off that edge — what would stay visible is the window's
+    // OPPOSITE edge (same as the real left/right slivers, which show the
+    // window's trailing 6px). So: up shows the bottom slice, down the top
+    // (title bar), left the right edge, right the left edge.
     func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
         switch edge {
-        case .up, .down:
+        case .up:
+            return CGRect(x: frame.minX, y: frame.maxY - thickness, width: frame.width, height: thickness)
+        case .down:
             return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: thickness)
         case .left:
-            return CGRect(x: frame.minX, y: frame.minY, width: thickness, height: frame.height)
-        case .right:
             return CGRect(x: frame.maxX - thickness, y: frame.minY, width: thickness, height: frame.height)
+        case .right:
+            return CGRect(x: frame.minX, y: frame.minY, width: thickness, height: frame.height)
         }
     }
 
