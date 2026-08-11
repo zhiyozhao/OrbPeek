@@ -33,7 +33,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         if let button = statusItem.button {
             button.title = "◉"
             button.font = NSFont.systemFont(ofSize: 12)
-            button.toolTip = "OrbPeek — 把窗口贴到屏幕外,悬停边缘滑出"
         }
         rebuildMenu()
         statusItem.menu?.delegate = self
@@ -168,8 +167,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let item = NSMenuItem(title: m.appName, action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
-                item.toolTip = "点击取消贴边"
-                item.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")
+                item.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "取消贴边")
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -192,10 +190,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func permissionItem(_ title: String, ok: Bool, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: "\(ok ? "✓" : "✗")  \(title)\(ok ? "" : " — 点击授权")",
+        let item = NSMenuItem(title: ok ? title : "\(title) — 点击授权",
                               action: ok ? nil : action, keyEquivalent: "")
         item.target = self
         item.isEnabled = !ok
+        item.image = NSImage(systemSymbolName: ok ? "checkmark.circle" : "xmark.circle",
+                             accessibilityDescription: title)
         return item
     }
 
