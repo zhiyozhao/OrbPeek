@@ -149,6 +149,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         return item
     }
 
+    // Fixed-size menu icons: always present so the menu's indentation never
+    // changes (assigning nil images would re-layout and creep the title).
+    private let menuBlankIcon = NSImage(size: NSSize(width: 16, height: 16))
+    private var menuXmarkIcon: NSImage? {
+        NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+    }
+
     private func rebuildMenu() {
         let menu = NSMenu()
 
@@ -174,6 +182,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let item = NSMenuItem(title: title, action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
+                item.image = menuBlankIcon
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -217,12 +226,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         rebuildMenu()
     }
 
-    // Show a plain × affordance only on the hovered docked-window row.
+    // Show a plain × affordance only on the hovered docked-window row. The
+    // image is always set (blank placeholder <-> ×) at a fixed size, so the
+    // menu layout never shifts.
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
         for mi in menu.items where mi.representedObject is ManagedWindow {
-            mi.image = mi === item
-                ? NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")
-                : nil
+            mi.image = mi === item ? menuXmarkIcon : menuBlankIcon
         }
     }
 
