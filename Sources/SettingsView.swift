@@ -56,6 +56,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .frame(width: 420)
         .scrollContentBackground(.hidden)
         .background(Color(nsColor: .windowBackgroundColor))
     }
