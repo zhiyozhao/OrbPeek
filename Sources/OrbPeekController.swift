@@ -149,10 +149,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         return item
     }
 
-    // Display titles of docked-window rows, so highlight can swap them for the
-    // action label and back.
-    private var menuRowTitles: [ObjectIdentifier: String] = [:]
-
     private func rebuildMenu() {
         let menu = NSMenu()
 
@@ -171,15 +167,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             var totals: [String: Int] = [:]
             for m in managed { totals[m.appName, default: 0] += 1 }
             var seen: [String: Int] = [:]
-            menuRowTitles.removeAll()
             for m in managed {
                 let base = m.appName
                 seen[base, default: 0] += 1
                 let title = (totals[base] ?? 1) > 1 ? "\(base) \(seen[base]!)" : base
-                let item = NSMenuItem(title: title, action: #selector(cancelWindow(_:)), keyEquivalent: "")
-                item.target = self
+                let item = NSMenuItem()
+                item.view = DockedWindowRow(title: title)
                 item.representedObject = m
-                menuRowTitles[ObjectIdentifier(item)] = title
+                item.target = self
+                item.action = #selector(cancelWindow(_:))
+                item.isEnabled = true
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -221,14 +218,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func menuWillOpen(_ menu: NSMenu) {
         rebuildMenu()
-    }
-
-    // Hovered docked-window rows show the action label instead of the title.
-    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        for mi in menu.items {
-            guard let title = menuRowTitles[ObjectIdentifier(mi)] else { continue }
-            mi.title = mi === item ? "取消贴边" : title
-        }
     }
 
     // MARK: Actions
@@ -382,5 +371,62 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             }
         }
         return false
+    }
+}
+
+// A docked-window menu row: shows the window name, and on hover swaps to the
+// action label with a native-style highlight. A custom view because the
+// NSMenuDelegate willHighlight callback is unreliable for status-item menus.
+private final class DockedWindowRow: NSView {
+    private let name: String
+    private let label = NSTextField(labelWithString: "")
+    private var hovered = false
+
+    init(title: String) {
+        name = title
+        super.init(frame: .zero)
+        label.font = NSFont.menuFont(ofSize: 0)
+        label.stringValue = title
+        label.lineBreakMode = .byTruncatingMiddle
+        label.isSelectable = false
+        label.isBordered = false
+        label.backgroundColor = .clear
+        addSubview(label)
+        let textWidth = label.intrinsicContentSize.width
+        frame = NSRect(x: 0, y: 0, width: textWidth + 44, height: 24)
+        label.frame = NSRect(x: 20, y: 3, width: textWidth + 4, height: 18)
+        addTrackingArea(NSTrackingArea(rect: .zero,
+                                       options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        label.stringValue = "取消贴边"
+        label.textColor = .white
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        label.stringValue = name
+        label.textColor = .labelColor
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovered {
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
+        super.draw(dirtyRect)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem, let action = item.action else { return }
+        NSApp.sendAction(action, to: item.target, from: item)
+        item.menu?.cancelTracking()
     }
 }
