@@ -384,14 +384,19 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 }
 
 // A docked-window menu row. Renders the text itself (changing a native
-// NSMenuItem's title on an open menu doesn't repaint). Highlight state is
-// driven by the menu delegate's willHighlight, with a tracking area as backup
+// NSMenuItem's title on an open menu doesn't repaint). The highlight is an
+// NSVisualEffectView with the .selection material — the system's actual
+// selection look, not an approximated color. Highlight state is driven by the
+// menu delegate's willHighlight, with a tracking area as backup
 // (.activeAlways — accessory apps are never active while their menu is open).
 private final class DockedWindowRow: NSView {
     private let name: String
+    private let selectionView = NSVisualEffectView()
+    private let label = NSTextField(labelWithString: "")
+
     var highlighted = false {
         didSet {
-            if highlighted != oldValue { needsDisplay = true }
+            if highlighted != oldValue { update() }
         }
     }
 
@@ -402,6 +407,38 @@ private final class DockedWindowRow: NSView {
         // row width, so the highlight covers the whole row.
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        selectionView.material = .selection
+        selectionView.state = .active
+        selectionView.isEmphasized = true
+        selectionView.blendingMode = .behindWindow
+        selectionView.wantsLayer = true
+        selectionView.layer?.cornerRadius = 5
+        selectionView.layer?.masksToBounds = true
+        selectionView.isHidden = true
+        addSubview(selectionView)
+        selectionView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            selectionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            selectionView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            selectionView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            selectionView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+        ])
+
+        label.font = NSFont.menuFont(ofSize: 0)
+        label.stringValue = title
+        label.textColor = .labelColor
+        label.isBordered = false
+        label.backgroundColor = .clear
+        label.lineBreakMode = .byTruncatingMiddle
+        addSubview(label) // above the selection view
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
         addTrackingArea(NSTrackingArea(rect: .zero,
                                        options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
@@ -409,21 +446,14 @@ private final class DockedWindowRow: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private func update() {
+        selectionView.isHidden = !highlighted
+        label.stringValue = highlighted ? "取消贴边" : name
+        label.textColor = highlighted ? .white : .labelColor
+    }
+
     override func mouseEntered(with event: NSEvent) { highlighted = true }
     override func mouseExited(with event: NSEvent) { highlighted = false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if highlighted {
-            NSColor.selectedContentBackgroundColor.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 5, yRadius: 5).fill()
-        }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.menuFont(ofSize: 0),
-            .foregroundColor: highlighted ? NSColor.white : NSColor.labelColor,
-        ]
-        (highlighted ? "取消贴边" : name).draw(in: NSRect(x: 20, y: 3, width: bounds.width - 24, height: 18),
-                                               withAttributes: attrs)
-    }
 
     override func mouseUp(with event: NSEvent) {
         guard let item = enclosingMenuItem, let action = item.action else { return }
