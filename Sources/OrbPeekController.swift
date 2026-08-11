@@ -269,7 +269,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             // otherwise the desktop wallpaper bleeds through and warms the color.
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor
-            window.setContentSize(NSSize(width: 492, height: 430))
+            // Size the window to the content — a hardcoded height that is
+            // slightly short gives the Form a useless barely-scrollable bar.
+            window.setContentSize(hosting.view.fittingSize)
             window.center()
             settingsWindow = window
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
