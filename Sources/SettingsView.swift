@@ -39,7 +39,7 @@ struct SettingsView: View {
             Section("外观") {
                 HStack {
                     Text("悬浮条宽度")
-                    Slider(value: $sliverPx, in: 5 ... 50)
+                    Slider(value: $sliverPx, in: 5 ... 50).controlSize(.small)
                     Text("\(sliverPx, specifier: "%.0f")px")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -47,7 +47,7 @@ struct SettingsView: View {
                 }
                 HStack {
                     Text("悬浮条透明度")
-                    Slider(value: $stripOpacity, in: 0.2 ... 1.0)
+                    Slider(value: $stripOpacity, in: 0.2 ... 1.0).controlSize(.small)
                     Text("\(Int(stripOpacity * 100))%")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
