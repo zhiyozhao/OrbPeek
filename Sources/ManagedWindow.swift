@@ -232,6 +232,15 @@ final class ManagedWindow {
         fakeStrip = nil
     }
 
+    // Strips float above normal windows so they're clickable handles — but
+    // while a window is peeked it owns the edge, so strips drop to normal
+    // level and can't cover it.
+    func setStripFloating(_ floating: Bool) {
+        guard let fakeStrip else { return }
+        let target: NSWindow.Level = floating ? .floating : .normal
+        if fakeStrip.level != target { fakeStrip.level = target }
+    }
+
     private func moveTo(_ pos: CGPoint?) {
         guard let pos else { return }
         window.position = pos

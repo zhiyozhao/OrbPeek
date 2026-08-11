@@ -48,6 +48,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
         installSignalHandlers()
         installMouseMonitors()
+        installMainMenu()
         capturer.prewarm()
         migrateLaunchAtLogin()
 
@@ -72,6 +73,27 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         if config.autoLaunch {
             try? SMAppService.mainApp.register()
         }
+    }
+
+    // A minimal main menu so standard shortcuts work while the settings
+    // window is key: ⌘W closes it, ⌘Q quits. Without a main menu these keys
+    // route nowhere.
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "退出 OrbPeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let windowItem = NSMenuItem()
+        mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowItem.submenu = windowMenu
+
+        NSApp.mainMenu = mainMenu
     }
 
     private func installSignalHandlers() {
@@ -356,26 +378,32 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             // a window later in this same tick must see it — otherwise two
             // overlapping windows can both peek in one tick.
             let blockedByPeeked = managed.contains { $0 !== m && $0.phase.isPeeked }
-            let blockedBySmaller = m.phase.isDocked && smallestDockedUnder(q, excluding: m)
+            let blockedByCloser = m.phase.isDocked && closerDockedUnder(q, excluding: m)
             m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
-                       blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedBySmaller,
+                       blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedByCloser,
                        now: now)
         }
+        // While a window is peeked it is raised to the front — drop the strips
+        // to normal level so they can't cover it; restore floating after.
+        let anyPeeked = managed.contains { $0.phase.isPeeked }
+        for m in managed { m.setStripFloating(!anyPeeked) }
     }
 
-    // True if another docked window whose sliver also sits under the cursor is
-    // smaller (or equally small but earlier in the managed order) — so the
-    // smallest window owns the overlap and the rest stay hidden.
-    private func smallestDockedUnder(_ q: CGPoint, excluding m: ManagedWindow) -> Bool {
-        guard let f = m.window.frame else { return false }
-        let thisSize = geometry.sliverLength(edge: m.edge, size: f.size)
+    // True if another docked window whose strip also sits under the cursor has
+    // its strip CENTER closer to the cursor — the strip you aim at wins on
+    // overlap (ties keep a stable order via UUID).
+    private func closerDockedUnder(_ q: CGPoint, excluding m: ManagedWindow) -> Bool {
+        guard let f = m.window.frame, let mscreen = m.dockScreen(in: geometry) else { return false }
+        let mRect = geometry.sliverRect(edge: m.edge, size: f.size, perp: m.perp,
+                                        screen: mscreen, thickness: config.sliverPx)
+        let mDist = m.edge.slideAxis == .horizontal ? abs(q.y - mRect.midY) : abs(q.x - mRect.midX)
         for other in managed where other !== m && other.phase.isDocked {
             guard let of = other.window.frame, let oscreen = other.dockScreen(in: geometry) else { continue }
-            let sliver = geometry.sliverRect(edge: other.edge, size: of.size, perp: other.perp,
-                                             screen: oscreen, thickness: config.sliverPx)
-            guard sliver.insetBy(dx: -6, dy: -6).contains(q) else { continue }
-            let otherSize = geometry.sliverLength(edge: other.edge, size: of.size)
-            if otherSize < thisSize || (otherSize == thisSize && other.id < m.id) {
+            let oRect = geometry.sliverRect(edge: other.edge, size: of.size, perp: other.perp,
+                                            screen: oscreen, thickness: config.sliverPx)
+            guard oRect.insetBy(dx: -6, dy: -6).contains(q) else { continue }
+            let oDist = other.edge.slideAxis == .horizontal ? abs(q.y - oRect.midY) : abs(q.x - oRect.midX)
+            if oDist < mDist || (oDist == mDist && other.id < m.id) {
                 return true
             }
         }
