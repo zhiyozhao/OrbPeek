@@ -149,13 +149,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         return item
     }
 
-    // Fixed-size menu icons: always present so the menu's indentation never
-    // changes (assigning nil images would re-layout and creep the title).
-    private let menuBlankIcon = NSImage(size: NSSize(width: 16, height: 16))
-    private var menuXmarkIcon: NSImage? {
-        NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
-    }
+    // Display titles of docked-window rows, so highlight can swap them for the
+    // action label and back.
+    private var menuRowTitles: [ObjectIdentifier: String] = [:]
 
     private func rebuildMenu() {
         let menu = NSMenu()
@@ -175,6 +171,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             var totals: [String: Int] = [:]
             for m in managed { totals[m.appName, default: 0] += 1 }
             var seen: [String: Int] = [:]
+            menuRowTitles.removeAll()
             for m in managed {
                 let base = m.appName
                 seen[base, default: 0] += 1
@@ -182,7 +179,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let item = NSMenuItem(title: title, action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
-                item.image = menuBlankIcon
+                menuRowTitles[ObjectIdentifier(item)] = title
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -226,12 +223,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         rebuildMenu()
     }
 
-    // Show a plain × affordance only on the hovered docked-window row. The
-    // image is always set (blank placeholder <-> ×) at a fixed size, so the
-    // menu layout never shifts.
+    // Hovered docked-window rows show the action label instead of the title.
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        for mi in menu.items where mi.representedObject is ManagedWindow {
-            mi.image = mi === item ? menuXmarkIcon : menuBlankIcon
+        for mi in menu.items {
+            guard let title = menuRowTitles[ObjectIdentifier(mi)] else { continue }
+            mi.title = mi === item ? "取消贴边" : title
         }
     }
 
