@@ -328,11 +328,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         lastMouseQ = q
         lastMouseAt = now
-        let anyPeeked = managed.contains { $0.phase.isPeeked }
         for m in managed {
+            // Computed per window, not hoisted: a peek fires synchronously, so
+            // a window later in this same tick must see it — otherwise two
+            // overlapping windows can both peek in one tick.
+            let blockedByPeeked = managed.contains { $0 !== m && $0.phase.isPeeked }
             let blockedBySmaller = m.phase.isDocked && smallestDockedUnder(q, excluding: m)
             m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
-                       blockedByPeeked: anyPeeked, blockedBySmaller: blockedBySmaller,
+                       blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedBySmaller,
                        now: now)
         }
     }
