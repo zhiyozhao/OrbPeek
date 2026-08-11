@@ -220,6 +220,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         rebuildMenu()
     }
 
+    // Drive row highlight from the delegate (reliable even for status-item
+    // menus); the row's tracking area is a backup.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        for mi in menu.items {
+            guard let row = mi.view as? DockedWindowRow else { continue }
+            row.highlighted = mi === item
+        }
+    }
+
     // MARK: Actions
 
     @objc private func cancelWindow(_ sender: NSMenuItem) {
@@ -374,54 +383,44 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 }
 
-// A docked-window menu row: shows the window name, and on hover swaps to the
-// action label with a native-style highlight. A custom view because the
-// NSMenuDelegate willHighlight callback is unreliable for status-item menus.
+// A docked-window menu row. Renders the text itself (changing a native
+// NSMenuItem's title on an open menu doesn't repaint). Highlight state is
+// driven by the menu delegate's willHighlight, with a tracking area as backup
+// (.activeAlways — accessory apps are never active while their menu is open).
 private final class DockedWindowRow: NSView {
     private let name: String
-    private let label = NSTextField(labelWithString: "")
-    private var hovered = false
+    var highlighted = false {
+        didSet {
+            if highlighted != oldValue { needsDisplay = true }
+        }
+    }
 
     init(title: String) {
         name = title
         super.init(frame: .zero)
-        label.font = NSFont.menuFont(ofSize: 0)
-        label.stringValue = title
-        label.lineBreakMode = .byTruncatingMiddle
-        label.isSelectable = false
-        label.isBordered = false
-        label.backgroundColor = .clear
-        addSubview(label)
-        let textWidth = label.intrinsicContentSize.width
+        let textWidth = (title as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width
         frame = NSRect(x: 0, y: 0, width: textWidth + 44, height: 24)
-        label.frame = NSRect(x: 20, y: 3, width: textWidth + 4, height: 18)
         addTrackingArea(NSTrackingArea(rect: .zero,
-                                       options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                       options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        label.stringValue = "取消贴边"
-        label.textColor = .white
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
-        label.stringValue = name
-        label.textColor = .labelColor
-        needsDisplay = true
-    }
+    override func mouseEntered(with event: NSEvent) { highlighted = true }
+    override func mouseExited(with event: NSEvent) { highlighted = false }
 
     override func draw(_ dirtyRect: NSRect) {
-        if hovered {
+        if highlighted {
             NSColor.selectedContentBackgroundColor.setFill()
             NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 5, yRadius: 5).fill()
         }
-        super.draw(dirtyRect)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: highlighted ? NSColor.white : NSColor.labelColor,
+        ]
+        (highlighted ? "取消贴边" : name).draw(in: NSRect(x: 20, y: 3, width: bounds.width - 24, height: 18),
+                                               withAttributes: attrs)
     }
 
     override func mouseUp(with event: NSEvent) {
