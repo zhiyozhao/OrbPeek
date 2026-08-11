@@ -169,6 +169,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 item.target = self
                 item.representedObject = m
                 item.toolTip = "点击取消贴边"
+                item.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")
                 menu.addItem(item)
             }
             menu.addItem(.separator())
