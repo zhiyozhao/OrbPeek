@@ -12,6 +12,7 @@ protocol WindowDockDelegate: AnyObject {
     func nameForWindow(_ window: AXWindow) -> String
     func activate(window: AXWindow)
     func isFrontmost(_ window: AXWindow) -> Bool
+    func isAppHidden(_ window: AXWindow) -> Bool
     func removeManaged(_ m: ManagedWindow)
 }
 
@@ -260,6 +261,13 @@ final class ManagedWindow {
         }
         nilCount = 0
         guard !gesture else { return }
+        // User-tucked-away windows are released with their original position
+        // restored — otherwise they'd resurface at the crooked park/peek spot.
+        if window.isMinimized {
+            Log.info("window minimized by user, releasing edge=\(edge)")
+            terminate(exit: .restore)
+            return
+        }
 
         let config = delegate.config
         let geometry = delegate.geometry
@@ -287,6 +295,13 @@ final class ManagedWindow {
                     return
                 }
                 let lostFocus = !frontmost
+                if lostFocus, delegate.isAppHidden(window) {
+                    // Cmd+H: the user hid the whole app — restore the original
+                    // position and release, so it resurfaces where it started.
+                    Log.info("app hidden by user, restoring and releasing edge=\(edge)")
+                    terminate(exit: .restore)
+                    return
+                }
                 let touchedAndLeft = dwell.touched && !inWin
                 let untouchedAndAway = !dwell.touched && !inWin && !onSliver
                 if lostFocus || touchedAndLeft || untouchedAndAway {

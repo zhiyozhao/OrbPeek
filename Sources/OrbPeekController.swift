@@ -349,6 +349,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         return pid == (NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
     }
 
+    func isAppHidden(_ window: AXWindow) -> Bool {
+        window.isAppHidden
+    }
+
     private func appIsFrontmost(_ m: ManagedWindow) -> Bool {
         isFrontmost(m.window)
     }

@@ -65,6 +65,16 @@ final class AXWindow {
         return (v as? Bool) ?? false
     }
 
+    // Whether the owning app is hidden (Cmd+H). NSRunningApplication.isHidden
+    // is unreliable/stale — read it from the AX application element instead.
+    var isAppHidden: Bool {
+        guard let pid else { return false }
+        let axApp = AXUIElementCreateApplication(pid)
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXHiddenAttribute as CFString, &v) == .success else { return false }
+        return (v as? Bool) ?? false
+    }
+
     func unminimize() {
         if isMinimized {
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
