@@ -167,12 +167,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             var totals: [String: Int] = [:]
             for m in managed { totals[m.appName, default: 0] += 1 }
             var seen: [String: Int] = [:]
-            var firstTitle = "样本窗口"
             for m in managed {
                 let base = m.appName
                 seen[base, default: 0] += 1
                 let title = (totals[base] ?? 1) > 1 ? "\(base) \(seen[base]!)" : base
-                if seen[base] == 1, firstTitle == "样本窗口" { firstTitle = title }
                 let item = NSMenuItem()
                 item.view = DockedWindowRow(title: title)
                 item.representedObject = m
@@ -181,10 +179,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 item.isEnabled = true
                 menu.addItem(item)
             }
-            // 对照组:原生 NSMenuItem,肉眼对比自定义行的对齐/样式。
-            let sample = NSMenuItem(title: firstTitle, action: #selector(openSettings), keyEquivalent: "")
-            sample.target = self
-            menu.addItem(sample)
             menu.addItem(.separator())
         }
 
