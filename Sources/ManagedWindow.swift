@@ -261,10 +261,11 @@ final class ManagedWindow {
         }
         nilCount = 0
         guard !gesture else { return }
-        // User-tucked-away windows are released with their original position
-        // restored — otherwise they'd resurface at the crooked park/peek spot.
-        if window.isMinimized {
-            Log.info("window minimized by user, releasing edge=\(edge)")
+        // External window lifecycle ops (hide/minimize) can arrive in ANY
+        // phase — they mean the user tucked the window away, so release it
+        // with its original frame restored, regardless of state.
+        if window.isMinimized || window.isAppHidden {
+            Log.info("window tucked away by user (min=\(window.isMinimized) hidden=\(window.isAppHidden)), releasing edge=\(edge)")
             terminate(exit: .restore)
             return
         }
@@ -295,13 +296,6 @@ final class ManagedWindow {
                     return
                 }
                 let lostFocus = !frontmost
-                if lostFocus, delegate.isAppHidden(window) {
-                    // Cmd+H: the user hid the whole app — restore the original
-                    // position and release, so it resurfaces where it started.
-                    Log.info("app hidden by user, restoring and releasing edge=\(edge)")
-                    terminate(exit: .restore)
-                    return
-                }
                 let touchedAndLeft = dwell.touched && !inWin
                 let untouchedAndAway = !dwell.touched && !inWin && !onSliver
                 if lostFocus || touchedAndLeft || untouchedAndAway {
