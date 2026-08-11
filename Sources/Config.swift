@@ -15,6 +15,7 @@ final class Config {
             "touchDwell": 0.3,
             "dockCancelPx": 40.0,
             "slamVelocity": 1200.0,
+            "stripOpacity": 1.0,
         ])
         migrateJSONIfNeeded()
     }
@@ -39,6 +40,8 @@ final class Config {
     // Mouse speed (px/s toward the dock edge) above which a hover is treated
     // as a deliberate slam — peek instantly, skipping the dwell.
     var slamVelocity: Double { defaults.double(forKey: "slamVelocity") }
+    // Opacity of the docked-window strip handle.
+    var stripOpacity: Double { defaults.double(forKey: "stripOpacity") }
 
     private func migrateJSONIfNeeded() {
         let path = NSHomeDirectory() + "/.config/orbpeek/config.json"

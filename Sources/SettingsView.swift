@@ -12,6 +12,7 @@ extension KeyboardShortcuts.Name {
 struct SettingsView: View {
     @AppStorage("autoLaunch") private var autoLaunch = false
     @AppStorage("sliverPx") private var sliverPx = 15.0
+    @AppStorage("stripOpacity") private var stripOpacity = 1.0
 
     var body: some View {
         Form {
@@ -40,6 +41,14 @@ struct SettingsView: View {
                     Text("悬浮条宽度")
                     Slider(value: $sliverPx, in: 5 ... 50)
                     Text("\(sliverPx, specifier: "%.0f")px")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 40, alignment: .trailing)
+                }
+                HStack {
+                    Text("悬浮条透明度")
+                    Slider(value: $stripOpacity, in: 0.2 ... 1.0)
+                    Text("\(Int(stripOpacity * 100))%")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .frame(width: 40, alignment: .trailing)

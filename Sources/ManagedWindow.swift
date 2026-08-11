@@ -311,6 +311,10 @@ final class ManagedWindow {
                 } else if fakeStrip.frame != expected {
                     fakeStrip.updateFrame(expected, edge: edge)
                 }
+                let opacity = CGFloat(config.stripOpacity)
+                if fakeStrip.alphaValue != opacity {
+                    fakeStrip.alphaValue = opacity
+                }
             }
             // Hover the handle to slide in (smallest window wins on overlap).
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
