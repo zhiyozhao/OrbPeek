@@ -398,8 +398,10 @@ private final class DockedWindowRow: NSView {
     init(title: String) {
         name = title
         super.init(frame: .zero)
-        let textWidth = (title as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width
-        frame = NSRect(x: 0, y: 0, width: textWidth + 44, height: 24)
+        // Auto Layout (height only) — the menu stretches the view to the full
+        // row width, so the highlight covers the whole row.
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 24).isActive = true
         addTrackingArea(NSTrackingArea(rect: .zero,
                                        options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
