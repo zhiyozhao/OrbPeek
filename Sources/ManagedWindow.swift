@@ -182,8 +182,7 @@ final class ManagedWindow {
 
     // Where the window is left when tracking stops.
     enum ExitPosition {
-        case peek // pull back flush to the edge so it's visible (menu cancel)
-        case restore // the original pre-dock frame (quit / dropped window)
+        case restore // the original pre-dock frame (menu cancel / quit / dropped window)
         case leave // something external already put it somewhere visible
     }
 
@@ -193,12 +192,6 @@ final class ManagedWindow {
         guard valid else { return }
         transition?.cancel()
         switch exit {
-        case .peek:
-            // A parked window must be pulled back on screen first.
-            if phase == .docked, let frame = window.frame, let delegate,
-               let screen = dockScreen(in: delegate.geometry) {
-                moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
-            }
         case .restore:
             window.position = restoreFrame.origin
         case .leave:

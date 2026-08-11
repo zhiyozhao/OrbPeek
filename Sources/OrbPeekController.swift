@@ -163,11 +163,17 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         // 已贴边的窗口
         if !managed.isEmpty {
             menu.addItem(headerItem("已贴边的窗口"))
+            // App name, numbered when several windows of the same app are docked.
+            var totals: [String: Int] = [:]
+            for m in managed { totals[m.appName, default: 0] += 1 }
+            var seen: [String: Int] = [:]
             for m in managed {
-                let item = NSMenuItem(title: m.appName, action: #selector(cancelWindow(_:)), keyEquivalent: "")
+                let base = m.appName
+                seen[base, default: 0] += 1
+                let title = (totals[base] ?? 1) > 1 ? "\(base) \(seen[base]!)" : base
+                let item = NSMenuItem(title: title, action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = m
-                item.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "取消贴边")
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -211,11 +217,20 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         rebuildMenu()
     }
 
+    // Show a plain × affordance only on the hovered docked-window row.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        for mi in menu.items where mi.representedObject is ManagedWindow {
+            mi.image = mi === item
+                ? NSImage(systemSymbolName: "xmark", accessibilityDescription: "取消贴边")
+                : nil
+        }
+    }
+
     // MARK: Actions
 
     @objc private func cancelWindow(_ sender: NSMenuItem) {
         guard let m = sender.representedObject as? ManagedWindow else { return }
-        m.terminate(exit: .peek)
+        m.terminate(exit: .restore)
     }
 
     @objc func openSettings() {
@@ -263,11 +278,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard let frame = window.frame, frame.size.width > 0, frame.size.height > 0 else { return }
 
         if let existing = managed.first(where: { CFEqual($0.window.element, window.element) }) {
-            // Re-dock to a new edge. A still-hidden window's live frame is the
-            // parked position — derive the perpendicular coordinate from the
-            // original on-screen frame instead.
-            let basis = existing.phase.isDocked ? existing.restoreFrame : frame
-            existing.perp = geometry.dockPerp(for: edge, frame: basis)
+            // Re-dock to a new edge. The reference frame is always the
+            // original pre-dock frame — never the transient peek/park position
+            // — so the perpendicular coordinate stays anchored to where the
+            // window was before docking, no matter how edges are switched.
+            existing.perp = geometry.dockPerp(for: edge, frame: existing.restoreFrame)
             existing.dock(to: edge)
             rebuildMenu()
             return
@@ -292,7 +307,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // MARK: WindowDockDelegate
 
     func nameForWindow(_ window: AXWindow) -> String {
-        window.title ?? "窗口"
+        // The app's display name — window titles get long and noisy.
+        guard let pid = window.pid,
+              let name = NSRunningApplication(processIdentifier: pid)?.localizedName,
+              !name.isEmpty else { return "窗口" }
+        return name
     }
 
     func activate(window: AXWindow) {
