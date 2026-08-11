@@ -434,7 +434,7 @@ private final class DockedWindowRow: NSView {
         addSubview(label) // above the selection view
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
