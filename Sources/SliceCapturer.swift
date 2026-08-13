@@ -108,7 +108,9 @@ final class SliceCapturer {
         let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
         Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
         guard let img else { return nil }
-        if let windowID {
+        // Cache only fully on-screen captures — off-screen parts of the window
+        // render blank and would poison the cache.
+        if let windowID, display.frame.contains(frame) {
             if windowImages.count > 8 { windowImages.removeAll() }
             windowImages[windowID] = (img, frame.size)
         }

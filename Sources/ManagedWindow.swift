@@ -149,7 +149,11 @@ final class ManagedWindow {
         // Only capture when the window is frontmost — a dockBack triggered by
         // focus loss can find another window already covering the region, and
         // a composited display capture would then photograph the WRONG window.
-        let canCapture = delegate.isFrontmost(window)
+        // Also skip when the slice's screen region is off the display —
+        // off-screen pixels capture as blank.
+        let sliceOnScreen = geometry.quartzFrame(of: screen)
+            .contains(geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx))
+        let canCapture = sliceOnScreen && delegate.isFrontmost(window)
         let fullImage = canCapture
             ? await withTimeout(0.3) { [dockScreenID, windowID] in
                 await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
