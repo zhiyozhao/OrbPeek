@@ -77,6 +77,19 @@ struct WindowGeometry {
         NSScreen.screens.first { displayID(of: $0) == id }
     }
 
+    // The screen region (quartz) a slice is captured from, for the window's
+    // current on-screen frame. Slice choice mimics the window really sliding
+    // off the edge: up -> bottom slice, down -> title bar, left -> right edge,
+    // right -> left edge.
+    func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
+        switch edge {
+        case .up: return CGRect(x: frame.minX, y: frame.maxY - thickness, width: frame.width, height: thickness)
+        case .down: return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: thickness)
+        case .left: return CGRect(x: frame.maxX - thickness, y: frame.minY, width: thickness, height: frame.height)
+        case .right: return CGRect(x: frame.minX, y: frame.minY, width: thickness, height: frame.height)
+        }
+    }
+
     // The perpendicular coordinate to preserve for an edge (y for left/right,
     // x for up/down).
     func dockPerp(for edge: DockEdge, frame: CGRect) -> CGFloat {
