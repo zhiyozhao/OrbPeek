@@ -9,6 +9,7 @@ cp .build/release/OrbPeek "$APP/Contents/MacOS/OrbPeek"
 cp Info.plist "$APP/Contents/Info.plist"
 # Sign with the stable self-signed "OrbPeek Dev" identity so TCC permissions
 # (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
-# every build because the code hash changes.
-codesign --force --sign "OrbPeek Dev" "$APP" >/dev/null
+# every build because the code hash changes. Override with CODESIGN_IDENTITY
+# (e.g. "-" for ad-hoc when the cert isn't available).
+codesign --force --sign "${CODESIGN_IDENTITY:-OrbPeek Dev}" "$APP" >/dev/null
 echo "built $APP"
