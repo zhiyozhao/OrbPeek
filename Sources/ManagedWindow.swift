@@ -253,7 +253,7 @@ final class ManagedWindow {
 
     // MARK: Poll evaluation
 
-    func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, now: Date) {
+    func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool, blockedByPeeked: Bool, blockedBySmaller: Bool, settling: Bool, now: Date) {
         guard valid, let delegate else { return }
         guard let frame = window.frame else {
             nilCount += 1
@@ -281,7 +281,17 @@ final class ManagedWindow {
 
         switch phase {
         case .peeked:
-            perp = geometry.dockPerp(for: edge, frame: frame)
+            if settling {
+                // Screen-set change: macOS may have shuffled the window —
+                // re-anchor it flush to the (possibly fallback) screen edge,
+                // keeping the stored perp untouched.
+                if let pos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen),
+                   abs(frame.origin.x - pos.x) > 1 || abs(frame.origin.y - pos.y) > 1 {
+                    moveTo(pos)
+                }
+            } else {
+                perp = geometry.dockPerp(for: edge, frame: frame)
+            }
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
             dwell.noteHover(inWin, touchDwell: config.touchDwell, now: now)
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
@@ -294,7 +304,8 @@ final class ManagedWindow {
                 // Externally displaced (another tool moved/resized it away from
                 // the edge; user drags set `gesture` and never reach here) —
                 // treat like a drag-out: undock, leave the window where it is.
-                if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
+                // Suppressed while settling (sleep/lock/display reshuffle).
+                if !settling, geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
                     Log.info("peeked window displaced externally, undocking edge=\(edge)")
                     terminate(exit: .leave)
                     return
@@ -309,7 +320,7 @@ final class ManagedWindow {
         case .docked:
             let target = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
             let drift = max(abs(frame.origin.x - target.x), abs(frame.origin.y - target.y))
-            if drift > config.dockCancelPx {
+            if drift > config.dockCancelPx, !settling {
                 // Something external deliberately moved the window away — the
                 // user wants it there, so release the dock instead of fighting
                 // over the position every tick.
@@ -317,8 +328,10 @@ final class ManagedWindow {
                 terminate(exit: .leave)
                 return
             }
+            // Minor drift — snap back. During settling (wake / display change)
+            // even large drift is macOS reshuffling windows, so always snap.
             if drift > 2 {
-                moveTo(target) // minor drift — snap back
+                moveTo(target)
             }
             // Keep the strip in sync (e.g. sliverPx changed in settings):
             // re-crop from the full-image cache at the new thickness, else

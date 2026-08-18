@@ -48,6 +48,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
         installSignalHandlers()
         installMouseMonitors()
+        installSettleObservers()
         installMainMenu()
         capturer.prewarm()
         migrateLaunchAtLogin()
@@ -132,6 +133,26 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         for m in managed where m.gesture {
             m.gesture = false
             m.checkDragOut()
+        }
+    }
+
+    // Display (un)plug shuffles window frames behind our back — and the parked
+    // position itself moves when the desktop frame changes. (Sleep/lock needs
+    // nothing: macOS preserves frames, and all dock geometry is a pure
+    // function of the current screen set, so nothing moves.) For a few
+    // seconds after a screen change, "settling" suppresses the external-move
+    // release: managed windows are re-anchored to their recomputed positions
+    // instead of being dropped where macOS left them.
+    private var settleUntil = Date.distantPast
+
+    private func installSettleObservers() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: nil
+        ) { _ in
+            Task { @MainActor in
+                (NSApplication.shared.delegate as? OrbPeekController)?.settleUntil = Date().addingTimeInterval(3)
+            }
         }
     }
 
@@ -367,6 +388,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         lastMouseQ = q
         lastMouseAt = now
+        let settling = now < settleUntil
         for m in managed {
             // Computed per window, not hoisted: a peek fires synchronously, so
             // a window later in this same tick must see it — otherwise two
@@ -375,7 +397,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             let blockedByCloser = m.phase.isDocked && closerDockedUnder(q, excluding: m)
             m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
                        blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedByCloser,
-                       now: now)
+                       settling: settling, now: now)
         }
         // While a window is peeked it is raised to the front — drop the strips
         // to normal level so they can't cover it; restore floating after.
