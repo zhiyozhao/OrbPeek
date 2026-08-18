@@ -4,7 +4,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 
 ## Build & run
 
-- Build: `./build.sh` — `swift build -c release` + assembles `OrbPeek.app` (Info.plist, LSUIElement) + `codesign` with the stable self-signed **"OrbPeek Dev"** identity (ad-hoc signing re-prompts TCC every build because the code hash changes; override with `CODESIGN_IDENTITY`)
+- Build: `./build.sh` — `swift build -c release` + assembles `OrbPeek.app` (Info.plist, LSUIElement, **plus SPM resource bundles** — `KeyboardShortcuts_KeyboardShortcuts.bundle` must land in `Contents/Resources/` or `Bundle.module` fatalErrors when the settings window opens) + `codesign` with the stable self-signed **"OrbPeek Dev"** identity (ad-hoc signing re-prompts TCC every build because the code hash changes; override with `CODESIGN_IDENTITY`)
 - Release: push a semver tag (`git tag v1.0.1 && git push origin v1.0.1`) — `.github/workflows/release.yml` builds/signs/DMGs/publishes on GitHub, and the `zhiyozhao/homebrew-tap` cask syncs via its own scheduled workflow. Don't hand-edit the version in Info.plist for releases; CI stamps it from the tag
 - Run: `open OrbPeek.app` (the .app and `.build/` are gitignored)
 - Self-test: `OrbPeek.app/Contents/MacOS/OrbPeek --self-test` — verifies Accessibility trust and moves the focused window +30px, then restores it. Must keep Terminal frontmost, else it exits(1).
