@@ -8,12 +8,12 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Release: push a semver tag (`git tag v1.0.1 && git push origin v1.0.1`) — `.github/workflows/release.yml` builds/signs/DMGs/publishes on GitHub, and the `zhiyozhao/homebrew-tap` cask syncs via its own scheduled workflow. Don't hand-edit the version in Info.plist for releases; CI stamps it from the tag
 - Run: `open OrbPeek.app` (the .app and `.build/` are gitignored)
 - Self-test: `OrbPeek.app/Contents/MacOS/OrbPeek --self-test` — verifies Accessibility trust and moves the focused window +30px, then restores it. Must keep Terminal frontmost, else it exits(1).
-- Debug drivers: `--debug-mouse "t:x,y t:x,y ..."` — scripted cursor positions (t = seconds since launch, quartz top-left coords) replace the real mouse in `poll()`; `--show-settings` opens the settings window at launch. `Scripts/test-window.swift` (`swiftc` it, pass AppKit x y) creates a dedicated frontmost test window that prints its real frame; drive the dock hotkey via `osascript -e 'tell application "System Events" to key code 126 using {control down}'` (123/124/125/126 = ←/→/↓/↑).
+- Debug drivers: `--debug-mouse "t:x,y t:x,y ..."` — scripted cursor positions (t = seconds since launch, quartz top-left coords) replace the real mouse in `poll()`; `--show-settings` opens the settings window at launch. `Scripts/test-window.swift` (`swiftc` it, pass AppKit x y) creates a dedicated frontmost test window that prints its real frame; drive the dock hotkey via `osascript -e 'tell application "System Events" to key code 126 using {control down, shift down}'` (123/124/125/126 = ←/→/↓/↑).
 
 ## Source layout (`Sources/`)
 
 - `OrbPeekController.swift` — `@main` entry + app delegate: status item, sectioned menu (permissions / docked windows / actions — Chinese UI strings, keep them that way), hotkeys via `KeyboardShortcuts.onKeyDown`, settings window, 30 Hz `poll()`, docking orchestration
-- `SettingsView.swift` — SwiftUI settings window + `KeyboardShortcuts.Name` definitions (default Ctrl+arrows). Settings live in `UserDefaults` via `@AppStorage` and apply live
+- `SettingsView.swift` — SwiftUI settings window + `KeyboardShortcuts.Name` definitions (default Ctrl+Shift+arrows). Settings live in `UserDefaults` via `@AppStorage` and apply live
 - `ManagedWindow.swift` — per-window state machine; talks to the app only through the `WindowDockDelegate` protocol (defined here)
 - `Geometry.swift` — `DockEdge` + `WindowGeometry`: **all** coordinate conversion and dock/peek/sliver position math, in one place
 - `AXWindow.swift` — `AXUIElement` wrapper (safe frame/position/title/pid access)
@@ -35,7 +35,7 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 - Settings: `UserDefaults` (edited in the settings window, applied live; legacy `~/.config/orbpeek/config.json` is imported once at first launch of the bundled app)
 - Log: `~/Library/Logs/orbpeek.log` (also written to stderr). `Log.info` is the debug tracing mechanism.
 - Launch-at-login uses `SMAppService.mainApp` (toggled in settings).
-- Hotkeys: `Ctrl+←/→/↑/↓` by default, rebindable in settings (`KeyboardShortcuts.Recorder`).
+- Hotkeys: `Ctrl+Shift+←/→/↑/↓` by default, rebindable in settings (`KeyboardShortcuts.Recorder`).
 
 ## Code conventions
 

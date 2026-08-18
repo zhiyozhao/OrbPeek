@@ -3,10 +3,10 @@ import ServiceManagement
 import SwiftUI
 
 extension KeyboardShortcuts.Name {
-    static let dockLeft = Self("dockLeft", default: .init(.leftArrow, modifiers: [.control]))
-    static let dockRight = Self("dockRight", default: .init(.rightArrow, modifiers: [.control]))
-    static let dockUp = Self("dockUp", default: .init(.upArrow, modifiers: [.control]))
-    static let dockDown = Self("dockDown", default: .init(.downArrow, modifiers: [.control]))
+    static let dockLeft = Self("dockLeft", default: .init(.leftArrow, modifiers: [.control, .shift]))
+    static let dockRight = Self("dockRight", default: .init(.rightArrow, modifiers: [.control, .shift]))
+    static let dockUp = Self("dockUp", default: .init(.upArrow, modifiers: [.control, .shift]))
+    static let dockDown = Self("dockDown", default: .init(.downArrow, modifiers: [.control, .shift]))
 }
 
 struct SettingsView: View {

@@ -4,7 +4,7 @@ A macOS menu-bar app that docks windows to any screen edge and slides them back 
 
 ## Features
 
-- Dock the frontmost window to the left / right / top / bottom edge with a hotkey (default `Ctrl + arrow keys`, rebindable)
+- Dock the frontmost window to the left / right / top / bottom edge with a hotkey (default `Ctrl + Shift + arrow keys`, rebindable)
 - A slim snapshot strip stays at the edge as a visual handle — hover (or slam) it to slide the window back in
 - The window slides back out automatically when you move on, or drag it off the edge to undock it for good
 - Multiple windows per edge, per-screen docking, multi-display aware
@@ -40,7 +40,7 @@ Both are prompted on first launch; status and re-grant shortcuts live in the men
 
 ## Usage
 
-- **Dock**: focus a window, press `Ctrl + ←/→/↑/↓` to send it to that edge
+- **Dock**: focus a window, press `Ctrl + Shift + ←/→/↑/↓` to send it to that edge
 - **Peek**: hover the edge strip (or move the mouse fast toward it) — the window slides in; leave and it slides back out
 - **Undock**: drag the peeked window away from the edge, or click its entry in the menu-bar menu
 - Hotkeys, strip width/opacity and launch-at-login are in 设置… (Settings) in the menu
