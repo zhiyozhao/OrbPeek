@@ -49,6 +49,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         installSignalHandlers()
         installMouseMonitors()
         installSettleObservers()
+        installSessionGate()
         installMainMenu()
         capturer.prewarm()
         migrateLaunchAtLogin()
@@ -154,6 +155,48 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 (NSApplication.shared.delegate as? OrbPeekController)?.settleUntil = Date().addingTimeInterval(3)
             }
         }
+    }
+
+    // AX calls black out while the screen is locked: every attribute read and
+    // set fails (kAXErrorInvalidUIElement/-25202 etc.). Polling through the
+    // blackout misreads it as "window closed" and drops managed windows —
+    // with the restore sets failing too, leaving them parked off-screen.
+    // Gate instead: freeze evaluation while locked (macOS preserves frames
+    // across lock, so there is genuinely nothing to do). Same approach as
+    // AltTab's ScreenLockEvents.
+    private var screenLocked = false
+
+    private func installSessionGate() {
+        let dnc = DistributedNotificationCenter.default()
+        // .deliverImmediately matters: we are an accessory app and inactive
+        // while locked — suspended delivery would drop the notification.
+        dnc.addObserver(self, selector: #selector(handleScreenLocked),
+                        name: .init("com.apple.screenIsLocked"), object: nil,
+                        suspensionBehavior: .deliverImmediately)
+        dnc.addObserver(self, selector: #selector(handleScreenUnlocked),
+                        name: .init("com.apple.screenIsUnlocked"), object: nil,
+                        suspensionBehavior: .deliverImmediately)
+        // Re-seed on wake: the unlock notification can be lost across deep
+        // sleep. The initial seed covers launching while already locked.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
+            Task { @MainActor in
+                (NSApplication.shared.delegate as? OrbPeekController)?.reseedLockState()
+            }
+        }
+        reseedLockState()
+    }
+
+    @objc private nonisolated func handleScreenLocked() {
+        Task { @MainActor in self.screenLocked = true }
+    }
+
+    @objc private nonisolated func handleScreenUnlocked() {
+        Task { @MainActor in self.screenLocked = false }
+    }
+
+    private func reseedLockState() {
+        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return }
+        screenLocked = (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false
     }
 
     func restoreAll() {
@@ -375,7 +418,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var lastMouseAt: Date?
 
     private func poll() {
-        guard AXWindow.isProcessTrusted else { return }
+        guard AXWindow.isProcessTrusted, !screenLocked else { return }
         let q = DebugMouse.location(sinceLaunch: Date().timeIntervalSince(launchedAt))
             ?? geometry.toQuartz(NSEvent.mouseLocation)
         let now = Date()
