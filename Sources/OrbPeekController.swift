@@ -332,10 +332,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 }
             }
         }
+        // Front the window reliably: the macOS 14+ parameterless activate()
+        // can silently DECLINE to activate an accessory app (window then opens
+        // behind whatever is frontmost). activate(ignoringOtherApps:) is
+        // deprecated but is the only reliable call for menu-bar apps, and is
+        // appropriate here — the user explicitly clicked Settings.
         NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
         settingsWindow?.orderFrontRegardless()
-        NSApp.activate()
     }
 
     @objc private func openLog() {
