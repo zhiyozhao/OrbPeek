@@ -86,6 +86,22 @@ final class SliceCapturer {
         return nil
     }
 
+    // Whether a window still exists. CGWindowList is window-server level, so
+    // it answers even when the owning app is hung and AX reads time out —
+    // used to tell "window closed" apart from "app beachballing" before
+    // dropping a managed window.
+    func windowExists(_ id: CGWindowID) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        return list.contains { ($0[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == id }
+    }
+
+    // Drop the cached capture for a window whose dock was released — its
+    // content can change while unmanaged, and there's no reason to keep a
+    // screenshot of an unmanaged window around.
+    func evict(_ id: CGWindowID) {
+        windowImages.removeValue(forKey: id)
+    }
+
     // Composited capture of the window's frame region (quartz coordinates).
     // The window must be on screen. Our own windows (the strip) are excluded
     // so they can't contaminate the image. A successful capture is cached in
