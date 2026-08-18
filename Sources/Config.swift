@@ -29,7 +29,6 @@ final class Config {
     // don't falsely dismiss a peeked window.
     var edgeBuffer: CGFloat { CGFloat(defaults.double(forKey: "edgeBuffer")) }
     // Visible slice of a docked window — the "handle" you hover to peek it.
-    // Used for the real sliver (left/right outer edges) and the fake strip alike.
     var sliverPx: CGFloat { CGFloat(defaults.double(forKey: "sliverPx")) }
     // Hover dwell on the sliver before the window slides in (avoids accidental peeks).
     var peekDwell: Double { defaults.double(forKey: "peekDwell") }

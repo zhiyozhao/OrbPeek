@@ -52,7 +52,7 @@ final class ManagedWindow {
     // The fake snapshot strip handle.
     private var fakeStrip: SnapshotStrip?
     // The window's CGWindowID (stable for its lifetime), resolved on first dock.
-    private var windowID: CGWindowID?
+    private(set) var windowID: CGWindowID?
     // The in-flight transition task (docks are async — they capture before
     // parking). A new transition cancels it.
     private var transition: Task<Void, Never>?
@@ -111,9 +111,10 @@ final class ManagedWindow {
 
     // The async half of every dock: while the window is still on screen,
     // capture all four edge slices (~50ms, 300ms timeout), then park and show
-    // the strip. Real edges capture too — purely to fill the cache, so a later
-    // hidden re-dock to a fake edge always has content. The strip is shown
-    // only after the capture, so it can never photograph itself.
+    // the strip. Even though only one slice is shown, capturing all four fills
+    // the cache, so a later hidden re-dock to any edge always has content.
+    // The strip is shown only after the capture, so it can never photograph
+    // itself.
     //
     // A hidden re-dock takes no capture: the window is parked off-screen, and
     // capturing would require flashing it on screen. It just re-parks at the
@@ -230,8 +231,7 @@ final class ManagedWindow {
         valid = false
     }
 
-    // Hide and drop the fake handle strip (used when the dock becomes a real
-    // edge, when the window is cancelled, or on quit).
+    // Hide and drop the strip (when the dock is cancelled, or on quit).
     func detachStrip() {
         fakeStrip?.hide()
         fakeStrip = nil
@@ -258,6 +258,14 @@ final class ManagedWindow {
         guard let frame = window.frame else {
             nilCount += 1
             if nilCount > 30 {
+                // AX read failure is ambiguous: window closed vs. app hung
+                // (AX reads time out while the app beachballs). CGWindowList
+                // is window-server level and answers either way — only drop
+                // when the window is really gone, else wait the hang out.
+                if let wid = windowID, delegate.capturer.windowExists(wid) {
+                    nilCount = 30
+                    return
+                }
                 Log.info("window frame unreadable, dropping edge=\(edge)")
                 terminate(exit: .restore)
             }

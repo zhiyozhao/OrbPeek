@@ -107,15 +107,6 @@ struct WindowGeometry {
         }
     }
 
-    // The window's size along the sliver (height for left/right, width for
-    // up/down) — used to pick the smallest window when slivers overlap.
-    func sliverLength(edge: DockEdge, size: CGSize) -> CGFloat {
-        switch edge.slideAxis {
-        case .horizontal: return size.height
-        case .vertical: return size.width
-        }
-    }
-
     // Where the window sits while hidden: parked off a desktop outer edge with
     // 1px visible (macOS keeps ~40px visible if fully off, but allows 1px).
     // The 1px stays on the DOCK screen whenever possible — park off the
@@ -153,9 +144,8 @@ struct WindowGeometry {
         }
     }
 
-    // The handle rect (what you hover to peek): the window's own slice for
-    // real left/right (thickness = sliverPx), or the fake strip's frame for
-    // fake edges (thickness = fakeSliverPx).
+    // The handle rect (what you hover to peek) — the floating strip's frame,
+    // thickness = sliverPx.
     func sliverRect(edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen, thickness: CGFloat) -> CGRect {
         let v = quartzVisibleFrame(of: screen)
         switch edge {
