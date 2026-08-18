@@ -184,7 +184,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
         // 已贴边的窗口
         if !managed.isEmpty {
-            menu.addItem(headerItem("已贴边的窗口"))
+            menu.addItem(headerItem("点击取消贴边"))
             // App name, numbered when several windows of the same app are docked.
             var totals: [String: Int] = [:]
             for m in managed { totals[m.appName, default: 0] += 1 }
@@ -193,12 +193,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let base = m.appName
                 seen[base, default: 0] += 1
                 let title = (totals[base] ?? 1) > 1 ? "\(base) \(seen[base]!)" : base
-                let item = NSMenuItem()
-                item.view = DockedWindowRow(title: title)
+                let item = NSMenuItem(title: title, action: #selector(cancelWindow(_:)), keyEquivalent: "")
                 item.representedObject = m
                 item.target = self
-                item.action = #selector(cancelWindow(_:))
-                item.isEnabled = true
                 menu.addItem(item)
             }
             menu.addItem(.separator())
@@ -240,15 +237,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func menuWillOpen(_ menu: NSMenu) {
         rebuildMenu()
-    }
-
-    // Drive row highlight from the delegate (reliable even for status-item
-    // menus); the row's tracking area is a backup.
-    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        for mi in menu.items {
-            guard let row = mi.view as? DockedWindowRow else { continue }
-            row.highlighted = mi === item
-        }
     }
 
     // MARK: Actions
@@ -414,84 +402,5 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             }
         }
         return false
-    }
-}
-
-// A docked-window menu row. Renders the text itself (changing a native
-// NSMenuItem's title on an open menu doesn't repaint). The highlight is an
-// NSVisualEffectView with the .selection material — the system's actual
-// selection look, not an approximated color. Highlight state is driven by the
-// menu delegate's willHighlight, with a tracking area as backup
-// (.activeAlways — accessory apps are never active while their menu is open).
-private final class DockedWindowRow: NSView {
-    private let name: String
-    private let selectionView = NSVisualEffectView()
-    private let label = NSTextField(labelWithString: "")
-
-    var highlighted = false {
-        didSet {
-            if highlighted != oldValue { update() }
-        }
-    }
-
-    init(title: String) {
-        name = title
-        super.init(frame: .zero)
-        // Auto Layout (height only) — the menu stretches the view to the full
-        // row width, so the highlight covers the whole row.
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 24).isActive = true
-
-        selectionView.material = .selection
-        selectionView.state = .active
-        selectionView.isEmphasized = true
-        selectionView.blendingMode = .behindWindow
-        selectionView.wantsLayer = true
-        selectionView.layer?.cornerRadius = 5
-        selectionView.layer?.masksToBounds = true
-        selectionView.isHidden = true
-        addSubview(selectionView)
-        selectionView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            selectionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            selectionView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            selectionView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
-            selectionView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
-        ])
-
-        label.font = NSFont.menuFont(ofSize: 0)
-        label.stringValue = title
-        label.textColor = .labelColor
-        label.isBordered = false
-        label.backgroundColor = .clear
-        label.lineBreakMode = .byTruncatingMiddle
-        addSubview(label) // above the selection view
-        label.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        addTrackingArea(NSTrackingArea(rect: .zero,
-                                       options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                       owner: self, userInfo: nil))
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    private func update() {
-        selectionView.isHidden = !highlighted
-        label.stringValue = highlighted ? "取消贴边" : name
-        label.textColor = highlighted ? .white : .labelColor
-    }
-
-    override func mouseEntered(with event: NSEvent) { highlighted = true }
-    override func mouseExited(with event: NSEvent) { highlighted = false }
-
-    override func mouseUp(with event: NSEvent) {
-        guard let item = enclosingMenuItem, let action = item.action else { return }
-        NSApp.sendAction(action, to: item.target, from: item)
-        item.menu?.cancelTracking()
     }
 }
