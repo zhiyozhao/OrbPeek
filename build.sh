@@ -7,6 +7,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/OrbPeek "$APP/Contents/MacOS/OrbPeek"
 cp Info.plist "$APP/Contents/Info.plist"
+# SPM resource bundles of dependencies (e.g. KeyboardShortcuts' Recorder
+# localizations). Bundle.module fatalErrors at runtime if these are missing —
+# that crash only fires when the code path (settings window) is used.
+mkdir -p "$APP/Contents/Resources"
+for bundle in .build/release/*.bundle; do
+    [ -e "$bundle" ] || continue
+    cp -R "$bundle" "$APP/Contents/Resources/"
+done
 # Sign with the stable self-signed "OrbPeek Dev" identity so TCC permissions
 # (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
 # every build because the code hash changes. Override with CODESIGN_IDENTITY
