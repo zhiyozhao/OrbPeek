@@ -16,6 +16,7 @@ for bundle in .build/release/*.bundle; do
     [ -e "$bundle" ] || continue
     cp -R "$bundle" "$APP/Contents/Resources/"
 done
+[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 # Sign with the stable self-signed "OrbPeek Dev" identity so TCC permissions
 # (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
 # every build because the code hash changes. Override with CODESIGN_IDENTITY

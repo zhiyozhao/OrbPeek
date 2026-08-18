@@ -86,13 +86,13 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "退出 OrbPeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: tr("menu.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
         let windowItem = NSMenuItem()
         mainMenu.addItem(windowItem)
-        let windowMenu = NSMenu(title: "窗口")
-        windowMenu.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let windowMenu = NSMenu(title: tr("menu.window"))
+        windowMenu.addItem(withTitle: tr("menu.close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = windowMenu
 
         NSApp.mainMenu = mainMenu
@@ -213,10 +213,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private func promptAccessibility() {
         let alert = NSAlert()
-        alert.messageText = "OrbPeek 需要「辅助功能」权限"
-        alert.informativeText = "否则无法移动窗口。请在系统设置 → 隐私与安全性 → 辅助功能 中勾选 OrbPeek（若未列出,点 + 添加）。授权后重新运行 OrbPeek。"
-        alert.addButton(withTitle: "打开设置")
-        alert.addButton(withTitle: "稍后")
+        alert.messageText = tr("alert.axTitle")
+        alert.informativeText = tr("alert.axMessage")
+        alert.addButton(withTitle: tr("alert.openSettings"))
+        alert.addButton(withTitle: tr("alert.later"))
         if alert.runModal() == .alertFirstButtonReturn {
             let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
             NSWorkspace.shared.open(url)
@@ -239,16 +239,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         let menu = NSMenu()
 
         // 权限
-        menu.addItem(headerItem("权限"))
+        menu.addItem(headerItem(tr("menu.permissions")))
         let axOK = AXWindow.isProcessTrusted
-        menu.addItem(permissionItem("辅助功能", ok: axOK, action: #selector(requestAccessibility)))
+        menu.addItem(permissionItem(tr("menu.accessibility"), ok: axOK, action: #selector(requestAccessibility)))
         let srOK = CGPreflightScreenCaptureAccess()
-        menu.addItem(permissionItem("屏幕录制", ok: srOK, action: #selector(requestScreenRecording)))
+        menu.addItem(permissionItem(tr("menu.screenRecording"), ok: srOK, action: #selector(requestScreenRecording)))
         menu.addItem(.separator())
 
         // 已贴边的窗口
         if !managed.isEmpty {
-            menu.addItem(headerItem("点击取消贴边"))
+            menu.addItem(headerItem(tr("menu.undockHint")))
             // App name, numbered when several windows of the same app are docked.
             var totals: [String: Int] = [:]
             for m in managed { totals[m.appName, default: 0] += 1 }
@@ -265,15 +265,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             menu.addItem(.separator())
         }
 
-        let settings = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(title: tr("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
 
-        let viewLog = NSMenuItem(title: "打开日志…", action: #selector(openLog), keyEquivalent: "")
+        let viewLog = NSMenuItem(title: tr("menu.openLog"), action: #selector(openLog), keyEquivalent: "")
         viewLog.target = self
         menu.addItem(viewLog)
 
-        let quit = NSMenuItem(title: "退出 OrbPeek", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: tr("menu.quit"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
 
@@ -282,7 +282,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func permissionItem(_ title: String, ok: Bool, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: ok ? title : "\(title) — 点击授权",
+        let item = NSMenuItem(title: ok ? title : tr("menu.grant", title),
                               action: ok ? nil : action, keyEquivalent: "")
         item.target = self
         item.isEnabled = !ok
@@ -314,7 +314,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView())
             let window = NSWindow(contentViewController: hosting)
-            window.title = "OrbPeek 设置"
+            window.title = tr("settings.windowTitle")
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             // Settings windows are opaque with the standard background —

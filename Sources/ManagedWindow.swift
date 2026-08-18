@@ -74,7 +74,7 @@ final class ManagedWindow {
         self.delegate = delegate
     }
 
-    var appName: String { delegate?.nameForWindow(window) ?? "窗口" }
+    var appName: String { delegate?.nameForWindow(window) ?? tr("menu.window") }
 
     // The stored dock screen, with fallbacks if it was unplugged.
     func dockScreen(in geometry: WindowGeometry) -> NSScreen? {
