@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "OrbPeek",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     dependencies: [
         // Fork of sindresorhus/KeyboardShortcuts 2.4.0 with a resilient
@@ -18,7 +19,8 @@ let package = Package(
             dependencies: [
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
             ],
-            path: "Sources"
+            path: "Sources",
+            resources: [.process("Resources")]
         ),
     ]
 )

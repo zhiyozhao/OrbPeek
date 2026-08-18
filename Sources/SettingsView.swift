@@ -16,8 +16,8 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("通用") {
-                Toggle("开机自启动", isOn: $autoLaunch)
+            Section(tr("settings.general")) {
+                Toggle(tr("settings.launchAtLogin"), isOn: $autoLaunch)
                     .onChange(of: autoLaunch) {
                         do {
                             if autoLaunch {
@@ -30,15 +30,15 @@ struct SettingsView: View {
                         }
                     }
             }
-            Section("快捷键") {
-                LabeledContent("贴到屏幕左边") { KeyboardShortcuts.Recorder(for: .dockLeft) }
-                LabeledContent("贴到屏幕右边") { KeyboardShortcuts.Recorder(for: .dockRight) }
-                LabeledContent("贴到屏幕上边") { KeyboardShortcuts.Recorder(for: .dockUp) }
-                LabeledContent("贴到屏幕下边") { KeyboardShortcuts.Recorder(for: .dockDown) }
+            Section(tr("settings.shortcuts")) {
+                LabeledContent(tr("settings.dockLeft")) { KeyboardShortcuts.Recorder(for: .dockLeft) }
+                LabeledContent(tr("settings.dockRight")) { KeyboardShortcuts.Recorder(for: .dockRight) }
+                LabeledContent(tr("settings.dockUp")) { KeyboardShortcuts.Recorder(for: .dockUp) }
+                LabeledContent(tr("settings.dockDown")) { KeyboardShortcuts.Recorder(for: .dockDown) }
             }
-            Section("外观") {
+            Section(tr("settings.appearance")) {
                 HStack {
-                    Text("悬浮条宽度")
+                    Text(tr("settings.stripWidth"))
                     Slider(value: $sliverPx, in: 5 ... 50).controlSize(.small)
                     Text("\(sliverPx, specifier: "%.0f")px")
                         .foregroundStyle(.secondary)
@@ -46,7 +46,7 @@ struct SettingsView: View {
                         .frame(width: 40, alignment: .trailing)
                 }
                 HStack {
-                    Text("悬浮条透明度")
+                    Text(tr("settings.stripOpacity"))
                     Slider(value: $stripOpacity, in: 0.2 ... 1.0).controlSize(.small)
                     Text("\(Int(stripOpacity * 100))%")
                         .foregroundStyle(.secondary)
