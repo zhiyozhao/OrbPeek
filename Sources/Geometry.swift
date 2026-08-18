@@ -53,6 +53,14 @@ struct WindowGeometry {
         return CGRect(x: f.minX, y: desktopFrame.maxY - f.maxY, width: f.width, height: f.height)
     }
 
+    // Clamp a preserved parallel coordinate into the screen's visible range,
+    // so a screen change (e.g. unplugging a larger display) can never push
+    // the window outside the visible area. The stored perp is never mutated —
+    // re-plugging the display restores the original position.
+    private func clamped(_ p: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
+        min(max(p, lo), max(lo, hi))
+    }
+
     // The screen a quartz frame mostly sits on (largest intersection; falls
     // back to origin containment, then the main screen).
     func screen(containing frame: CGRect) -> NSScreen? {
@@ -121,7 +129,7 @@ struct WindowGeometry {
         switch edge {
         case .up: y = v.minY
         case .down: y = v.maxY - size.height
-        case .left, .right: y = perp
+        case .left, .right: y = clamped(perp, lo: v.minY, hi: v.maxY - size.height)
         }
         if screen.frame.maxX >= desktopFrame.maxX - 0.5 {
             return CGPoint(x: desktopFrame.maxX - 1, y: y)
@@ -138,10 +146,10 @@ struct WindowGeometry {
     func peekPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: NSScreen) -> CGPoint? {
         let v = quartzVisibleFrame(of: screen)
         switch edge {
-        case .left: return CGPoint(x: v.minX, y: perp)
-        case .right: return CGPoint(x: v.maxX - size.width, y: perp)
-        case .up: return CGPoint(x: perp, y: v.minY)
-        case .down: return CGPoint(x: perp, y: v.maxY - size.height)
+        case .left: return CGPoint(x: v.minX, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height))
+        case .right: return CGPoint(x: v.maxX - size.width, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height))
+        case .up: return CGPoint(x: clamped(perp, lo: v.minX, hi: v.maxX - size.width), y: v.minY)
+        case .down: return CGPoint(x: clamped(perp, lo: v.minX, hi: v.maxX - size.width), y: v.maxY - size.height)
         }
     }
 
