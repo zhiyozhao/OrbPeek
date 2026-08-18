@@ -47,6 +47,20 @@ jobs:
           codesign --verify --deep --strict OrbPeek.app
           codesign -dvv OrbPeek.app 2>&1 | grep "Authority=OrbPeek Dev"
 
+      # Launch the freshly built app on the CI runner and assert it survives
+      # opening the settings window (which exercises KeyboardShortcuts'
+      # resource bundle). Checking that files EXIST in the .app proves nothing
+      # about loadability — this is the step that would have caught the
+      # Bundle.module SIGTRAP before v1.0.1 shipped.
+      - name: Smoke test (launch + open settings)
+        run: |
+          set -euo pipefail
+          OrbPeek.app/Contents/MacOS/OrbPeek --show-settings &
+          PID=$!
+          sleep 5
+          kill -0 "$PID"
+          kill "$PID" || true
+
       - name: Package DMG
         run: |
           set -euo pipefail
