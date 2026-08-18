@@ -3,10 +3,10 @@
     {
       "identity" : "keyboardshortcuts",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sindresorhus/KeyboardShortcuts",
+      "location" : "https://github.com/zhiyozhao/KeyboardShortcuts",
       "state" : {
-        "revision" : "1aef85578fdd4f9eaeeb8d53b7b4fc31bf08fe27",
-        "version" : "2.4.0"
+        "branch" : "2.4.0-resilient-resource-bundle",
+        "revision" : "6e8ead64feb64026846cb23ee4fbf004d5706c7c"
       }
     }
   ],
