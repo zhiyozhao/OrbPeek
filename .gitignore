@@ -2,3 +2,5 @@
 OrbPeek.app
 OrbPeek
 *.log
+*.dmg
+dmg/

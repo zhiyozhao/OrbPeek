@@ -4,7 +4,8 @@ macOS menu-bar app that docks the frontmost window off-screen and slides it back
 
 ## Build & run
 
-- Build: `./build.sh` — `swift build -c release` + assembles `OrbPeek.app` (Info.plist, LSUIElement) + `codesign` with the stable self-signed **"OrbPeek Dev"** identity (ad-hoc signing re-prompts TCC every build because the code hash changes)
+- Build: `./build.sh` — `swift build -c release` + assembles `OrbPeek.app` (Info.plist, LSUIElement) + `codesign` with the stable self-signed **"OrbPeek Dev"** identity (ad-hoc signing re-prompts TCC every build because the code hash changes; override with `CODESIGN_IDENTITY`)
+- Release: push a semver tag (`git tag v1.0.1 && git push origin v1.0.1`) — `.github/workflows/release.yml` builds/signs/DMGs/publishes on GitHub, and the `zhiyozhao/homebrew-tap` cask syncs via its own scheduled workflow. Don't hand-edit the version in Info.plist for releases; CI stamps it from the tag
 - Run: `open OrbPeek.app` (the .app and `.build/` are gitignored)
 - Self-test: `OrbPeek.app/Contents/MacOS/OrbPeek --self-test` — verifies Accessibility trust and moves the focused window +30px, then restores it. Must keep Terminal frontmost, else it exits(1).
 - Debug drivers: `--debug-mouse "t:x,y t:x,y ..."` — scripted cursor positions (t = seconds since launch, quartz top-left coords) replace the real mouse in `poll()`; `--show-settings` opens the settings window at launch. `Scripts/test-window.swift` (`swiftc` it, pass AppKit x y) creates a dedicated frontmost test window that prints its real frame; drive the dock hotkey via `osascript -e 'tell application "System Events" to key code 126 using {control down}'` (123/124/125/126 = ←/→/↓/↑).
