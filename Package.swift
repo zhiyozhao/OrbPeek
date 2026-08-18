@@ -5,7 +5,12 @@ let package = Package(
     name: "OrbPeek",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
+        // Fork of sindresorhus/KeyboardShortcuts 2.4.0 with a resilient
+        // resource-bundle lookup: the SwiftPM-generated Bundle.module accessor
+        // for executable targets only probes the .app root (rejected by
+        // codesign as unsealed) and the build machine's .build dir, crashing
+        // hand-packaged apps when the settings window opens (Recorder).
+        .package(url: "https://github.com/zhiyozhao/KeyboardShortcuts", branch: "2.4.0-resilient-resource-bundle"),
     ],
     targets: [
         .executableTarget(

@@ -8,8 +8,9 @@ mkdir -p "$APP/Contents/MacOS"
 cp .build/release/OrbPeek "$APP/Contents/MacOS/OrbPeek"
 cp Info.plist "$APP/Contents/Info.plist"
 # SPM resource bundles of dependencies (e.g. KeyboardShortcuts' Recorder
-# localizations). Bundle.module fatalErrors at runtime if these are missing —
-# that crash only fires when the code path (settings window) is used.
+# localizations) go in Contents/Resources — the only codesign-sealable place.
+# Our KeyboardShortcuts fork resolves them from there (the stock SwiftPM
+# accessor only probes the .app root, which codesign forbids).
 mkdir -p "$APP/Contents/Resources"
 for bundle in .build/release/*.bundle; do
     [ -e "$bundle" ] || continue
