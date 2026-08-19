@@ -15,7 +15,7 @@ final class Config {
             "touchDwell": 0.3,
             "dockCancelPx": 40.0,
             "slamVelocity": 1200.0,
-            "stripOpacity": 1.0,
+            "stripOpacity": 0.5,
         ])
         migrateJSONIfNeeded()
     }
