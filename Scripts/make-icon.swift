@@ -27,10 +27,13 @@ func exactBitmap(px: Int, draw: (CGContext) -> Void) -> NSBitmapImageRep {
 // MARK: app icon at a given pixel size
 func appIconRep(px: Int) -> NSBitmapImageRep {
     exactBitmap(px: px) { ctx in
-    let inset = CGFloat(px) / 16
+    // Apple's icon grid: the squircle occupies 824/1024 of the canvas
+    // (~100px transparent margin per side at 1024) — filling more reads as
+    // visibly larger than every other icon in the Dock/Finder.
+    let inset = CGFloat(px) * 100.0 / 1024.0
     let L = CGFloat(px) - inset * 2
     let sq = NSBezierPath(roundedRect: CGRect(x: inset, y: inset, width: L, height: L),
-                          xRadius: L * 0.232, yRadius: L * 0.232)
+                          xRadius: L * 0.2237, yRadius: L * 0.2237)
     ctx.saveGState()
     sq.addClip()
     NSGradient(colors: [
