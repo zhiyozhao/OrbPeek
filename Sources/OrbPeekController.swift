@@ -31,8 +31,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         if let button = statusItem.button {
-            button.title = "◉"
-            button.font = NSFont.systemFont(ofSize: 12)
+            // The "slit" mark from the asset catalog (Scripts/make-icon.swift
+            // is the single source for all icon assets); the imageset is
+            // marked template in the catalog, so dark menu bars auto-invert.
+            button.image = NSImage(named: "MenuIcon")
         }
         rebuildMenu()
         statusItem.menu?.delegate = self
