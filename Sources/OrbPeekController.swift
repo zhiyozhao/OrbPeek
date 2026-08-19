@@ -155,6 +155,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         ) { _ in
             Task { @MainActor in
                 (NSApplication.shared.delegate as? OrbPeekController)?.settleUntil = Date().addingTimeInterval(3)
+                Log.info("screen parameters changed, settling 3s")
             }
         }
     }
@@ -189,11 +190,17 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     @objc private nonisolated func handleScreenLocked() {
-        Task { @MainActor in self.screenLocked = true }
+        Task { @MainActor in
+            self.screenLocked = true
+            Log.info("screen locked, poll frozen")
+        }
     }
 
     @objc private nonisolated func handleScreenUnlocked() {
-        Task { @MainActor in self.screenLocked = false }
+        Task { @MainActor in
+            self.screenLocked = false
+            Log.info("screen unlocked, poll resumed")
+        }
     }
 
     private func reseedLockState() {
