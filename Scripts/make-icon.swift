@@ -1,104 +1,116 @@
-// Render OrbPeek's app icon: a dark screen with a window card sliding in
-// from the right edge (title-bar side visible) plus the bright preview strip
-// on that edge. Outputs a 1024x1024 PNG; usage: swift make-icon.swift out.png
+// Renders all of OrbPeek's icon assets into Resources/Assets.xcassets from ONE
+// mark definition (the "slit"): the AppIcon appiconset (all mac sizes) and the
+// MenuIcon imageset (template rendering). build.sh compiles the catalog with
+// `xcrun actool` into Assets.car — the canonical Apple pipeline.
+// Usage: swift make-icon.swift
 import AppKit
+import Foundation
 
-let size: CGFloat = 1024
-let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon-1024.png"
+let resDir = "Resources/Assets.xcassets"
+let fm = FileManager.default
 
-let image = NSImage(size: NSSize(width: size, height: size))
-image.lockFocus()
-let ctx = NSGraphicsContext.current!.cgContext
-
-// MARK: background squircle
-let inset: CGFloat = 64
-let iconRect = CGRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
-let squircle = NSBezierPath(roundedRect: iconRect, xRadius: 208, yRadius: 208)
-
-squircle.addClip()
-
-let bg = NSGradient(colors: [
-    NSColor(calibratedRed: 0.16, green: 0.19, blue: 0.34, alpha: 1), // #2A3057 top-left
-    NSColor(calibratedRed: 0.05, green: 0.07, blue: 0.14, alpha: 1), // #0D1224 bottom-right
-])!
-bg.draw(in: squircle, angle: -55)
-
-// soft radial glow, upper left
-if let glow = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                         colors: [NSColor(calibratedRed: 0.36, green: 0.44, blue: 0.72, alpha: 0.55).cgColor,
-                                  NSColor(calibratedWhite: 0, alpha: 0).cgColor] as CFArray,
-                         locations: [0, 1]) {
-    ctx.drawRadialGradient(glow,
-                           startCenter: CGPoint(x: 300, y: 760), startRadius: 0,
-                           endCenter: CGPoint(x: 300, y: 760), endRadius: 620,
-                           options: [])
+// Render into an explicit pixel-exact bitmap — NSImage(size:)+lockFocus
+// follows the display's backing scale (Retina doubles the pixels), which is
+// how 18pt assets silently became 36px and broke the catalog's scale math.
+func exactBitmap(px: Int, draw: (CGContext) -> Void) -> NSBitmapImageRep {
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+                               bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                               isPlanar: false, colorSpaceName: .deviceRGB,
+                               bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    draw(NSGraphicsContext.current!.cgContext)
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
 }
 
-// MARK: window card sliding in from the right edge
-ctx.saveGState()
-squircle.addClip()
-let cardRect = CGRect(x: 470, y: 290, width: 640, height: 460) // right part clipped by squircle
-let card = NSBezierPath(roundedRect: cardRect, xRadius: 40, yRadius: 40)
-
-// drop shadow
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: -14, height: -18), blur: 42,
-              color: NSColor(white: 0, alpha: 0.45).cgColor)
-NSColor(calibratedRed: 0.96, green: 0.96, blue: 0.98, alpha: 1).setFill()
-card.fill()
-ctx.restoreGState()
-
-// title bar
-let titleH: CGFloat = 96
-let titleRect = CGRect(x: cardRect.minX, y: cardRect.maxY - titleH, width: cardRect.width, height: titleH)
-let titleClip = NSBezierPath(roundedRect: cardRect, xRadius: 40, yRadius: 40)
-titleClip.addClip()
-NSColor(calibratedRed: 0.90, green: 0.90, blue: 0.93, alpha: 1).setFill()
-titleRect.fill()
-
-// traffic lights
-let dotColors: [NSColor] = [
-    NSColor(calibratedRed: 1.00, green: 0.37, blue: 0.34, alpha: 1),
-    NSColor(calibratedRed: 1.00, green: 0.74, blue: 0.18, alpha: 1),
-    NSColor(calibratedRed: 0.16, green: 0.78, blue: 0.25, alpha: 1),
-]
-for (i, c) in dotColors.enumerated() {
-    c.setFill()
-    NSBezierPath(ovalIn: CGRect(x: cardRect.minX + 44 + CGFloat(i) * 64,
-                                y: cardRect.maxY - titleH / 2 - 22,
-                                width: 44, height: 44)).fill()
+// MARK: app icon at a given pixel size
+func appIconRep(px: Int) -> NSBitmapImageRep {
+    exactBitmap(px: px) { ctx in
+    let inset = CGFloat(px) / 16
+    let L = CGFloat(px) - inset * 2
+    let sq = NSBezierPath(roundedRect: CGRect(x: inset, y: inset, width: L, height: L),
+                          xRadius: L * 0.232, yRadius: L * 0.232)
+    ctx.saveGState()
+    sq.addClip()
+    NSGradient(colors: [
+        NSColor(calibratedRed: 1, green: 1, blue: 1, alpha: 1),
+        NSColor(calibratedRed: 0.945, green: 0.945, blue: 0.96, alpha: 1),
+    ])!.draw(in: sq, angle: -90)
+    let barW = L / 8
+    let barH = L * 0.618
+    let barRect = CGRect(x: inset + L * 2 / 3 - barW / 2, y: inset + (L - barH) / 2,
+                         width: barW, height: barH)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -CGFloat(px) * 0.0137), blur: CGFloat(px) * 0.039,
+                  color: NSColor(white: 0, alpha: 0.25).cgColor)
+    NSColor.black.setFill()
+    NSBezierPath(roundedRect: barRect, xRadius: barW / 2, yRadius: barW / 2).fill()
+    ctx.restoreGState()
+    ctx.restoreGState()
+    }
 }
 
-// content lines
-NSColor(calibratedRed: 0.84, green: 0.85, blue: 0.88, alpha: 1).setFill()
-for (i, w) in [360, 300, 336].enumerated() {
-    NSBezierPath(roundedRect: CGRect(x: cardRect.minX + 44,
-                                     y: cardRect.maxY - titleH - 84 - CGFloat(i) * 76,
-                                     width: CGFloat(w), height: 34),
-                 xRadius: 17, yRadius: 17).fill()
+// MARK: menu-bar template mark at a given pixel size (black + alpha)
+// Canvas is 18pt; the glyph is 15pt — a filled rounded square is optically
+// heavier than a circle, so it sits slightly below bjango's 16pt circular
+// reference to match system items' visual weight.
+func menuIconRep(px: Int) -> NSBitmapImageRep {
+    exactBitmap(px: px) { ctx in
+    let u = CGFloat(px) / 18
+    let g0 = 1.5 * u, g = 15 * u // glyph origin/size
+    NSColor.black.setFill()
+    NSBezierPath(roundedRect: CGRect(x: g0, y: g0, width: g, height: g),
+                 xRadius: 4.3 * u, yRadius: 4.3 * u).fill()
+    ctx.setBlendMode(.clear)
+    let slitW = 3.4 * u, slitH = 9.4 * u
+    let slitCX = g0 + g * 2 / 3
+    NSBezierPath(roundedRect: CGRect(x: slitCX - slitW / 2, y: u * 9 - slitH / 2,
+                                     width: slitW, height: slitH),
+                 xRadius: slitW / 2, yRadius: slitW / 2).fill()
+    }
 }
 
-// MARK: preview strip on the right edge (the handle)
-let stripRect = CGRect(x: iconRect.maxX - 66, y: 330, width: 54, height: 364)
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: -8, height: 0), blur: 30,
-              color: NSColor(calibratedRed: 0.25, green: 0.75, blue: 0.95, alpha: 0.8).cgColor)
-let strip = NSBezierPath(roundedRect: stripRect, xRadius: 28, yRadius: 28)
-let stripGrad = NSGradient(colors: [
-    NSColor(calibratedRed: 0.42, green: 0.86, blue: 0.98, alpha: 1),
-    NSColor(calibratedRed: 0.24, green: 0.55, blue: 0.95, alpha: 1),
-])!
-stripGrad.draw(in: strip, angle: 90)
-ctx.restoreGState()
-ctx.restoreGState()
-
-image.unlockFocus()
-
-// MARK: save
-guard let tiff = image.tiffRepresentation,
-      let rep = NSBitmapImageRep(data: tiff),
-      let png = rep.representation(using: .png, properties: [:]) else {
-    fatalError("render failed")
+func writePNG(_ rep: NSBitmapImageRep, _ path: String) {
+    guard let png = rep.representation(using: .png, properties: [:]) else {
+        fatalError("render failed: \(path)")
+    }
+    try! png.write(to: URL(fileURLWithPath: path))
 }
-try png.write(to: URL(fileURLWithPath: outPath))
-print("wrote \(outPath)")
+
+func writeJSON(_ obj: [String: Any], _ path: String) {
+    let data = try! JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+    try! data.write(to: URL(fileURLWithPath: path))
+}
+
+// MARK: AppIcon.appiconset
+let appiconDir = "\(resDir)/AppIcon.appiconset"
+try! fm.createDirectory(atPath: appiconDir, withIntermediateDirectories: true)
+// (size in points, scale)
+let macSlots: [(Int, Int)] = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
+var appiconImages: [[String: Any]] = []
+for (pt, scale) in macSlots {
+    let name = "appicon-\(pt)@\(scale)x.png"
+    writePNG(appIconRep(px: pt * scale), "\(appiconDir)/\(name)")
+    appiconImages.append(["filename": name, "idiom": "mac", "scale": "\(scale)x", "size": "\(pt)x\(pt)"])
+}
+writeJSON(["images": appiconImages, "info": ["author": "xcode", "version": 1]],
+          "\(appiconDir)/Contents.json")
+
+// MARK: MenuIcon.imageset (template)
+let menuDir = "\(resDir)/MenuIcon.imageset"
+try! fm.createDirectory(atPath: menuDir, withIntermediateDirectories: true)
+var menuImages: [[String: Any]] = [["idiom": "universal", "scale": "1x", "filename": "menuicon.png"],
+                                   ["idiom": "universal", "scale": "2x", "filename": "menuicon@2x.png"],
+                                   ["idiom": "universal", "scale": "3x", "filename": "menuicon@3x.png"]]
+writePNG(menuIconRep(px: 18), "\(menuDir)/menuicon.png")
+writePNG(menuIconRep(px: 36), "\(menuDir)/menuicon@2x.png")
+writePNG(menuIconRep(px: 54), "\(menuDir)/menuicon@3x.png")
+writeJSON(["images": menuImages,
+           "info": ["author": "xcode", "version": 1],
+           "properties": ["rendering-mode": "template"]],
+          "\(menuDir)/Contents.json")
+
+// MARK: catalog root
+writeJSON(["info": ["author": "xcode", "version": 1]], "\(resDir)/Contents.json")
+print("wrote \(resDir) (AppIcon.appiconset: \(macSlots.count) PNGs, MenuIcon.imageset: 3 PNGs)")

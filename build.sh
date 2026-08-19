@@ -16,7 +16,13 @@ for bundle in .build/release/*.bundle; do
     [ -e "$bundle" ] || continue
     cp -R "$bundle" "$APP/Contents/Resources/"
 done
-[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+# Compile the asset catalog (app icon + menu-bar template icon) into
+# Assets.car — the canonical Apple pipeline; icon scale/template metadata
+# lives in the catalog, not in code. --app-icon + --output-partial-info-plist
+# are REQUIRED or actool silently skips the appiconset entirely.
+xcrun actool --compile "$APP/Contents/Resources" --platform macosx \
+    --minimum-deployment-target 14.0 --app-icon AppIcon \
+    --output-partial-info-plist /dev/null Resources/Assets.xcassets >/dev/null
 # Sign with the stable self-signed "OrbPeek Dev" identity so TCC permissions
 # (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
 # every build because the code hash changes. Override with CODESIGN_IDENTITY
