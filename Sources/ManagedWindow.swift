@@ -339,6 +339,9 @@ final class ManagedWindow {
             // Minor drift — snap back. During settling (wake / display change)
             // even large drift is macOS reshuffling windows, so always snap.
             if drift > 2 {
+                if settling && drift > config.dockCancelPx {
+                    Log.info("settling re-anchor edge=\(edge) drift=\(Int(drift))")
+                }
                 moveTo(target)
             }
             // Keep the strip in sync (e.g. sliverPx changed in settings):
