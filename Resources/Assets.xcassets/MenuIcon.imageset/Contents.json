@@ -21,6 +21,6 @@
     "version" : 1
   },
   "properties" : {
-    "rendering-mode" : "template"
+    "template-rendering-intent" : "template"
   }
 }
