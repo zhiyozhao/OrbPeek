@@ -108,7 +108,7 @@ writePNG(menuIconRep(px: 36), "\(menuDir)/menuicon@2x.png")
 writePNG(menuIconRep(px: 54), "\(menuDir)/menuicon@3x.png")
 writeJSON(["images": menuImages,
            "info": ["author": "xcode", "version": 1],
-           "properties": ["rendering-mode": "template"]],
+           "properties": ["template-rendering-intent": "template"]],
           "\(menuDir)/Contents.json")
 
 // MARK: catalog root
