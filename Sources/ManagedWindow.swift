@@ -64,6 +64,9 @@ final class ManagedWindow {
     // Consecutive ticks where the window frame could not be read (closed window).
     private var nilCount = 0
     private var valid = true
+    // When drift first exceeded dockCancelPx — releases wait out the ~150ms
+    // lag of screen-change notifications before firing (they're irreversible).
+    private var bigDriftSince: Date?
 
     // Transient hover/dwell timers, reset on every transition.
     private var dwell = DwellTracker()
@@ -156,10 +159,11 @@ final class ManagedWindow {
             .contains(geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx))
         let canCapture = sliceOnScreen && delegate.isFrontmost(window)
         let fullImage = canCapture
-            ? await withTimeout(0.3) { [dockScreenID, windowID] in
-                await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
-            }
+            ? await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
             : nil
+        if canCapture && fullImage == nil {
+            Log.info("capture FAILED edge=\(edge) — strip shows cache/placeholder")
+        }
         if Task.isCancelled { return }
         moveTo(hiddenPos)
         phase = .docked
@@ -331,11 +335,21 @@ final class ManagedWindow {
             if drift > config.dockCancelPx, !settling {
                 // Something external deliberately moved the window away — the
                 // user wants it there, so release the dock instead of fighting
-                // over the position every tick.
-                Log.info("docked window moved externally, releasing edge=\(edge)")
-                terminate(exit: .leave)
+                // over the position every tick. But a release is irreversible,
+                // and screen-change notifications lag the actual reshuffle by
+                // ~150ms (observed): wait out that lag first. If a screen
+                // change arrives, settling starts and the release is off.
+                if bigDriftSince == nil {
+                    bigDriftSince = now
+                    Log.info("big drift \(Int(drift)) edge=\(edge), grace before release")
+                }
+                if now.timeIntervalSince(bigDriftSince ?? now) >= 0.5 {
+                    Log.info("docked window moved externally, releasing edge=\(edge)")
+                    terminate(exit: .leave)
+                }
                 return
             }
+            bigDriftSince = nil
             // Minor drift — snap back. During settling (wake / display change)
             // even large drift is macOS reshuffling windows, so always snap.
             if drift > 2 {
@@ -394,20 +408,6 @@ final class ManagedWindow {
             // screen, strip not shown) — nothing to evaluate.
             break
         }
-    }
-}
-
-// Race an async value against a timeout; nil means timeout (or the work failed).
-private func withTimeout<T>(_ seconds: Double, _ work: @escaping () async -> T?) async -> T? {
-    await withTaskGroup(of: T?.self) { group in
-        group.addTask { await work() }
-        group.addTask {
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            return nil
-        }
-        let result = await group.next() ?? nil
-        group.cancelAll()
-        return result
     }
 }
 

@@ -2,6 +2,20 @@ import AppKit
 import CoreGraphics
 import ScreenCaptureKit
 
+// Race an async value against a timeout; nil means timeout (or the work failed).
+func withTimeout<T>(_ seconds: Double, _ work: @escaping () async -> T?) async -> T? {
+    await withTaskGroup(of: T?.self) { group in
+        group.addTask { await work() }
+        group.addTask {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
+    }
+}
+
 // ScreenCaptureKit-based capture of the strip image. Captures a REGION OF THE
 // DISPLAY (composited pixels — translucency, shadow and rounded corners all
 // look exactly as the real window does on screen), unlike a window-filter
@@ -53,11 +67,16 @@ final class SliceCapturer {
     }
 
     // Warm the capture pipeline at launch so the first capture doesn't pay the
-    // one-time enumeration/setup cost.
+    // one-time enumeration/setup cost. Bounded and logged: captureImage can
+    // hang forever when replayd (SCK's daemon) is wedged, and that must never
+    // be silent.
     func prewarm() {
         Task {
             guard let content = try? await refreshContent(),
-                  let display = content.displays.first else { return }
+                  let display = content.displays.first else {
+                Log.info("capture prewarm aborted: no content/display")
+                return
+            }
             let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             let cfg = SCStreamConfiguration()
             cfg.sourceRect = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -65,7 +84,7 @@ final class SliceCapturer {
             cfg.height = 2
             cfg.showsCursor = false
             let t0 = Date()
-            _ = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+            _ = await withTimeout(2.0) { try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) }
             Log.info("capture pipeline prewarmed in \(Int(Date().timeIntervalSince(t0) * 1000))ms")
         }
     }
@@ -106,8 +125,38 @@ final class SliceCapturer {
     // The window must be on screen. Our own windows (the strip) are excluded
     // so they can't contaminate the image. A successful capture is cached in
     // full when `windowID` is given.
+    //
+    // Failure recovery: replayd (SCK's daemon) can wedge — captureImage then
+    // hangs forever (field-observed). The community-documented recovery is
+    // restarting the daemon, so a failed/timed-out attempt kicks replayd once
+    // and retries with freshly fetched content before giving up.
     func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
-        guard let content = try? await contentForCaptures(),
+        let t0 = Date()
+        var img = await attemptCapture(frame: frame, displayID: displayID)
+        if img == nil {
+            Log.info("capture failed/timeout, kicking replayd and retrying")
+            kickstartReplayd()
+            shareableContent = nil // refetch — the old content is stale anyway
+            try? await Task.sleep(nanoseconds: 300_000_000) // let the daemon come back
+            img = await attemptCapture(frame: frame, displayID: displayID)
+        }
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
+        guard let img else { return nil }
+        guard let content = shareableContent,
+              let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return img }
+        // Cache only fully on-screen captures — off-screen parts of the window
+        // render blank and would poison the cache.
+        if let windowID, display.frame.contains(frame) {
+            if windowImages.count > 8 { windowImages.removeAll() }
+            windowImages[windowID] = (img, frame.size)
+        }
+        return img
+    }
+
+    private func attemptCapture(frame: CGRect, displayID: CGDirectDisplayID?) async -> CGImage? {
+        // The content fetch must be bounded too — replayd being down hangs
+        // this await, and an unbounded hang would strand the dock mid-phase.
+        guard let content = await withTimeout(0.5, { try? await self.contentForCaptures() }),
               let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return nil }
         let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
         guard local.width > 0, local.height > 0 else { return nil }
@@ -120,17 +169,18 @@ final class SliceCapturer {
         cfg.width = Int(local.width * scale)
         cfg.height = Int(local.height * scale)
         cfg.showsCursor = false
-        let t0 = Date()
-        let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(img != nil)")
-        guard let img else { return nil }
-        // Cache only fully on-screen captures — off-screen parts of the window
-        // render blank and would poison the cache.
-        if let windowID, display.frame.contains(frame) {
-            if windowImages.count > 8 { windowImages.removeAll() }
-            windowImages[windowID] = (img, frame.size)
-        }
-        return img
+        return await withTimeout(0.3) { try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) }
+    }
+
+    // Restart SCK's daemon — the documented fix for wedged captures
+    // (github.com/nonstrict-hq/SCShareableContent-hangs-sample). Note:
+    // `launchctl kickstart` is SIP-blocked on modern macOS, but a same-UID
+    // SIGTERM via killall is allowed and launchd restarts the daemon.
+    private func kickstartReplayd() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+        p.arguments = ["replayd"]
+        try? p.run() // fire and forget — never block on the daemon's lifecycle
     }
 
     // Cached shareable content; refreshed if it doesn't list our own app — a
