@@ -50,11 +50,11 @@ Both are prompted on first launch; status and re-grant shortcuts live in the men
 Requires macOS 14+ and a Swift toolchain (Xcode or Command Line Tools).
 
 ```sh
-./build.sh        # swift build -c release + assemble OrbPeek.app + codesign
+Scripts/build-app.sh   # swift build -c release + assemble OrbPeek.app + codesign
 open OrbPeek.app
 ```
 
-`build.sh` signs with a stable self-signed **"OrbPeek Dev"** certificate so macOS doesn't re-prompt for Accessibility on every rebuild (ad-hoc signing changes the code hash each build, which invalidates TCC grants). Create it once via Keychain Access → Certificate Assistant → Create a Certificate → name `OrbPeek Dev`, type **Code Signing**, or build ad-hoc with `CODESIGN_IDENTITY=- ./build.sh`.
+`Scripts/build-app.sh` signs with the unified self-signed **"DEV X"** certificate (shared by all projects, managed in `~/Codes/dev-x-signing`) so macOS doesn't re-prompt for Accessibility on every rebuild (ad-hoc signing changes the code hash each build, which invalidates TCC grants). Override with `CODESIGN_IDENTITY=- Scripts/build-app.sh` for ad-hoc.
 
 Debug helpers:
 
