@@ -27,5 +27,5 @@ xcrun actool --compile "$APP/Contents/Resources" --platform macosx \
 # (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
 # every build because the code hash changes. Override with CODESIGN_IDENTITY
 # (e.g. "-" for ad-hoc when the cert isn't available).
-codesign --force --sign "${CODESIGN_IDENTITY:-OrbPeek Dev}" "$APP" >/dev/null
+codesign --force --sign "${CODESIGN_IDENTITY:-DEV X}" "$APP" >/dev/null
 echo "built $APP"
