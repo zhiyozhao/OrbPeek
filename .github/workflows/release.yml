@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           codesign --verify --deep --strict OrbPeek.app
-          codesign -dvv OrbPeek.app 2>&1 | grep "Authority=OrbPeek Dev"
+          codesign -dvv OrbPeek.app 2>&1 | grep "Authority=DEV X"
 
       # Launch the freshly built app on the CI runner and assert it survives
       # opening the settings window (which exercises KeyboardShortcuts'
