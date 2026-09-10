@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 swift build -c release
 APP=OrbPeek.app
 rm -rf "$APP"
