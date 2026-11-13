@@ -26,6 +26,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private let statusItem: NSStatusItem
     private var managed: [ManagedWindow] = []
+    private let dockStateStore = DockStateStore()
+    private var recoveryPending = true
     private var pollTimer: Timer?
     private var settingsWindow: NSWindow?
 
@@ -45,6 +47,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("launched, pid=\(ProcessInfo.processInfo.processIdentifier), AX trusted=\(AXWindow.isProcessTrusted)")
+        recoverOrphanedWindowsIfPossible()
 
         KeyboardShortcuts.onKeyDown(for: .dockLeft) { [weak self] in Task { @MainActor in self?.dockFrontmost(.left) } }
         KeyboardShortcuts.onKeyDown(for: .dockRight) { [weak self] in Task { @MainActor in self?.dockFrontmost(.right) } }
@@ -230,12 +233,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     func restoreAll() {
         for m in managed { m.restore() }
         managed.removeAll()
+        clearDockState()
         rebuildMenu()
         Log.info("restored all docked windows on signal")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         for m in managed { m.restore() }
+        clearDockState()
         Log.info("terminated")
     }
 
@@ -411,10 +416,61 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         if let wid = m.windowID { captureEngine.evict(wid) }
         managed.removeAll { $0 === m }
         Log.info("removed managed window, total=\(managed.count)")
+        persistDockedWindows()
         rebuildMenu()
     }
 
+    private func persistDockedWindows() {
+        let records = managed.compactMap { $0.persistenceRecord() }
+        do {
+            if records.isEmpty { try dockStateStore.clear() }
+            else { try dockStateStore.save(records) }
+        } catch {
+            Log.info("dock state persistence failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func clearDockState() {
+        do { try dockStateStore.clear() }
+        catch { Log.info("dock state clear failed: \(error.localizedDescription)") }
+    }
+
+    private func recoverOrphanedWindowsIfPossible() {
+        guard recoveryPending, AXWindow.isProcessTrusted else { return }
+        recoveryPending = false
+        DockRecovery(store: dockStateStore).recover(geometry: geometry) { [weak self] record in
+            self?.windowForRecovery(record)
+        }
+    }
+
+    private func windowForRecovery(_ record: DockedWindowRecord) -> (any WindowHandle)? {
+        let application: NSRunningApplication?
+        if let bundleID = record.bundleIdentifier {
+            application = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+        } else {
+            application = NSRunningApplication(processIdentifier: record.processID)
+        }
+        guard let application else { return nil }
+        if let expectedBundle = record.bundleIdentifier, application.bundleIdentifier != expectedBundle { return nil }
+        let candidates = AXWindow.allWindows(ofPID: application.processIdentifier).filter { window in
+            record.title == nil || window.title == record.title
+        }
+        return candidates.min { lhs, rhs in
+            func score(_ window: AXWindow) -> CGFloat {
+                guard let frame = window.frame else { return .infinity }
+                let parked = record.parkedFrame.rect
+                return abs(frame.minX - parked.minX) + abs(frame.minY - parked.minY) +
+                    abs(frame.width - parked.width) + abs(frame.height - parked.height)
+            }
+            return score(lhs) < score(rhs)
+        }
+    }
+
     // MARK: WindowDockDelegate
+
+    package func dockStateDidChange() {
+        persistDockedWindows()
+    }
 
     package func makeStrip() -> any SnapshotStripHandling {
         SnapshotStrip()
@@ -453,6 +509,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var lastMouseAt: Date?
 
     private func poll() {
+        if recoveryPending && AXWindow.isProcessTrusted { recoverOrphanedWindowsIfPossible() }
         guard AXWindow.isProcessTrusted, !screenLocked else { return }
         let q = DebugMouse.location(sinceLaunch: Date().timeIntervalSince(launchedAt))
             ?? geometry.toQuartz(NSEvent.mouseLocation)

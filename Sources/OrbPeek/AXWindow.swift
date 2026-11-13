@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Foundation
 import OrbPeekCore
@@ -27,6 +28,14 @@ package final class AXWindow: WindowHandle {
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused) == .success,
               let window = focused else { return nil }
         return AXWindow(window as! AXUIElement)
+    }
+
+    package static func allWindows(ofPID pid: pid_t) -> [AXWindow] {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+              let elements = value as? [AXUIElement] else { return [] }
+        return elements.map(AXWindow.init)
     }
 
     package var frame: CGRect? {
@@ -108,11 +117,16 @@ package final class AXWindow: WindowHandle {
         return CFEqual(element, other.element)
     }
 
-    var title: String? {
+    package var title: String? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &v) == .success else { return nil }
         let t = v as? String
         return (t?.isEmpty ?? true) ? nil : t
+    }
+
+    package var bundleIdentifier: String? {
+        guard let pid else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
     }
 
     package var pid: pid_t? {

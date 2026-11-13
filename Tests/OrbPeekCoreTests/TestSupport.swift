@@ -19,6 +19,8 @@ final class FakeWindow: WindowHandle {
     var appHidden = false
     var mouseDown = false
     var pid: pid_t? = 42
+    var title: String? = "Fake"
+    var bundleIdentifier: String? = "fake.app"
 
     init(frame: CGRect) {
         self.storedFrame = frame
@@ -99,13 +101,18 @@ final class FakeDelegate: WindowDockDelegate {
     let strip = FakeStrip()
     var frontmost = true
     var removed: [ManagedWindow] = []
+    var stateChangeCount = 0
 
     init(layout: ScreenLayout) { self.layoutBox = LayoutBox(layout) }
     func makeStrip() -> any SnapshotStripHandling { strip }
     func nameForWindow(_ window: any WindowHandle) -> String { "Fake" }
     func activate(window: any WindowHandle) {}
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }
-    func removeManaged(_ managed: ManagedWindow) { removed.append(managed) }
+    func dockStateDidChange() { stateChangeCount += 1 }
+    func removeManaged(_ managed: ManagedWindow) {
+        removed.append(managed)
+        stateChangeCount += 1
+    }
 }
 
 struct ManagedFixture {

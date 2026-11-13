@@ -10,6 +10,7 @@ package protocol WindowDockDelegate: AnyObject {
     func nameForWindow(_ window: any WindowHandle) -> String
     func activate(window: any WindowHandle)
     func isFrontmost(_ window: any WindowHandle) -> Bool
+    func dockStateDidChange()
     func removeManaged(_ managed: ManagedWindow)
 }
 
@@ -66,6 +67,15 @@ package final class ManagedWindow {
 
     package var appName: String { delegate?.nameForWindow(window) ?? "Window" }
 
+    package func persistenceRecord() -> DockedWindowRecord? {
+        guard valid, phase != .idle, let pid = window.pid else { return nil }
+        return DockedWindowRecord(
+            processID: pid, bundleIdentifier: window.bundleIdentifier, title: window.title,
+            windowID: windowID, restoreFrame: restoreFrame,
+            parkedFrame: window.frame ?? restoreFrame, dockScreenID: dockScreenID, edge: edge
+        )
+    }
+
     package func dockScreen(in geometry: WindowGeometry) -> ScreenInfo? {
         if let id = dockScreenID, let screen = geometry.screen(withDisplayID: id) { return screen }
         return geometry.layout.primary
@@ -118,6 +128,7 @@ package final class ManagedWindow {
             await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
         }
         log("dock applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
+        delegate.dockStateDidChange()
     }
 
     private func finishDock(frame: CGRect, screen: ScreenInfo, wasHidden: Bool) async {
@@ -143,6 +154,7 @@ package final class ManagedWindow {
             phase = .docked
             log("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
             fakeStrip?.show(image: cached, frame: stripFrame, edge: edge)
+            delegate.dockStateDidChange()
             return
         }
 
@@ -178,6 +190,7 @@ package final class ManagedWindow {
         )
         moveTo(currentHiddenPos)
         phase = .docked
+        delegate.dockStateDidChange()
         guard let fakeStrip else { return }
         let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
         fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
@@ -199,6 +212,7 @@ package final class ManagedWindow {
         delegate.activate(window: window)
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         log("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
+        delegate.dockStateDidChange()
     }
 
     package enum ExitPosition {
@@ -264,6 +278,7 @@ package final class ManagedWindow {
            abs(frame.origin.x - position.x) > 1 || abs(frame.origin.y - position.y) > 1 {
             moveTo(position)
         }
+        delegate.dockStateDidChange()
     }
 
     package func checkDragOut() {
@@ -297,6 +312,7 @@ package final class ManagedWindow {
         }
         // Retained drags snap on mouseUp, not on a later hide/peek cycle.
         moveTo(geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
+        delegate.dockStateDidChange()
     }
 
     package func restore() {
@@ -312,15 +328,8 @@ package final class ManagedWindow {
     // frame; oversized windows shrink rather than remaining partially off-screen.
     private func placeUndockedWindow(preferredFrame: CGRect?) {
         guard let delegate else { return }
-        let geometry = delegate.geometry
-        let candidate = preferredFrame ?? window.frame ?? restoreFrame
-        guard let screen = geometry.nearestScreen(to: candidate) else { return }
-        let fitted = geometry.fitting(candidate, in: screen)
-        let current = window.frame
-        if current?.size != fitted.size { window.resize(to: fitted.size) }
-        if preferredFrame != nil || current?.origin != fitted.origin {
-            window.position = fitted.origin
-        }
+        OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: preferredFrame, fallbackFrame: restoreFrame,
+                            geometry: delegate.geometry)
     }
 
     package func detachStrip() {

@@ -8,6 +8,8 @@ package protocol WindowHandle: AnyObject {
     var isMinimized: Bool { get }
     var isAppHidden: Bool { get }
     var pid: pid_t? { get }
+    var title: String? { get }
+    var bundleIdentifier: String? { get }
     func unminimize()
     func raise()
     func activate()
