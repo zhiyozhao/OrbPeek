@@ -51,6 +51,7 @@ package final class ManagedWindow {
     private var bigDriftSince: Date?
     private var dwell = DwellTracker()
     package var clock: () -> Date
+    package var log: (String) -> Void = Log.info
     package var isLeftMousePressed: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
 
     package init(window: any WindowHandle, edge: DockEdge, delegate: any WindowDockDelegate,
@@ -114,7 +115,7 @@ package final class ManagedWindow {
         transition = Task { [weak self] in
             await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
         }
-        Log.info("dock applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
+        log("dock applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
     private func finishDock(frame: CGRect, screen: ScreenInfo, wasHidden: Bool) async {
@@ -138,7 +139,7 @@ package final class ManagedWindow {
         if wasHidden {
             moveTo(hiddenPos)
             phase = .docked
-            Log.info("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
+            log("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
             fakeStrip?.show(image: cached, frame: stripFrame, edge: edge)
             return
         }
@@ -150,7 +151,7 @@ package final class ManagedWindow {
             ? await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
             : nil
         if canCapture && fullImage == nil {
-            Log.info("capture FAILED edge=\(edge) — strip shows cache/placeholder")
+            log("capture FAILED edge=\(edge) — strip shows cache/placeholder")
         }
         if Task.isCancelled { return }
         guard let currentFrame = window.frame else {
@@ -160,7 +161,7 @@ package final class ManagedWindow {
         let moved = max(max(abs(currentFrame.minX - frame.minX), abs(currentFrame.minY - frame.minY)),
                         max(abs(currentFrame.width - frame.width), abs(currentFrame.height - frame.height)))
         if isLeftMousePressed() || moved > 2 {
-            Log.info("dock capture interrupted by window movement/drag; leaving window in place edge=\(edge)")
+            log("dock capture interrupted by window movement/drag; leaving window in place edge=\(edge)")
             terminate(exit: .leave)
             return
         }
@@ -195,7 +196,7 @@ package final class ManagedWindow {
         window.raise()
         delegate.activate(window: window)
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
-        Log.info("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
+        log("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
     }
 
     package enum ExitPosition {
@@ -209,7 +210,7 @@ package final class ManagedWindow {
         placeUndockedWindow(preferredFrame: exit == .restore ? restoreFrame : nil)
         detachStrip()
         valid = false
-        Log.info("terminate edge=\(edge) exit=\(exit)")
+        log("terminate edge=\(edge) exit=\(exit)")
         delegate?.removeManaged(self)
     }
 
@@ -294,7 +295,7 @@ package final class ManagedWindow {
                     nilCount = 30
                     return
                 }
-                Log.info("window frame unreadable, dropping edge=\(edge)")
+                log("window frame unreadable, dropping edge=\(edge)")
                 terminate(exit: .restore)
             }
             return
@@ -315,7 +316,7 @@ package final class ManagedWindow {
         }
         guard !gesture else { return }
         if window.isMinimized || window.isAppHidden {
-            Log.info("window tucked away by user, releasing edge=\(edge)")
+            log("window tucked away by user, releasing edge=\(edge)")
             terminate(exit: .restore)
             return
         }
@@ -342,10 +343,10 @@ package final class ManagedWindow {
                 let observedAt = clock()
                 if bigDriftSince == nil {
                     bigDriftSince = observedAt
-                    Log.info("peeked window displaced, grace before release edge=\(edge)")
+                    log("peeked window displaced, grace before release edge=\(edge)")
                 }
                 if observedAt.timeIntervalSince(bigDriftSince ?? observedAt) >= 0.5 {
-                    Log.info("peeked window displaced externally, undocking edge=\(edge)")
+                    log("peeked window displaced externally, undocking edge=\(edge)")
                     terminate(exit: .leave)
                 }
                 return
@@ -373,10 +374,10 @@ package final class ManagedWindow {
                 let observedAt = clock()
                 if bigDriftSince == nil {
                     bigDriftSince = observedAt
-                    Log.info("big drift \(Int(drift)) edge=\(edge), grace before release")
+                    log("big drift \(Int(drift)) edge=\(edge), grace before release")
                 }
                 if observedAt.timeIntervalSince(bigDriftSince ?? observedAt) >= 0.5 {
-                    Log.info("docked window moved externally, releasing edge=\(edge)")
+                    log("docked window moved externally, releasing edge=\(edge)")
                     terminate(exit: .leave)
                 }
                 return
@@ -384,7 +385,7 @@ package final class ManagedWindow {
             bigDriftSince = nil
             if drift > 2 {
                 if settling && drift > config.dockCancelPx {
-                    Log.info("settling re-anchor edge=\(edge) drift=\(Int(drift))")
+                    log("settling re-anchor edge=\(edge) drift=\(Int(drift))")
                 }
                 moveTo(target)
             }
@@ -416,10 +417,10 @@ package final class ManagedWindow {
                     dwell.slammed = toward > config.slamVelocity
                 }
                 if dwell.slammed {
-                    Log.info("slam -> peek edge=\(edge)")
+                    log("slam -> peek edge=\(edge)")
                     peek()
                 } else if let since = dwell.sliverSince, now.timeIntervalSince(since) >= config.peekDwell {
-                    Log.info("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
+                    log("hover -> peek \(Int(now.timeIntervalSince(since) * 1000))ms edge=\(edge)")
                     peek()
                 }
             } else {

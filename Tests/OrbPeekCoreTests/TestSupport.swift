@@ -124,6 +124,7 @@ func makeIdleFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 200
     let delegate = FakeDelegate(layout: layout)
     let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: { clock.now })
     managed.isLeftMousePressed = { window.mouseDown }
+    managed.log = { _ in }
     return ManagedFixture(managed: managed, window: window, delegate: delegate, clock: clock)
 }
 
