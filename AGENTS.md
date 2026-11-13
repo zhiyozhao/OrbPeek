@@ -1,53 +1,43 @@
 # OrbPeek
 
-macOS menu-bar app that docks the frontmost window off-screen and slides it back in when hovered. No Xcode project — SPM executable target (`Package.swift`, swift-tools 5.9, macOS 14+) with sources flat in `Sources/`. Depends on **`zhiyozhao/KeyboardShortcuts`** (fork of sindresorhus 2.4.0, branch `2.4.0-resilient-resource-bundle`): the stock SwiftPM `Bundle.module` accessor for executables only probes the .app root (codesign-forbidden) and the build machine's .build dir, so it fatalErrors in hand-packaged apps when the Recorder opens; the fork probes `Contents/Resources` and degrades to unlocalized strings. Don't switch back to upstream without carrying that patch.
+macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停贴边条时滑出。SwiftPM executable + `OrbPeekCore` library，macOS 14+，无 Xcode 工程。
 
-## Build & run
+## 命令与完成定义
 
-- Build: `Scripts/build-app.sh` — `swift build -c release` + assembles `OrbPeek.app` (Info.plist, LSUIElement, **plus SPM resource bundles** — `KeyboardShortcuts_KeyboardShortcuts.bundle` must land in `Contents/Resources/` (the only sealable location; the .app root is codesign-forbidden) or the settings window's `Recorder` crashes on open) + `codesign` with the stable self-signed **"DEV X"** identity (ad-hoc signing re-prompts TCC every build because the code hash changes; override with `CODESIGN_IDENTITY`)
-- Release: push a semver tag (`git tag v1.0.1 && git push origin v1.0.1`) — `.github/workflows/release.yml` builds/signs/DMGs/publishes on GitHub, and the `zhiyozhao/homebrew-tap` cask syncs via its own scheduled workflow. Don't hand-edit the version in Info.plist for releases; CI stamps it from the tag. **Release sparingly**: the default loop is build → local test → commit → push, WITHOUT a tag. Only tag a release when the user asks, or when a change affects packaging itself (`Scripts/build-app.sh`, `Info.plist`, `Package.swift`/deps, workflows, resource bundling) — those can only be truly verified by the CI-built artifact (the v1.0.1 lesson). Never release every commit.
-- Run: `open OrbPeek.app` (the .app and `.build/` are gitignored)
-- Self-test: `OrbPeek.app/Contents/MacOS/OrbPeek --self-test` — verifies Accessibility trust and moves the focused window +30px, then restores it. Must keep Terminal frontmost, else it exits(1).
-- Debug drivers: `--debug-mouse "t:x,y t:x,y ..."` — scripted cursor positions (t = seconds since launch, quartz top-left coords) replace the real mouse in `poll()`; `--show-settings` opens the settings window at launch. `Scripts/test-window.swift` (`swiftc` it, pass AppKit x y) creates a dedicated frontmost test window that prints its real frame; drive the dock hotkey via `osascript -e 'tell application "System Events" to key code 126 using {control down, shift down}'` (123/124/125/126 = ←/→/↓/↑).
+- `make check`：plist/脚本静态检查、Swift Testing、debug 构建；必须退出 0 且测试数大于 0。
+- `make run`：release 组装和 DEV X 签名，启动 5 秒冒烟后只关闭本次仓库内进程。
+- `make package`：复用 `Scripts/build-app.sh` 和发布 DMG 结构，产出 `OrbPeek.app`、`OrbPeek-<版本>.dmg`。
+- 环境、重建、CI 见 `SETUP.md`；模块与调试说明见 `docs/DEVELOPMENT.md`。
+- 核心逻辑红绿 TDD；完成前 `make check` 全绿、更新 `docs/progress.md` 并提交。测试不用固定 sleep，不删测试或加 skip 来求绿。
+- 不安装全局工具，不 push、打 tag、改 GitHub 设置或读取签名证书文件；这些边界上报 Devs。
 
-## Source layout (`Sources/`)
+## 模块与可测试性
 
-- `OrbPeekController.swift` — `@main` entry + app delegate: status item, sectioned menu (permissions / docked windows / actions — Chinese UI strings, keep them that way), hotkeys via `KeyboardShortcuts.onKeyDown`, settings window, 30 Hz `poll()`, docking orchestration
-- `SettingsView.swift` — SwiftUI settings window + `KeyboardShortcuts.Name` definitions (default Ctrl+Shift+arrows). Settings live in `UserDefaults` via `@AppStorage` and apply live
-- `ManagedWindow.swift` — per-window state machine; talks to the app only through the `WindowDockDelegate` protocol (defined here)
-- `Geometry.swift` — `DockEdge` + `WindowGeometry`: **all** coordinate conversion and dock/peek/sliver position math, in one place
-- `AXWindow.swift` — `AXUIElement` wrapper (safe frame/position/title/pid access)
-- `SliceCapturer.swift` — composited **display-region** captures (NOT window-filter captures); caches the full-window image by `CGWindowID` and crops slices on read, so one capture serves all four edges and any `sliverPx`. The cache is the fallback for the one case a live capture is impossible (hidden re-dock) and makes the strip appear instantly
-- `SnapshotStrip.swift`, `Config.swift`, `Log.swift`, `SelfTest.swift`, `DebugMouse.swift`, `L10n.swift` — small supporting types
+- `Sources/OrbPeekCore`：`ScreenLayout`、`WindowGeometry`、`DisplaySettling`、`ManagedWindow` 和依赖协议。
+- `Sources/OrbPeek`：app 生命周期、菜单/设置、AX、ScreenCaptureKit、SnapshotStrip、资源。
+- 屏幕、窗口、抓图、贴边条和时钟必须可注入；单元测试用 fake，不访问真实窗口，不需要辅助功能或屏幕录制权限。
+- `WindowHandle` 是状态机唯一窗口接口；`AXWindow` 在 app 壳实现。跨 target 的 API 用 `package` 可见性。
 
-## Localization & icon
+## 状态机与坐标不变量
 
-- UI strings are bilingual (en + zh-Hans) via `Sources/Resources/*.lproj/Localizable.strings` — always add new strings through `tr("key")`, never literals. `L10n.swift` loads the table itself because (a) our own `Bundle.module` accessor has the same codesign-forbidden-path problem as KeyboardShortcuts, and (b) a manually loaded bundle's `localizedString(forKey:)` always uses the development region (no `CFBundleLocalizations`), so the `.lproj` must be picked by hand via `Bundle.preferredLocalizations(from:forPreferences:)`.
-- All icon assets come from ONE script, `Scripts/make-icon.swift` (re-run it after changing the mark): `Resources/Assets.xcassets` (AppIcon.appiconset + MenuIcon.imageset marks template via **`template-rendering-intent`** in its Contents.json — NOT `rendering-mode` (that key is silently ignored; the icon then renders literal pure black instead of the menu bar's template tint, visibly darker than system icons — diagnose by sampling pixels: templates read ~36, literal black reads 0). — the "slit" mark: black stadium bar on near-white, bar h=0.618 L, w=L/8, center at 2/3 L; menu glyph 15pt in an 18pt canvas). Scripts/build-app.sh compiles it with `xcrun actool` into `Assets.car` (the canonical pipeline — no .icns, no size pinning in code). **Rendering gotcha**: never use `NSImage(size:)+lockFocus` for asset generation — on Retina it silently doubles the pixels (an "18px" PNG comes out 36px, actool then computes a 36pt logical size and the menu icon renders giant); the script renders through an explicit `NSBitmapImageRep` for exact pixels.
+- `OrbPeekController`、`ManagedWindow`、`SliceCapturer` 和 delegate 都是 `@MainActor`；非隔离事件通过 `Task { @MainActor in ... }` 进入。
+- phase 只能在 transition 中改变：idle / docking / docked / peeked。每个窗口最多一个 transition Task，新 transition 取消旧任务并检查 `Task.isCancelled`。
+- AX/CG 是 top-left，原点是**主屏**左上角；AppKit 是 bottom-left。所有换算只在 `WindowGeometry`，桌面并集仅用于选择隐藏停放的左右外缘。
+- 生产布局从当前 `NSScreen.screens` 构造，首项主屏。屏幕身份用 `CGDirectDisplayID`，不长期保存 `NSScreen`；回退用主屏，不用会随焦点变化的 `NSScreen.main`。
+- `perp` 和 restore origin 存为相对停靠屏 quartz visibleFrame 的偏移；原屏掉线时保留 ID，不用 fallback 屏覆盖。
+- CG display reconfiguration 的 begin callback 立即 settling，结束后延长 3 秒；解锁和 wake 也重新开始 3 秒 settling。
+- 外部漂移释放在 AX 读取后用注入时钟计时，docked 和 peeked 都有 0.5 秒宽限；宽限中不改写 `perp`。
+- 实体左键状态是拖动兜底，防止漏事件导致拖动中隐藏或 gesture 卡死。抓图后如窗口已移动或左键按下，放弃停放并留在原处。
+- 拖动松手：同轴保留新位置；短拖/屏外拖立即贴回；沿边到另一屏则转移同侧停靠；向内超过 40px 取消。同轴热键 re-dock 不得用旧 restoreFrame 重置当前位置。
+- 所有取消、释放、退出和信号恢复必须共用 `placeUndockedWindow`：最近屏可见区域内完整放置，过大则缩小。拔屏时 settling 内重锚到剩余屏；若最终释放也走同一保底。
+- 隐藏位仍在桌面左右外缘留 1px；隐藏 re-dock 不移动回屏内抓图，使用缓存或占位条。只抓 frontmost 窗口的 display-region，禁止改成 window-filter。
+- 锁屏冻结 poll，避免 AX blackout 被误判为窗口关闭；退出/信号恢复所有窗口。
 
-## Permissions
+## 打包与发布（不可破坏）
 
-- **Accessibility** (`AXWindow.isProcessTrusted`) — required for moving/resizing windows; prompted at launch, status shown in the status-bar menu.
-- **Screen Recording** — needed for the strip captures on every dock (all edges use the captured `SnapshotStrip` handle); without it captures fail and the strip shows a placeholder. Status shown in the status-bar menu (`CGPreflightScreenCaptureAccess`).
-
-## State & paths
-
-- Settings: `UserDefaults` (edited in the settings window, applied live; legacy `~/.config/orbpeek/config.json` is imported once at first launch of the bundled app)
-- Log: `~/Library/Logs/orbpeek.log` (also written to stderr). `Log.info` is the debug tracing mechanism.
-- Launch-at-login uses `SMAppService.mainApp` (toggled in settings).
-- Hotkeys: `Ctrl+Shift+←/→/↑/↓` by default, rebindable in settings (`KeyboardShortcuts.Recorder`).
-
-## Code conventions
-
-- **Main-thread model is enforced at compile time**: `OrbPeekController`, `ManagedWindow`, `SliceCapturer`, and the `WindowDockDelegate` protocol are all `@MainActor`. Nonisolated callbacks (Timer, `NSEvent` monitors, hotkey/signal handlers) hop to the main actor via `Task { @MainActor in ... }` — follow that pattern for any new callback.
-- **Phase transitions are the only place `ManagedWindow.phase` changes**, and each transition resets transient dwell state (`DwellTracker`) — put phase changes in transitions, not in `evaluate`. Phases: `idle` / `docked` / `docking` (capture in flight, window still on screen — `evaluate` does nothing) / `peeked`.
-- **Transitions are serialized**: each window holds at most one in-flight `transition` Task; starting a new transition cancels it, and superseded tasks self-discard at `Task.isCancelled` checks. Never add ad-hoc generation/flag guards — extend the state machine instead.
-- Coordinate gotcha: AX frames are top-left origin, `NSEvent.mouseLocation` is bottom-left. Always convert through `WindowGeometry.toQuartz`/`toAppKit`; never mix spaces (geometry functions take an explicit `NSScreen`; `ManagedWindow.dockScreen(in:)` falls back to the main screen when the recorded display is gone).
-- Dock edges are **per-screen**: each window records its dock screen (`ManagedWindow.dockScreenID`, picked from the on-screen frame at dock time). All edges use the floating snapshot strip (a real sliver — the window itself — can be covered by overlapping windows, so it was removed). `sliverRect` computes the hover hit region (thickness = `sliverPx`); on overlap, the strip whose **center is nearest the cursor** wins (UUID tiebreak for stability).
-- Hidden parking: `hiddenPosition` always parks the window **horizontally** off the desktop's left/right outer edge with 1px visible, regardless of dock edge (macOS forces ~40px visible if a titled window is fully off-screen, but allows 1px). It prefers the dock screen's own outer edge so screen ownership never changes; `y` matches the peek position so recall is a pure horizontal slide.
-- Re-docking a hidden window: the live frame is the parked position, so perp comes from `restoreFrame` and the dock screen is kept as-is — never derive either from the parked frame.
-- Only capture when the window is **frontmost** — a display-region capture photographs whatever is on top, so a dockBack triggered by focus loss would capture the wrong window. In that case use the cache.
-- Strip images come from **display-region** captures (`SCContentFilter(display:...)` with `sourceRect` = the window's frame) so translucency/shadow/rounded corners look exactly like the real window on screen. Window-filter captures return the raw flattened surface (vibrancy loses its backdrop blend) — don't use them. Window-filter `captureImage` also **randomly stalls ~1s**; display captures don't (~50ms).
-- The composited capture needs the window on screen, so ALL docks **capture first, park after** (the `.docking` phase — 300ms timeout parks regardless). One display capture of the whole window frame is cropped into **all four edge slices** and cached, so a hidden re-dock to any edge has content. The strip is shown only after the capture, so it can't photograph itself. A **hidden re-dock never moves the window** (a capture would flash it on screen): it re-parks at the new edge and shows the cached slice or a placeholder. Slice content mimics the window really sliding off the edge: the **opposite** edge stays visible (up → bottom slice, down → title bar, left → right edge, right → left edge).
-- External window mutations: a docked window with minor drift (≤ `dockCancelPx`) is snapped back to its hidden position each tick; drift past `dockCancelPx` means something external deliberately moved it → release the dock (`terminate(exit: .leave)`), never fight over position. **Exception — settling**: display (un)plug shuffles frames behind our back (and `hiddenPosition` itself moves when the desktop frame changes), so for 3s after `didChangeScreenParameters` the release checks are suppressed and managed windows re-anchor to their recomputed positions regardless of drift (`settleUntil` → `settling` param of `evaluate`; peeked windows keep their stored `perp` during settling). Sleep needs **no** handling (frames preserved, geometry is a pure function of the screen set), but **lock freezes `poll()` entirely**: AX calls black out while the screen is locked (reads AND sets fail with `kAXErrorInvalidUIElement`), and polling through the blackout misreads it as "window closed" — dropping managed windows and failing to restore them, leaving them parked off-screen. The gate (`screenLocked`) follows AltTab's `ScreenLockEvents`: `com.apple.screenIsLocked`/`Unlocked` distributed notifications with `.deliverImmediately` (an accessory app is inactive while locked — suspended delivery would drop them), seeded from `CGSessionCopyCurrentDictionary()["CGSSessionScreenIsLocked"]` at launch and re-seeded on wake (deep sleep can swallow the unlock notification). `perp` is silently clamped into the screen's visible range inside `hiddenPosition`/`peekPosition` (stored value untouched) so a smaller screen can't push a window off the visible area, and re-plugging the display restores the original spot. A **peeked** window displaced past `dockCancelPx` (after a 0.6s post-peek grace; user drags set `gesture` and go through `checkDragOut`) is treated as dragged out → released where it is, never re-hidden. A window whose frame becomes unreadable is dropped after ~1s — but only after cross-checking `CGWindowList` (window-server level, answers even when the app is hung and AX times out), so a beachballing app keeps its dock; best-effort restore to `restoreFrame` so it's never left invisibly parked. Windows minimized or app-hidden by the user are also released with their frame restored.
-- On SIGTERM/SIGINT/terminate, docked windows are restored via `restoreAll()` before exit.
+- bundle id `com.orbpeek.OrbPeek`、app 名 `OrbPeek.app`、DMG `OrbPeek-VERSION.dmg`、`v*` tag 发布、Homebrew cask `zhiyozhao/homebrew-tap` 的 `orbpeek` 接口保持不变。
+- 本地和 CI 都只用钥匙串中的自签名 **DEV X**；找不到证书直接失败，禁止 ad-hoc 回退。release secrets 仍是 `SIGNING_P12_BASE64`、`SIGNING_P12_PASSWORD`。
+- 发布仍走原 `.github/workflows/release.yml`，不要在开发循环中打 tag；版本由 CI 从 tag 写入 Info.plist。
+- 依赖固定为 `zhiyozhao/KeyboardShortcuts` 的 `2.4.0-resilient-resource-bundle` 分支。其 `Contents/Resources` bundle 查找补丁是手工打包不崩溃的关键，不得直接换回 upstream。
+- `Scripts/build-app.sh` 必须复制 SPM bundles 到 `Contents/Resources` 并用 `actool` 编译资产。图标只由 `Scripts/make-icon.swift` 生成，菜单图标依赖 `template-rendering-intent`。
+- UI 字符串继续中英双语并通过 `tr()`；不要绕过 `L10n.swift` 的手工 bundle 加载。菜单中文文案保持中文。
