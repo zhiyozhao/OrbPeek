@@ -28,8 +28,19 @@ package final class ManagedWindow {
     package weak var delegate: (any WindowDockDelegate)?
     package private(set) var edge: DockEdge
     private var dockScreenID: CGDirectDisplayID?
+    // Parallel coordinate and restore origin are offsets from the recorded
+    // screen's quartz visibleFrame, never absolute desktop coordinates.
     package var perp: CGFloat = 0
-    package var restoreFrame: CGRect = .zero
+    private var restoreOffset: CGPoint = .zero
+    private var restoreSize: CGSize = .zero
+    package var restoreFrame: CGRect {
+        guard let delegate, let screen = dockScreen(in: delegate.geometry) else {
+            return CGRect(origin: restoreOffset, size: restoreSize)
+        }
+        let visible = delegate.geometry.quartzVisibleFrame(of: screen)
+        return CGRect(x: visible.minX + restoreOffset.x, y: visible.minY + restoreOffset.y,
+                      width: restoreSize.width, height: restoreSize.height)
+    }
     private var fakeStrip: (any SnapshotStripHandling)?
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
@@ -65,8 +76,25 @@ package final class ManagedWindow {
         let wasHidden = phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
-        if phase != .docked, let screen = geometry.screen(containing: frame) {
+        if phase == .idle {
+            guard let screen = geometry.screen(containing: frame) else { return }
             dockScreenID = screen.id
+            perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+            let visible = geometry.quartzVisibleFrame(of: screen)
+            restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
+            restoreSize = frame.size
+        } else if phase != .docked,
+                  let recordedID = dockScreenID,
+                  geometry.screen(withDisplayID: recordedID) != nil,
+                  let currentScreen = geometry.screen(containing: frame),
+                  currentScreen.id != recordedID {
+            // An on-screen window may intentionally change screens, but an
+            // offline recorded screen must not be replaced by its fallback.
+            let oldRestoreFrame = restoreFrame
+            dockScreenID = currentScreen.id
+            let visible = geometry.quartzVisibleFrame(of: currentScreen)
+            restoreOffset = CGPoint(x: oldRestoreFrame.minX - visible.minX,
+                                    y: oldRestoreFrame.minY - visible.minY)
         }
         guard let screen = dockScreen(in: geometry) else { return }
         window.unminimize()
@@ -165,7 +193,7 @@ package final class ManagedWindow {
         if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > delegate.config.dockCancelPx {
             terminate(exit: .leave)
         } else {
-            perp = geometry.dockPerp(for: edge, frame: frame)
+            perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
         }
     }
 
@@ -249,7 +277,7 @@ package final class ManagedWindow {
                 return
             } else {
                 bigDriftSince = nil
-                perp = geometry.dockPerp(for: edge, frame: frame)
+                perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
             }
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
             dwell.noteHover(inWin, touchDwell: config.touchDwell, now: now)

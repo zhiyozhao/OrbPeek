@@ -136,8 +136,27 @@ package struct WindowGeometry {
         }
     }
 
-    package func hiddenPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: ScreenInfo) -> CGPoint {
+    // Stored coordinates are relative to the recorded screen, so changing the
+    // primary display or global origin cannot change their physical meaning.
+    package func dockPerpOffset(for edge: DockEdge, frame: CGRect, screen: ScreenInfo) -> CGFloat {
         let v = quartzVisibleFrame(of: screen)
+        switch edge.slideAxis {
+        case .horizontal: return frame.minY - v.minY
+        case .vertical: return frame.minX - v.minX
+        }
+    }
+
+    package func absolutePerp(for edge: DockEdge, perpOffset: CGFloat, screen: ScreenInfo) -> CGFloat {
+        let v = quartzVisibleFrame(of: screen)
+        switch edge.slideAxis {
+        case .horizontal: return v.minY + perpOffset
+        case .vertical: return v.minX + perpOffset
+        }
+    }
+
+    package func hiddenPosition(for edge: DockEdge, size: CGSize, perp storedPerp: CGFloat, screen: ScreenInfo) -> CGPoint {
+        let v = quartzVisibleFrame(of: screen)
+        let perp = absolutePerp(for: edge, perpOffset: storedPerp, screen: screen)
         let y: CGFloat
         switch edge {
         case .up: y = v.minY
@@ -153,8 +172,9 @@ package struct WindowGeometry {
         return CGPoint(x: desktopFrame.maxX - 1, y: y)
     }
 
-    package func peekPosition(for edge: DockEdge, size: CGSize, perp: CGFloat, screen: ScreenInfo) -> CGPoint? {
+    package func peekPosition(for edge: DockEdge, size: CGSize, perp storedPerp: CGFloat, screen: ScreenInfo) -> CGPoint? {
         let v = quartzVisibleFrame(of: screen)
+        let perp = absolutePerp(for: edge, perpOffset: storedPerp, screen: screen)
         switch edge {
         case .left: return CGPoint(x: v.minX, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height))
         case .right: return CGPoint(x: v.maxX - size.width, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height))
@@ -163,8 +183,9 @@ package struct WindowGeometry {
         }
     }
 
-    package func sliverRect(edge: DockEdge, size: CGSize, perp: CGFloat, screen: ScreenInfo, thickness: CGFloat) -> CGRect {
+    package func sliverRect(edge: DockEdge, size: CGSize, perp storedPerp: CGFloat, screen: ScreenInfo, thickness: CGFloat) -> CGRect {
         let v = quartzVisibleFrame(of: screen)
+        let perp = absolutePerp(for: edge, perpOffset: storedPerp, screen: screen)
         switch edge {
         case .left: return CGRect(x: v.minX, y: perp, width: thickness, height: size.height)
         case .right: return CGRect(x: v.maxX - thickness, y: perp, width: thickness, height: size.height)

@@ -395,15 +395,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             // original pre-dock frame — never the transient peek/park position
             // — so the perpendicular coordinate stays anchored to where the
             // window was before docking, no matter how edges are switched.
-            existing.perp = geometry.dockPerp(for: edge, frame: existing.restoreFrame)
+            if let screen = existing.dockScreen(in: geometry) {
+                existing.perp = geometry.dockPerpOffset(for: edge, frame: existing.restoreFrame, screen: screen)
+            }
             existing.dock(to: edge)
             rebuildMenu()
             return
         }
 
         let m = ManagedWindow(window: window, edge: edge, delegate: self)
-        m.perp = geometry.dockPerp(for: edge, frame: frame)
-        m.restoreFrame = frame
         managed.append(m)
         m.dock()
         rebuildMenu()
