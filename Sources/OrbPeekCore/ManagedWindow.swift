@@ -219,16 +219,20 @@ package final class ManagedWindow {
         let geometry = delegate.geometry
         guard var screen = dockScreen(in: geometry),
               let droppedScreen = geometry.screen(containing: frame) else { return }
+        let sourceDistance = geometry.distanceFromDockEdge(frame, edge: edge, screen: screen)
         if droppedScreen.id != screen.id {
-            // Dragging along an edge onto another display transfers the dock
-            // to the same edge there, preserving the screen-relative offset.
+            // "Along the source edge" identifies a cross-screen transfer. The
+            // target's aligned edge may be dozens of pixels higher or lower.
+            if sourceDistance > delegate.config.dockCancelPx {
+                terminate(exit: .leave)
+                return
+            }
             dockScreenID = droppedScreen.id
             screen = droppedScreen
             let visible = geometry.quartzVisibleFrame(of: screen)
             restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
             restoreSize = frame.size
-        }
-        if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > delegate.config.dockCancelPx {
+        } else if sourceDistance > delegate.config.dockCancelPx {
             terminate(exit: .leave)
             return
         }
