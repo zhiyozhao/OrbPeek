@@ -5,6 +5,7 @@ import Foundation
 package struct DisplaySettling {
     private var until = Date.distantPast
     private var reconfiguring = false
+    private var reconfigurationBeganAt: Date?
 
     package init() {}
 
@@ -16,10 +17,12 @@ package struct DisplaySettling {
         // This callback precedes the frame shuffle, unlike the AppKit
         // notification, which can arrive hundreds of milliseconds later.
         reconfiguring = true
+        reconfigurationBeganAt = now
     }
 
     package mutating func displayReconfigurationEnded(at now: Date) {
         reconfiguring = false
+        reconfigurationBeganAt = nil
         screenParametersChanged(at: now)
     }
 
@@ -34,5 +37,11 @@ package struct DisplaySettling {
         until = now.addingTimeInterval(3)
     }
 
-    package func isSettling(at now: Date) -> Bool { reconfiguring || now < until }
+    package func isSettling(at now: Date) -> Bool {
+        // A lost end callback must not permanently suppress drift release or
+        // keep re-anchoring peeked windows. Ten seconds bounds a display cascade.
+        let activeReconfiguration = reconfiguring &&
+            (reconfigurationBeganAt.map { now.timeIntervalSince($0) < 10 } ?? false)
+        return activeReconfiguration || now < until
+    }
 }
