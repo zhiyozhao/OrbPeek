@@ -15,6 +15,7 @@ final class FakeWindow: WindowHandle {
     var positionWrites: [CGPoint] = []
     var minimized = false
     var appHidden = false
+    var mouseDown = false
     var pid: pid_t? = 42
 
     init(frame: CGRect) { self.storedFrame = frame }
@@ -109,6 +110,7 @@ func makeDockedFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 2
     window.clock = clock
     let delegate = FakeDelegate(layout: layout)
     let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: { clock.now })
+    managed.isLeftMousePressed = { window.mouseDown }
     managed.dock()
     await drainTasks()
     return ManagedFixture(managed: managed, window: window, delegate: delegate, clock: clock)
