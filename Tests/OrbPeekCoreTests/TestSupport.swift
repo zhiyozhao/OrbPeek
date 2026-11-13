@@ -109,8 +109,6 @@ func makeDockedFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 2
     window.clock = clock
     let delegate = FakeDelegate(layout: layout)
     let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: { clock.now })
-    managed.perp = delegate.geometry.dockPerp(for: edge, frame: frame)
-    managed.restoreFrame = frame
     managed.dock()
     await drainTasks()
     return ManagedFixture(managed: managed, window: window, delegate: delegate, clock: clock)
