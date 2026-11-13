@@ -51,6 +51,7 @@ package final class ManagedWindow {
     private var bigDriftSince: Date?
     private var dwell = DwellTracker()
     package var clock: () -> Date
+    package var isLeftMousePressed: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
 
     package init(window: any WindowHandle, edge: DockEdge, delegate: any WindowDockDelegate,
                  clock: @escaping () -> Date = Date.init) {
@@ -253,6 +254,19 @@ package final class ManagedWindow {
             return
         }
         nilCount = 0
+        let mousePressed = isLeftMousePressed()
+        if gesture && !mousePressed {
+            // The physical button state is authoritative if the global
+            // mouseUp monitor was dropped.
+            gesture = false
+            checkDragOut()
+            guard valid else { return }
+        }
+        if !gesture, mousePressed, frontmost, phase == .peeked || phase == .docking {
+            // Coordinate-independent fallback for offset display layouts or a
+            // missed global mouseDown: never hide/re-anchor during native drag.
+            gesture = true
+        }
         guard !gesture else { return }
         if window.isMinimized || window.isAppHidden {
             Log.info("window tucked away by user, releasing edge=\(edge)")
