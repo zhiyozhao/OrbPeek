@@ -14,3 +14,10 @@
 - 33 个 Swift Testing 用例覆盖坐标、锁屏/唤醒、慢 AX 漂移、原点变化、拔屏、拖动、docking 中断和全部取消路径。
 - 状态机日志可注入，fake 测试不再写用户真实日志。
 - 最终 `make check`、签名、DMG 和启动冒烟结果见交付回报。
+
+## 2026-11-13 — 独立审查跟进
+
+- 新增原子停靠日志与启动崩溃/SIGKILL 恢复；FakeWindow 覆盖杀进程后屏外窗口恢复、找不到窗口清记录。
+- settling 的 begin 增加 10 秒上限；跨屏拖动按源屏边缘判定；贴边侧 resize 不再误判拖出。
+- check CI 固定 Xcode 16.4（Swift 6 工具链含 Swift Testing）。
+- 本轮不运行 app，不做真实权限/窗口操作；最终运行 `make check`。

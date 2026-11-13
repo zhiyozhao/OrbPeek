@@ -38,6 +38,7 @@ make package
 - 签名失败：`security find-certificate -c "DEV X"` 应能找到证书；缺失时停止，不要改用 ad-hoc。
 - 钥匙串弹窗长时间等待：不要反复重试打包。
 - 运行日志在 `~/Library/Logs/orbpeek.log`。
+- 崩溃恢复日志在 `~/Library/Application Support/OrbPeek/docked-windows.json`，由 app 原子写入；正常取消/退出及启动恢复后自动清除，不需要手工维护。
 
 ## 本项目额外安装
 

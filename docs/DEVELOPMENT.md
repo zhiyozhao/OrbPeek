@@ -32,6 +32,12 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 `removeManaged` 只做列表、抓图缓存和贴边条清理，不是独立取消入口。拔屏在 settling 中优先重锚到剩余屏的停靠位；若宽限后判定外部接管，则由 `.leave` 保底。
 
+## 崩溃 / 强杀恢复
+
+停靠意图、完成停放、peek、拖动/resize 转移和取消都会更新 `~/Library/Application Support/OrbPeek/docked-windows.json`。JSON 包含 app bundle id/pid、窗口标题、CGWindowID、恢复/停放 frame、屏幕 ID 和边；`DockStateStore` 使用 atomic write。启动时 `DockRecovery` 只处理仍存在且未完整位于任何可见屏内的窗口，并调用与正常取消相同的全局 `placeUndockedWindow`；处理后清空记录。无 AX 权限时保留记录，待权限可用后由 poll 重试。
+
+匹配优先按 bundle id 找到仍在运行的 app（支持目标 app 重启后 pid 改变），再按窗口标题和与停放 frame 的距离匹配。以下情况不能保证恢复：目标 app/窗口已关闭、标题改变后无法匹配、AX 权限或 AX 写入被拒绝、磁盘写入失败。无标题且同 app 有多个相似窗口时识别可能不准确；恢复策略宁可跳过找不到的记录，不主动重建或关闭窗口。
+
 ## 构建、签名与产物
 
 `Scripts/build-app.sh` 是唯一的 app 组装入口：release 构建、复制可执行文件和 SPM resource bundles、编译 asset catalog、用 `DEV X` 签名。`KeyboardShortcuts` fork 的 resource-bundle 修复不能丢失，否则手工打包的设置页可能崩溃。
