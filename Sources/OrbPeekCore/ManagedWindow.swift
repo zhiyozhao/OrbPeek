@@ -69,6 +69,15 @@ package final class ManagedWindow {
 
     // MARK: Transitions
 
+    // Explicit hotkey re-dock. Automatic hide-on-leave calls dock(to:) directly.
+    package func redock(to newEdge: DockEdge) {
+        if newEdge.slideAxis != edge.slideAxis,
+           let delegate, let screen = dockScreen(in: delegate.geometry) {
+            perp = delegate.geometry.dockPerpOffset(for: newEdge, frame: restoreFrame, screen: screen)
+        }
+        dock(to: newEdge)
+    }
+
     package func dock(to newEdge: DockEdge? = nil) {
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
@@ -194,6 +203,11 @@ package final class ManagedWindow {
             terminate(exit: .leave)
         } else {
             perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+            let visible = geometry.quartzVisibleFrame(of: screen)
+            switch edge.slideAxis {
+            case .vertical: restoreOffset.x = frame.minX - visible.minX
+            case .horizontal: restoreOffset.y = frame.minY - visible.minY
+            }
         }
     }
 
