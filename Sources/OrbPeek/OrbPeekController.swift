@@ -130,15 +130,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         for m in managed where m.phase.isPeeked {
             guard let f = m.window.frame else { continue }
             if f.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q) {
-                m.gesture = true
+                m.beginGesture(at: q)
             }
         }
     }
 
     private func handleGlobalMouseUp() {
         for m in managed where m.gesture {
-            m.gesture = false
-            m.checkDragOut()
+            m.endGesture()
         }
     }
 
