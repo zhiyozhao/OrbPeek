@@ -1,7 +1,7 @@
 import AppKit
 
 // Edge a window can dock to.
-package enum DockEdge {
+package enum DockEdge: String, Codable {
     case left, right, up, down
 
     package var slideAxis: Axis {
