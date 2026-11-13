@@ -14,13 +14,25 @@ let package = Package(
         .package(url: "https://github.com/zhiyozhao/KeyboardShortcuts", branch: "2.4.0-resilient-resource-bundle"),
     ],
     targets: [
+        // Coordinate math and the per-window state machine, isolated from AX
+        // and ScreenCaptureKit so regression tests need no privacy permissions.
+        .target(
+            name: "OrbPeekCore",
+            path: "Sources/OrbPeekCore"
+        ),
         .executableTarget(
             name: "OrbPeek",
             dependencies: [
+                "OrbPeekCore",
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
             ],
-            path: "Sources",
+            path: "Sources/OrbPeek",
             resources: [.process("Resources")]
+        ),
+        .testTarget(
+            name: "OrbPeekCoreTests",
+            dependencies: ["OrbPeekCore"],
+            path: "Tests/OrbPeekCoreTests"
         ),
     ]
 )
