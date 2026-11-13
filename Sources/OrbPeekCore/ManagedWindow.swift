@@ -71,6 +71,7 @@ package final class ManagedWindow {
         guard let screen = dockScreen(in: geometry) else { return }
         window.unminimize()
         dwell.reset()
+        bigDriftSince = nil
         phase = .docking
         transition = Task { [weak self] in
             await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
@@ -130,6 +131,7 @@ package final class ManagedWindow {
         window.unminimize()
         phase = .peeked
         dwell.reset()
+        bigDriftSince = nil
         dwell.shownSince = clock()
         fakeStrip?.hide()
         window.raise()
@@ -223,12 +225,30 @@ package final class ManagedWindow {
 
         switch phase {
         case .peeked:
+            let inGrace = dwell.shownSince.map { now.timeIntervalSince($0) < 0.6 } ?? false
             if settling {
+                bigDriftSince = nil
                 if let pos = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen),
                    abs(frame.origin.x - pos.x) > 1 || abs(frame.origin.y - pos.y) > 1 {
                     moveTo(pos)
                 }
+            } else if !inGrace,
+                      geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
+                // Match docked-window drift handling: measure after all AX
+                // reads, wait out late display notifications, and do not
+                // overwrite perp with a transient macOS-arranged position.
+                let observedAt = clock()
+                if bigDriftSince == nil {
+                    bigDriftSince = observedAt
+                    Log.info("peeked window displaced, grace before release edge=\(edge)")
+                }
+                if observedAt.timeIntervalSince(bigDriftSince ?? observedAt) >= 0.5 {
+                    Log.info("peeked window displaced externally, undocking edge=\(edge)")
+                    terminate(exit: .leave)
+                }
+                return
             } else {
+                bigDriftSince = nil
                 perp = geometry.dockPerp(for: edge, frame: frame)
             }
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
@@ -236,13 +256,7 @@ package final class ManagedWindow {
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
                                              thickness: config.sliverPx)
             let onSliver = sliver.insetBy(dx: -6, dy: -6).contains(mouseQ)
-            let inGrace = dwell.shownSince.map { now.timeIntervalSince($0) < 0.6 } ?? false
             if !inGrace {
-                if !settling, geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > config.dockCancelPx {
-                    Log.info("peeked window displaced externally, undocking edge=\(edge)")
-                    terminate(exit: .leave)
-                    return
-                }
                 let lostFocus = !frontmost
                 let touchedAndLeft = dwell.touched && !inWin
                 let untouchedAndAway = !dwell.touched && !inWin && !onSliver
@@ -254,11 +268,12 @@ package final class ManagedWindow {
             let target = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
             let drift = max(abs(frame.origin.x - target.x), abs(frame.origin.y - target.y))
             if drift > config.dockCancelPx, !settling {
+                let observedAt = clock()
                 if bigDriftSince == nil {
-                    bigDriftSince = now
+                    bigDriftSince = observedAt
                     Log.info("big drift \(Int(drift)) edge=\(edge), grace before release")
                 }
-                if now.timeIntervalSince(bigDriftSince ?? now) >= 0.5 {
+                if observedAt.timeIntervalSince(bigDriftSince ?? observedAt) >= 0.5 {
                     Log.info("docked window moved externally, releasing edge=\(edge)")
                     terminate(exit: .leave)
                 }

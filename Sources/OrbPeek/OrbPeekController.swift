@@ -152,6 +152,19 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var displaySettling = DisplaySettling()
 
     private func installSettleObservers() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        CGDisplayRegisterReconfigurationCallback({ _, flags, context in
+            guard let context else { return }
+            Task { @MainActor in
+                let controller = Unmanaged<OrbPeekController>.fromOpaque(context).takeUnretainedValue()
+                // kCGDisplayBeginConfigurationFlag (the C constant is not imported).
+                if flags.contains(CGDisplayChangeSummaryFlags(rawValue: 1 << 0)) {
+                    controller.displaySettling.displayReconfigurationBegan(at: Date())
+                } else {
+                    controller.displaySettling.displayReconfigurationEnded(at: Date())
+                }
+            }
+        }, context)
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: nil
