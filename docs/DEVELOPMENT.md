@@ -36,7 +36,7 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 停靠意图、完成停放、peek、拖动/resize 转移和取消都会更新 `~/Library/Application Support/OrbPeek/docked-windows.json`。JSON 包含 app bundle id/pid、窗口标题、CGWindowID、恢复/停放 frame、屏幕 ID 和边；`DockStateStore` 使用 atomic write。启动时 `DockRecovery` 只处理仍存在且未完整位于任何可见屏内的窗口，并调用与正常取消相同的全局 `placeUndockedWindow`；处理后清空记录。无 AX 权限时保留记录，待权限可用后由 poll 重试。
 
-匹配优先按 bundle id 找到仍在运行的 app（支持目标 app 重启后 pid 改变），再按窗口标题和与停放 frame 的距离匹配。以下情况不能保证恢复：目标 app/窗口已关闭、标题改变后无法匹配、AX 权限或 AX 写入被拒绝、磁盘写入失败。无标题且同 app 有多个相似窗口时识别可能不准确；恢复策略宁可跳过找不到的记录，不主动重建或关闭窗口。
+匹配先按 bundle id 找到仍在运行的 app（支持目标 app 重启后 pid 改变），再按窗口标题和与停放 frame 的距离匹配。标题可变，因此额外把该 app 所有可见面积不足 10% 的窗口都用同一保底函数收回；无标题多窗口也走这个兜底。正常可见窗口不动。以下情况不能保证恢复：目标 app/窗口已关闭、AX 权限或 AX 写入被拒绝、磁盘写入失败。恢复不会主动重建或关闭窗口。
 
 ## 构建、签名与产物
 
