@@ -46,6 +46,8 @@ package final class ManagedWindow {
     private var transition: Task<Void, Never>?
     package private(set) var phase: Phase = .idle
     package var gesture = false
+    private var gestureStartFrame: CGRect?
+    private var gestureStartedOnDockedEdge = false
     private var nilCount = 0
     private var valid = true
     private var bigDriftSince: Date?
@@ -214,6 +216,56 @@ package final class ManagedWindow {
         delegate?.removeManaged(self)
     }
 
+    package func beginGesture(at mouseQ: CGPoint) {
+        guard let frame = window.frame, let delegate else { return }
+        gestureStartFrame = frame
+        let buffer = delegate.config.edgeBuffer
+        switch edge {
+        case .down: gestureStartedOnDockedEdge = abs(mouseQ.y - frame.maxY) <= buffer
+        case .up: gestureStartedOnDockedEdge = abs(mouseQ.y - frame.minY) <= buffer
+        case .left: gestureStartedOnDockedEdge = abs(mouseQ.x - frame.minX) <= buffer
+        case .right: gestureStartedOnDockedEdge = abs(mouseQ.x - frame.maxX) <= buffer
+        }
+        gesture = true
+    }
+
+    package func endGesture() {
+        gesture = false
+        defer {
+            gestureStartFrame = nil
+            gestureStartedOnDockedEdge = false
+        }
+        guard let start = gestureStartFrame, let current = window.frame else {
+            checkDragOut()
+            return
+        }
+        let originDelta = max(abs(current.minX - start.minX), abs(current.minY - start.minY))
+        let sizeChanged = current.size != start.size
+        if sizeChanged && (gestureStartedOnDockedEdge || originDelta <= 2) {
+            retainResizedFrame(current)
+        } else if originDelta > 2 || sizeChanged {
+            checkDragOut()
+        }
+        // A plain click is a no-op; do not issue a redundant AX position write.
+    }
+
+    private func retainResizedFrame(_ frame: CGRect) {
+        guard phase == .peeked, let delegate,
+              let screen = dockScreen(in: delegate.geometry) else { return }
+        let geometry = delegate.geometry
+        perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+        restoreSize = frame.size
+        let visible = geometry.quartzVisibleFrame(of: screen)
+        switch edge.slideAxis {
+        case .vertical: restoreOffset.x = frame.minX - visible.minX
+        case .horizontal: restoreOffset.y = frame.minY - visible.minY
+        }
+        if let position = geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen),
+           abs(frame.origin.x - position.x) > 1 || abs(frame.origin.y - position.y) > 1 {
+            moveTo(position)
+        }
+    }
+
     package func checkDragOut() {
         guard phase == .peeked, let frame = window.frame, let delegate else { return }
         let geometry = delegate.geometry
@@ -309,14 +361,13 @@ package final class ManagedWindow {
         if gesture && !mousePressed {
             // The physical button state is authoritative if the global
             // mouseUp monitor was dropped.
-            gesture = false
-            checkDragOut()
+            endGesture()
             guard valid else { return }
         }
         if !gesture, mousePressed, frontmost, phase == .peeked || phase == .docking {
             // Coordinate-independent fallback for offset display layouts or a
             // missed global mouseDown: never hide/re-anchor during native drag.
-            gesture = true
+            beginGesture(at: mouseQ)
         }
         guard !gesture else { return }
         if window.isMinimized || window.isAppHidden {

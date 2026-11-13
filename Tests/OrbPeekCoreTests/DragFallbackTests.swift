@@ -10,6 +10,7 @@ struct DragFallbackTests {
         let fixture = await makeDockedFixture(layout: testLayout)
         fixture.managed.peek()
         fixture.window.mouseDown = true
+        tick(fixture, settling: true) // mouseDown is observed before the native drag moves it
         fixture.window.storedFrame = CGRect(x: 500, y: 480, width: 700, height: 500)
 
         tick(fixture, settling: true)
