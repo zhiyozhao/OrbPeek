@@ -13,12 +13,17 @@ final class FakeWindow: WindowHandle {
     var readDelay: TimeInterval = 0
     var clock: FakeClock?
     var positionWrites: [CGPoint] = []
+    var sizeWrites: [CGSize] = []
+    private var lastKnownSize: CGSize
     var minimized = false
     var appHidden = false
     var mouseDown = false
     var pid: pid_t? = 42
 
-    init(frame: CGRect) { self.storedFrame = frame }
+    init(frame: CGRect) {
+        self.storedFrame = frame
+        self.lastKnownSize = frame.size
+    }
 
     var frame: CGRect? {
         clock?.advance(readDelay)
@@ -28,6 +33,7 @@ final class FakeWindow: WindowHandle {
         get { storedFrame?.origin }
         set {
             guard let newValue else { return }
+            if storedFrame == nil { storedFrame = CGRect(origin: newValue, size: lastKnownSize) }
             storedFrame?.origin = newValue
             positionWrites.append(newValue)
         }
@@ -37,6 +43,12 @@ final class FakeWindow: WindowHandle {
     func unminimize() { minimized = false }
     func raise() {}
     func activate() {}
+    func resize(to size: CGSize) {
+        lastKnownSize = size
+        if storedFrame == nil { storedFrame = CGRect(origin: .zero, size: size) }
+        storedFrame?.size = size
+        sizeWrites.append(size)
+    }
     func isSameWindow(as other: any WindowHandle) -> Bool { self === other }
 }
 
@@ -44,8 +56,9 @@ final class FakeWindow: WindowHandle {
 final class FakeCapturer: SliceCapturing {
     var onCapture: (() -> Void)?
     var captureCount = 0
+    var windowIsInWindowList = true
     func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID? { 7 }
-    func windowExists(_ id: CGWindowID) -> Bool { true }
+    func windowExists(_ id: CGWindowID) -> Bool { windowIsInWindowList }
     func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize, thickness: CGFloat) -> NSImage? { nil }
     func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
         captureCount += 1
