@@ -103,17 +103,24 @@ struct ManagedFixture {
 }
 
 @MainActor
-func makeDockedFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 200, width: 700, height: 500),
-                       edge: DockEdge = .down) async -> ManagedFixture {
+func makeIdleFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 200, width: 700, height: 500),
+                     edge: DockEdge = .down) -> ManagedFixture {
     let clock = FakeClock()
     let window = FakeWindow(frame: frame)
     window.clock = clock
     let delegate = FakeDelegate(layout: layout)
     let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: { clock.now })
     managed.isLeftMousePressed = { window.mouseDown }
-    managed.dock()
-    await drainTasks()
     return ManagedFixture(managed: managed, window: window, delegate: delegate, clock: clock)
+}
+
+@MainActor
+func makeDockedFixture(layout: ScreenLayout, frame: CGRect = CGRect(x: 300, y: 200, width: 700, height: 500),
+                       edge: DockEdge = .down) async -> ManagedFixture {
+    let fixture = makeIdleFixture(layout: layout, frame: frame, edge: edge)
+    fixture.managed.dock()
+    await drainTasks()
+    return fixture
 }
 
 func drainTasks() async {
