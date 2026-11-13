@@ -149,7 +149,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // seconds after a screen change, "settling" suppresses the external-move
     // release: managed windows are re-anchored to their recomputed positions
     // instead of being dropped where macOS left them.
-    private var settleUntil = Date.distantPast
+    private var displaySettling = DisplaySettling()
 
     private func installSettleObservers() {
         NotificationCenter.default.addObserver(
@@ -157,7 +157,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             object: nil, queue: nil
         ) { _ in
             Task { @MainActor in
-                (NSApplication.shared.delegate as? OrbPeekController)?.settleUntil = Date().addingTimeInterval(3)
+                (NSApplication.shared.delegate as? OrbPeekController)?.displaySettling.screenParametersChanged(at: Date())
                 Log.info("screen parameters changed, settling 3s")
             }
         }
@@ -186,7 +186,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         // sleep. The initial seed covers launching while already locked.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
             Task { @MainActor in
-                (NSApplication.shared.delegate as? OrbPeekController)?.reseedLockState()
+                if let controller = NSApplication.shared.delegate as? OrbPeekController {
+                    controller.displaySettling.didWake(at: Date())
+                    controller.reseedLockState()
+                }
             }
         }
         reseedLockState()
@@ -202,6 +205,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     @objc private nonisolated func handleScreenUnlocked() {
         Task { @MainActor in
             self.screenLocked = false
+            self.displaySettling.screenUnlocked(at: Date())
             Log.info("screen unlocked, poll resumed")
         }
     }
@@ -453,7 +457,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         lastMouseQ = q
         lastMouseAt = now
-        let settling = now < settleUntil
+        let settling = displaySettling.isSettling(at: now)
         for m in managed {
             // Computed per window, not hoisted: a peek fires synchronously, so
             // a window later in this same tick must see it — otherwise two
