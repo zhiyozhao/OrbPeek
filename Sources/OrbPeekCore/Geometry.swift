@@ -74,25 +74,28 @@ package struct WindowGeometry {
 
     package var layout: ScreenLayout { layoutProvider() }
     private var desktopFrame: CGRect { layout.desktopFrame }
+    // CG/AX global coordinates use the primary display's top-left as origin.
+    // The desktop union is only valid for choosing outer parking edges.
+    private var primaryMaxY: CGFloat { layout.primary?.frame.maxY ?? 0 }
 
     // AppKit (bottom-left) point -> quartz (top-left) point.
     package func toQuartz(_ p: CGPoint) -> CGPoint {
-        CGPoint(x: p.x - desktopFrame.minX, y: desktopFrame.maxY - p.y)
+        CGPoint(x: p.x, y: primaryMaxY - p.y)
     }
 
     // Quartz rect -> AppKit rect (for positioning our own floating panels).
     package func toAppKit(_ r: CGRect) -> CGRect {
-        CGRect(x: r.minX, y: desktopFrame.maxY - r.maxY, width: r.width, height: r.height)
+        CGRect(x: r.minX, y: primaryMaxY - r.maxY, width: r.width, height: r.height)
     }
 
     package func quartzVisibleFrame(of screen: ScreenInfo) -> CGRect {
         let v = screen.visibleFrame
-        return CGRect(x: v.minX, y: desktopFrame.maxY - v.maxY, width: v.width, height: v.height)
+        return CGRect(x: v.minX, y: primaryMaxY - v.maxY, width: v.width, height: v.height)
     }
 
     package func quartzFrame(of screen: ScreenInfo) -> CGRect {
         let f = screen.frame
-        return CGRect(x: f.minX, y: desktopFrame.maxY - f.maxY, width: f.width, height: f.height)
+        return CGRect(x: f.minX, y: primaryMaxY - f.maxY, width: f.width, height: f.height)
     }
 
     private func clamped(_ p: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
