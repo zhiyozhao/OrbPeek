@@ -1,7 +1,7 @@
 import Foundation
 
-enum Log {
-    static let path = NSHomeDirectory() + "/Library/Logs/orbpeek.log"
+package enum Log {
+    package static let path = NSHomeDirectory() + "/Library/Logs/orbpeek.log"
 
     // Millisecond timestamps so event timelines can be reconstructed.
     private static let formatter: DateFormatter = {
@@ -10,7 +10,7 @@ enum Log {
         return f
     }()
 
-    static func info(_ s: String) {
+    package static func info(_ s: String) {
         let line = "[OrbPeek \(formatter.string(from: Date()))] \(s)\n"
         FileHandle.standardError.write(line.data(using: .utf8)!)
         do {
