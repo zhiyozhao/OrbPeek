@@ -14,6 +14,24 @@
 
 AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 bottom-left 坐标。所有换算集中在 `WindowGeometry`。生产布局从当前 `NSScreen.screens` 创建，首项为主屏；测试直接提供 `ScreenLayout`。跨通知保留 `CGDirectDisplayID`，不保留 `NSScreen` 对象。
 
+## 取消贴边与可见区域保底
+
+`ManagedWindow.placeUndockedWindow` 是唯一收尾函数：用当前布局选择最近屏，将窗口完整限制在该屏的 quartz `visibleFrame`，窗口过大时先缩小再定位。
+
+| 入口 | 路径 | 保底 |
+|---|---|---|
+| 菜单取消 | `cancelWindow` → `terminate(.restore)` | 是 |
+| 拖离超过阈值 | `checkDragOut` → `terminate(.leave)` | 是 |
+| docked 外部漂移 | `evaluate` → `terminate(.leave)` | 是 |
+| peeked 外部漂移 | `evaluate` → `terminate(.leave)` | 是 |
+| 抓图期间拖动/外部位移 | `finishDock` → `terminate(.leave)` | 是 |
+| 最小化 / app 隐藏 | `evaluate` → `terminate(.restore)` | 是 |
+| AX 读帧失败且 CGWindowList 也消失 | `evaluate` → `terminate(.restore)` | 是（best-effort） |
+| SIGTERM / SIGINT | `restoreAll` → `restore` | 是 |
+| 正常退出 | `applicationWillTerminate` → `restore` | 是 |
+
+`removeManaged` 只做列表、抓图缓存和贴边条清理，不是独立取消入口。拔屏在 settling 中优先重锚到剩余屏的停靠位；若宽限后判定外部接管，则由 `.leave` 保底。
+
 ## 构建、签名与产物
 
 `Scripts/build-app.sh` 是唯一的 app 组装入口：release 构建、复制可执行文件和 SPM resource bundles、编译 asset catalog、用 `DEV X` 签名。`KeyboardShortcuts` fork 的 resource-bundle 修复不能丢失，否则手工打包的设置页可能崩溃。
