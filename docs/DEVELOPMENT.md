@@ -52,3 +52,13 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 - `Scripts/test-window.swift`：手动创建测试窗口。
 
 不要对 `/Applications/OrbPeek.app` 或用户正在管理的窗口做自动化操作。开发日志写入 `~/Library/Logs/orbpeek.log`，不要提交日志和构建产物。
+
+## 主页演示图
+
+`Scripts/render-demo.py` 使用 Pillow 程序化绘制浅色、深色示意动图，不读取屏幕或依赖系统权限。修改后重新生成：
+
+```sh
+python3 Scripts/render-demo.py
+```
+
+输出为 `docs/assets/demo-light.gif` 和 `docs/assets/demo-dark.gif`；图中不使用文字，保持两种配色和动作时序一致。

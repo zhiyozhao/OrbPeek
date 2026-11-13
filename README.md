@@ -1,80 +1,72 @@
 # OrbPeek
 
-A macOS menu-bar app that docks windows to any screen edge and slides them back in when you hover the edge — like auto-hiding docks, but for individual windows.
+中文 | [English](README.en.md)
 
-## Features
+用快捷键把窗口停靠到屏幕边缘，只留下一条窗口缩影；鼠标碰到边缘，窗口就滑出来。
 
-- Dock the frontmost window to the left / right / top / bottom edge with a hotkey (default `Ctrl + Shift + arrow keys`, rebindable)
-- A slim snapshot strip stays at the edge as a visual handle — hover (or slam) it to slide the window back in
-- The window slides back out automatically when you move on, or drag it off the edge to undock it for good
-- Multiple windows per edge, per-screen docking, multi-display aware
-- Survives display (un)plug, sleep and lock without losing your docked windows
-- Launch at login, adjustable strip width/opacity, Chinese UI
+[![最新版本](https://img.shields.io/github/v/release/zhiyozhao/OrbPeek?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/zhiyozhao/OrbPeek/releases/latest)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)
 
-## Install
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-dark.gif">
+  <img alt="窗口停靠到屏幕右边缘，只留下一条缩影；鼠标碰到缩影时窗口滑出，鼠标离开后窗口收回" src="docs/assets/demo-light.gif" width="960">
+</picture>
 
-### Homebrew
-
-```sh
+```bash
 brew install --cask zhiyozhao/tap/orbpeek
 ```
 
-### Manual
+不用 Homebrew 的话，到 [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) 下载 DMG，把 OrbPeek 拖进“应用程序”。
 
-Download `OrbPeek-<version>.dmg` from [Releases](https://github.com/zhiyozhao/OrbPeek/releases), drag OrbPeek to Applications, then right-click → **Open** once (Gatekeeper). Updates over the same install keep your Accessibility/Screen Recording grants.
+## 亮点
 
-Uninstall:
+- `Control + Shift + 方向键` 把当前窗口停到对应边缘，上下左右都可以。
+- 边缘留下窗口缩影，不用切换 app，鼠标一碰就能查看和操作。
+- 鼠标离开后窗口自动收回；把窗口往屏幕内拖远，就取消停靠。
+- 同一边可以停多个窗口，多块显示器可以分别停靠。
+- 插拔显示器、锁屏或睡眠后，窗口会跟随当前的屏幕布局。
+- 快捷键、缩影宽度和不透明度都可以调整，也能设为开机启动。
+- 中文、英文界面跟随系统语言。
 
-```sh
-brew uninstall --cask --zap orbpeek   # also removes preferences and logs
-```
+## 首次使用
 
-## Permissions
+1. 打开 OrbPeek，菜单栏会出现图标。
+2. 按弹窗提示打开“系统设置 → 隐私与安全性 → 辅助功能”，打开 OrbPeek 的开关。授权后回到 app；如果没有生效，重新打开 OrbPeek。
+3. 点击菜单栏图标，在“屏幕录制”一项中完成授权。
 
-| Permission | Why | Without it |
-|---|---|---|
-| **Accessibility** (required) | Moving and resizing other apps' windows | App can't function |
-| **Screen Recording** | Capturing the window snapshot shown in the edge strip | Strip shows a plain dark placeholder |
+**为什么要“辅助功能”？** OrbPeek 需要读取并移动你停靠的窗口，在取消停靠或异常恢复时把窗口放回可见区域。没有这项权限，它无法替你移动窗口。这项权限不会用来记录你输入的文字。
 
-Both are prompted on first launch; status and re-grant shortcuts live in the menu-bar menu.
+**为什么还要“屏幕录制”？** 它只用于给停靠的窗口生成边缘缩影，不会持续录像，也不会录音。不授权仍能停靠和滑出窗口，只是边缘会显示半透明占位条，看不到窗口画面。
 
-## Usage
+两项权限都可以随时在“系统设置 → 隐私与安全性”里关闭。关闭辅助功能后，OrbPeek 不能再移动窗口；关闭屏幕录制后，不会再生成新的窗口缩影。
 
-- **Dock**: focus a window, press `Ctrl + Shift + ←/→/↑/↓` to send it to that edge
-- **Peek**: hover the edge strip (or move the mouse fast toward it) — the window slides in; leave and it slides back out
-- **Undock**: drag the peeked window away from the edge, or click its entry in the menu-bar menu
-- Hotkeys, strip width/opacity and launch-at-login are in 设置… (Settings) in the menu
+## 怎么用
 
-## Build from source
+- **停靠**：切换到要收的窗口，按 `Control + Shift + ← / → / ↑ / ↓`。
+- **查看**：把鼠标移到边缘的缩影上，窗口会滑到最前面；鼠标离开后，窗口收回去。
+- **取消**：把滑出的窗口向屏幕内拖远，或者点击菜单栏图标，再点对应窗口的名称。
+- **调整**：在菜单栏图标的“设置…”里修改四个快捷键、缩影宽度、不透明度和开机启动。
 
-Requires macOS 14+ and a Swift toolchain (Xcode or Command Line Tools).
+## 隐私
 
-```sh
-Scripts/build-app.sh   # swift build -c release + assemble OrbPeek.app + codesign
-open OrbPeek.app
-```
+- 不持续录屏，不录音，不记录你输入的文字。
+- 窗口缩影只保存在内存里；取消停靠后，对应的截图缓存会被删除。
+- 没有联网功能，不上传窗口画面、窗口标题或设置。
+- 偏好设置、快捷键和运行日志只保存在本机。为了在异常退出后找回窗口，OrbPeek 会暂存停靠窗口所属的 app、标题和位置等恢复信息；正常取消停靠或退出后会清除。
 
-`Scripts/build-app.sh` signs with the unified self-signed **"DEV X"** certificate (shared by all projects, managed in `~/Codes/dev-x-signing`) so macOS doesn't re-prompt for Accessibility on every rebuild (ad-hoc signing changes the code hash each build, which invalidates TCC grants). Override with `CODESIGN_IDENTITY=- Scripts/build-app.sh` for ad-hoc.
+## 常见问题
 
-Debug helpers:
+**打开 DMG 里的 app 时，提示“无法验证开发者”？**
+这个 app 没有经过 Apple 公证。在 Finder 中右键点击 OrbPeek，选择“打开”，再确认一次即可。
 
-```sh
-OrbPeek.app/Contents/MacOS/OrbPeek --self-test            # verify AX trust; nudges the focused window
-OrbPeek.app/Contents/MacOS/OrbPeek --debug-mouse "1:10,500 2:10,0"   # scripted cursor for testing
-```
+**OrbPeek 意外退出后，窗口去哪了？**
+正常退出时，OrbPeek 会先把所有停靠窗口放回来。意外退出或被强制结束后，下次启动会自动寻找仍然存在的屏外窗口，把它们放回最近显示器的可见区域，不会重新停靠。请保持辅助功能权限开启；如果所属 app 或窗口也已经关闭，就无法恢复。
 
-## How it works
+**怎么卸载？**
+执行 `brew uninstall --cask --zap orbpeek`，或者把“应用程序”里的 OrbPeek 拖到废纸篓。
 
-A 30 Hz poll reconciles every managed window toward its canonical position, which is a pure function of the current display set — that's what makes docking robust across display hot-plug, sleep and lock. Docking captures a display-region snapshot (ScreenCaptureKit) of the window before parking it 1 px off the desktop's outer edge; the floating strip is that snapshot, cropped per edge. Polling freezes entirely while the screen is locked (AX calls black out during lock).
-
-## Release
-
-Maintainers: push a semver tag and GitHub Actions builds, signs, packages and publishes the release; the [homebrew tap](https://github.com/zhiyozhao/homebrew-tap) cask syncs automatically.
-
-```sh
-git tag v1.0.1 && git push origin v1.0.1
-```
-
-## License
+## 许可证
 
 [MIT](LICENSE)
+
+[更新记录](CHANGELOG.md) · [开发文档](docs/DEVELOPMENT.md)
