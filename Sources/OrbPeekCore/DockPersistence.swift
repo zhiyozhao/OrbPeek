@@ -73,20 +73,49 @@ package struct DockRecovery {
     package init(store: DockStateStore) { self.store = store }
 
     package func recover(geometry: WindowGeometry,
-                         resolver: (DockedWindowRecord) -> (any WindowHandle)?) {
+                         resolver: (DockedWindowRecord) -> [any WindowHandle]) {
         guard let records = try? store.load() else {
             try? store.clear()
             return
         }
         defer { try? store.clear() }
+        var recovered = Set<ObjectIdentifier>()
         for record in records {
-            guard let window = resolver(record), let frame = window.frame else { continue }
-            let fullyVisible = geometry.layout.screens.contains {
-                geometry.quartzVisibleFrame(of: $0).contains(frame)
+            let candidates = resolver(record)
+            let titled = candidates.filter { record.title == nil || $0.title == record.title }
+            let matched = titled.min { lhs, rhs in
+                func score(_ window: any WindowHandle) -> CGFloat {
+                    guard let frame = window.frame else { return .infinity }
+                    let parked = record.parkedFrame.rect
+                    return abs(frame.minX - parked.minX) + abs(frame.minY - parked.minY) +
+                        abs(frame.width - parked.width) + abs(frame.height - parked.height)
+                }
+                return score(lhs) < score(rhs)
             }
-            if !fullyVisible {
-                OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: record.restoreFrame.rect,
+            if let matched, let frame = matched.frame {
+                let fullyVisible = geometry.layout.screens.contains {
+                    geometry.quartzVisibleFrame(of: $0).contains(frame)
+                }
+                if !fullyVisible {
+                    OrbPeekCore.placeUndockedWindow(window: matched, preferredFrame: record.restoreFrame.rect,
+                                                    fallbackFrame: frame, geometry: geometry)
+                    recovered.insert(ObjectIdentifier(matched))
+                }
+            }
+
+            // Titles are unstable in browsers/editors. Every window belonging
+            // to a recorded app with <10% visible area is an OrbPeek leftover;
+            // normal application windows do not park themselves off-screen.
+            for window in candidates where !recovered.contains(ObjectIdentifier(window)) {
+                guard let frame = window.frame, frame.width > 0, frame.height > 0 else { continue }
+                let visibleArea = geometry.layout.screens.reduce(CGFloat.zero) { total, screen in
+                    let intersection = geometry.quartzVisibleFrame(of: screen).intersection(frame)
+                    return total + (intersection.isNull || intersection.isEmpty ? 0 : intersection.width * intersection.height)
+                }
+                guard visibleArea / (frame.width * frame.height) < 0.1 else { continue }
+                OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: nil,
                                                 fallbackFrame: frame, geometry: geometry)
+                recovered.insert(ObjectIdentifier(window))
             }
         }
     }

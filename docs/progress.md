@@ -21,3 +21,4 @@
 - settling 的 begin 增加 10 秒上限；跨屏拖动按源屏边缘判定；贴边侧 resize 不再误判拖出。
 - check CI 固定 Xcode 16.4（Swift 6 工具链含 Swift Testing）。
 - 本轮不运行 app，不做真实权限/窗口操作；最终运行 `make check`。
+- 启动恢复增加标题变化/无标题多窗口兜底：记录 app 的所有窗口若可见面积 <10%，全部经统一保底收回。

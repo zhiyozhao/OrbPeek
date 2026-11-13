@@ -439,31 +439,20 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard recoveryPending, AXWindow.isProcessTrusted else { return }
         recoveryPending = false
         DockRecovery(store: dockStateStore).recover(geometry: geometry) { [weak self] record in
-            self?.windowForRecovery(record)
+            self?.windowsForRecovery(record) ?? []
         }
     }
 
-    private func windowForRecovery(_ record: DockedWindowRecord) -> (any WindowHandle)? {
+    private func windowsForRecovery(_ record: DockedWindowRecord) -> [any WindowHandle] {
         let application: NSRunningApplication?
         if let bundleID = record.bundleIdentifier {
             application = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
         } else {
             application = NSRunningApplication(processIdentifier: record.processID)
         }
-        guard let application else { return nil }
-        if let expectedBundle = record.bundleIdentifier, application.bundleIdentifier != expectedBundle { return nil }
-        let candidates = AXWindow.allWindows(ofPID: application.processIdentifier).filter { window in
-            record.title == nil || window.title == record.title
-        }
-        return candidates.min { lhs, rhs in
-            func score(_ window: AXWindow) -> CGFloat {
-                guard let frame = window.frame else { return .infinity }
-                let parked = record.parkedFrame.rect
-                return abs(frame.minX - parked.minX) + abs(frame.minY - parked.minY) +
-                    abs(frame.width - parked.width) + abs(frame.height - parked.height)
-            }
-            return score(lhs) < score(rhs)
-        }
+        guard let application else { return [] }
+        if let expectedBundle = record.bundleIdentifier, application.bundleIdentifier != expectedBundle { return [] }
+        return AXWindow.allWindows(ofPID: application.processIdentifier)
     }
 
     // MARK: WindowDockDelegate
