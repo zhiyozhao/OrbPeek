@@ -153,11 +153,31 @@ package final class ManagedWindow {
             Log.info("capture FAILED edge=\(edge) — strip shows cache/placeholder")
         }
         if Task.isCancelled { return }
-        moveTo(hiddenPos)
+        guard let currentFrame = window.frame else {
+            terminate(exit: .leave)
+            return
+        }
+        let moved = max(max(abs(currentFrame.minX - frame.minX), abs(currentFrame.minY - frame.minY)),
+                        max(abs(currentFrame.width - frame.width), abs(currentFrame.height - frame.height)))
+        if isLeftMousePressed() || moved > 2 {
+            Log.info("dock capture interrupted by window movement/drag; leaving window in place edge=\(edge)")
+            terminate(exit: .leave)
+            return
+        }
+        // Capture may outlive a screen notification. Recompute against the
+        // current layout rather than parking with pre-await geometry.
+        guard let currentScreen = dockScreen(in: geometry) else { return }
+        let currentHiddenPos = geometry.hiddenPosition(for: edge, size: currentFrame.size,
+                                                       perp: perp, screen: currentScreen)
+        let currentStripFrame = geometry.toAppKit(
+            geometry.sliverRect(edge: edge, size: currentFrame.size, perp: perp,
+                                screen: currentScreen, thickness: config.sliverPx)
+        )
+        moveTo(currentHiddenPos)
         phase = .docked
         guard let fakeStrip else { return }
-        let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: frame.size, thickness: config.sliverPx) }
-        fakeStrip.show(image: fresh ?? cached, frame: stripFrame, edge: edge)
+        let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
+        fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
     }
 
     package func peek() {
