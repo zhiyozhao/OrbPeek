@@ -120,6 +120,35 @@ package struct WindowGeometry {
         layout.screens.first { $0.id == id }
     }
 
+    // Largest visible intersection wins. For a fully off-screen window, use
+    // Euclidean rectangle distance so an unplugged display never strands it.
+    package func nearestScreen(to frame: CGRect) -> ScreenInfo? {
+        if let containing = screen(containing: frame) {
+            let intersection = quartzVisibleFrame(of: containing).intersection(frame)
+            if !intersection.isNull && !intersection.isEmpty { return containing }
+        }
+        var nearest: ScreenInfo?
+        var nearestDistance = CGFloat.infinity
+        for screen in layout.screens {
+            let visible = quartzVisibleFrame(of: screen)
+            let dx = max(max(visible.minX - frame.maxX, frame.minX - visible.maxX), 0)
+            let dy = max(max(visible.minY - frame.maxY, frame.minY - visible.maxY), 0)
+            let distance = dx * dx + dy * dy
+            if distance < nearestDistance { nearest = screen; nearestDistance = distance }
+        }
+        return nearest ?? layout.primary
+    }
+
+    package func fitting(_ frame: CGRect, in screen: ScreenInfo) -> CGRect {
+        let visible = quartzVisibleFrame(of: screen)
+        guard visible.width > 0, visible.height > 0 else { return frame }
+        let size = CGSize(width: min(max(frame.width, 1), visible.width),
+                          height: min(max(frame.height, 1), visible.height))
+        let x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
+        let y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
+        return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    }
+
     package func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
         switch edge {
         case .up: return CGRect(x: frame.minX, y: frame.maxY - thickness, width: frame.width, height: thickness)

@@ -11,6 +11,7 @@ package protocol WindowHandle: AnyObject {
     func unminimize()
     func raise()
     func activate()
+    func resize(to size: CGSize)
     func isSameWindow(as other: any WindowHandle) -> Bool
 }
 

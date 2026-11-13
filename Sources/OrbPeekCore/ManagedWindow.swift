@@ -206,10 +206,7 @@ package final class ManagedWindow {
     package func terminate(exit: ExitPosition) {
         guard valid else { return }
         transition?.cancel()
-        switch exit {
-        case .restore: window.position = restoreFrame.origin
-        case .leave: break
-        }
+        placeUndockedWindow(preferredFrame: exit == .restore ? restoreFrame : nil)
         detachStrip()
         valid = false
         Log.info("terminate edge=\(edge) exit=\(exit)")
@@ -248,9 +245,25 @@ package final class ManagedWindow {
     package func restore() {
         guard valid else { return }
         transition?.cancel()
+        placeUndockedWindow(preferredFrame: restoreFrame)
         detachStrip()
-        window.position = restoreFrame.origin
         valid = false
+    }
+
+    // The single safety net for every cancellation, release, quit and signal
+    // path. A released window always ends fully inside the nearest visible
+    // frame; oversized windows shrink rather than remaining partially off-screen.
+    private func placeUndockedWindow(preferredFrame: CGRect?) {
+        guard let delegate else { return }
+        let geometry = delegate.geometry
+        let candidate = preferredFrame ?? window.frame ?? restoreFrame
+        guard let screen = geometry.nearestScreen(to: candidate) else { return }
+        let fitted = geometry.fitting(candidate, in: screen)
+        let current = window.frame
+        if current?.size != fitted.size { window.resize(to: fitted.size) }
+        if preferredFrame != nil || current?.origin != fitted.origin {
+            window.position = fitted.origin
+        }
     }
 
     package func detachStrip() {

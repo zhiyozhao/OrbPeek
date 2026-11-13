@@ -96,6 +96,13 @@ package final class AXWindow: WindowHandle {
         AXUIElementSetAttributeValue(axApp, kAXMainWindowAttribute as CFString, element)
     }
 
+    package func resize(to size: CGSize) {
+        var copy = size
+        guard let value = AXValueCreate(.cgSize, &copy) else { return }
+        let error = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
+        if error != .success { Log.info("AXWindow size error \(error.rawValue) to \(size)") }
+    }
+
     package func isSameWindow(as other: any WindowHandle) -> Bool {
         guard let other = other as? AXWindow else { return false }
         return CFEqual(element, other.element)
