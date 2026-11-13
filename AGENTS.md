@@ -13,7 +13,7 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停贴边条时�
 
 ## 模块与可测试性
 
-- `Sources/OrbPeekCore`：`ScreenLayout`、`WindowGeometry`、`DisplaySettling`、`ManagedWindow` 和依赖协议。
+- `Sources/OrbPeekCore`：布局/坐标、`DisplaySettling`、`ManagedWindow`、原子停靠日志与崩溃恢复、依赖协议。
 - `Sources/OrbPeek`：app 生命周期、菜单/设置、AX、ScreenCaptureKit、SnapshotStrip、资源。
 - 屏幕、窗口、抓图、贴边条和时钟必须可注入；单元测试用 fake，不访问真实窗口，不需要辅助功能或屏幕录制权限。
 - `WindowHandle` 是状态机唯一窗口接口；`AXWindow` 在 app 壳实现。跨 target 的 API 用 `package` 可见性。
@@ -25,11 +25,12 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停贴边条时�
 - AX/CG 是 top-left，原点是**主屏**左上角；AppKit 是 bottom-left。所有换算只在 `WindowGeometry`，桌面并集仅用于选择隐藏停放的左右外缘。
 - 生产布局从当前 `NSScreen.screens` 构造，首项主屏。屏幕身份用 `CGDirectDisplayID`，不长期保存 `NSScreen`；回退用主屏，不用会随焦点变化的 `NSScreen.main`。
 - `perp` 和 restore origin 存为相对停靠屏 quartz visibleFrame 的偏移；原屏掉线时保留 ID，不用 fallback 屏覆盖。
-- CG display reconfiguration 的 begin callback 立即 settling，结束后延长 3 秒；解锁和 wake 也重新开始 3 秒 settling。
+- CG display reconfiguration 的 begin callback 立即 settling，结束后延长 3 秒；begin 丢失 end 时最多持续 10 秒；解锁和 wake 也重新开始 3 秒 settling。
 - 外部漂移释放在 AX 读取后用注入时钟计时，docked 和 peeked 都有 0.5 秒宽限；宽限中不改写 `perp`。
 - 实体左键状态是拖动兜底，防止漏事件导致拖动中隐藏或 gesture 卡死。抓图后如窗口已移动或左键按下，放弃停放并留在原处。
-- 拖动松手：同轴保留新位置；短拖/屏外拖立即贴回；沿边到另一屏则转移同侧停靠；向内超过 40px 取消。同轴热键 re-dock 不得用旧 restoreFrame 重置当前位置。
-- 所有取消、释放、退出和信号恢复必须共用 `placeUndockedWindow`：最近屏可见区域内完整放置，过大则缩小。拔屏时 settling 内重锚到剩余屏；若最终释放也走同一保底。
+- 拖动松手：同轴保留新位置；短拖/屏外拖立即贴回；沿边到另一屏用源屏距离识别并转移同侧停靠；向内超过 40px 取消。同轴热键 re-dock 不得用旧 restoreFrame 重置当前位置。贴边侧 resize 不是 drag-out，更新大小后保持贴边。
+- 所有取消、释放、退出、信号和启动崩溃恢复必须共用全局 `placeUndockedWindow`：最近屏可见区域内完整放置，过大则缩小。拔屏时 settling 内重锚到剩余屏；若最终释放也走同一保底。
+- 停靠状态每次变化原子写入 Application Support 的 `docked-windows.json`；正常取消/退出清除。启动恢复仍存在的屏外窗口后清除；无 AX 权限时保留记录等待恢复。找不到窗口不得误动其他窗口。
 - 隐藏位仍在桌面左右外缘留 1px；隐藏 re-dock 不移动回屏内抓图，使用缓存或占位条。只抓 frontmost 窗口的 display-region，禁止改成 window-filter。
 - 锁屏冻结 poll，避免 AX blackout 被误判为窗口关闭；退出/信号恢复所有窗口。
 
