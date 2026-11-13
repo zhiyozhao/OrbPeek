@@ -219,17 +219,30 @@ package final class ManagedWindow {
     package func checkDragOut() {
         guard phase == .peeked, let frame = window.frame, let delegate else { return }
         let geometry = delegate.geometry
-        guard let screen = dockScreen(in: geometry) else { return }
+        guard var screen = dockScreen(in: geometry),
+              let droppedScreen = geometry.screen(containing: frame) else { return }
+        if droppedScreen.id != screen.id {
+            // Dragging along an edge onto another display transfers the dock
+            // to the same edge there, preserving the screen-relative offset.
+            dockScreenID = droppedScreen.id
+            screen = droppedScreen
+            let visible = geometry.quartzVisibleFrame(of: screen)
+            restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
+            restoreSize = frame.size
+        }
         if geometry.distanceFromDockEdge(frame, edge: edge, screen: screen) > delegate.config.dockCancelPx {
             terminate(exit: .leave)
-        } else {
-            perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
-            let visible = geometry.quartzVisibleFrame(of: screen)
-            switch edge.slideAxis {
-            case .vertical: restoreOffset.x = frame.minX - visible.minX
-            case .horizontal: restoreOffset.y = frame.minY - visible.minY
-            }
+            return
         }
+
+        perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+        let visible = geometry.quartzVisibleFrame(of: screen)
+        switch edge.slideAxis {
+        case .vertical: restoreOffset.x = frame.minX - visible.minX
+        case .horizontal: restoreOffset.y = frame.minY - visible.minY
+        }
+        // Retained drags snap on mouseUp, not on a later hide/peek cycle.
+        moveTo(geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
     }
 
     package func restore() {
