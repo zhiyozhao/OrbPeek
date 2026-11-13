@@ -23,9 +23,12 @@ done
 xcrun actool --compile "$APP/Contents/Resources" --platform macosx \
     --minimum-deployment-target 14.0 --app-icon AppIcon \
     --output-partial-info-plist /dev/null Resources/Assets.xcassets >/dev/null
-# Sign with the stable self-signed "OrbPeek Dev" identity so TCC permissions
-# (Accessibility / Screen Recording) survive rebuilds. Ad-hoc signing re-prompts
-# every build because the code hash changes. Override with CODESIGN_IDENTITY
-# (e.g. "-" for ad-hoc when the cert isn't available).
-codesign --force --sign "${CODESIGN_IDENTITY:-DEV X}" "$APP" >/dev/null
+# Always use the stable self-signed DEV X identity so TCC permissions survive
+# rebuilds. Never silently fall back to ad-hoc: that changes the designated
+# requirement and invalidates Accessibility / Screen Recording grants.
+if ! security find-certificate -c "DEV X" >/dev/null 2>&1; then
+    echo "error: DEV X signing certificate not found" >&2
+    exit 1
+fi
+codesign --force --sign "DEV X" "$APP" >/dev/null
 echo "built $APP"
