@@ -49,6 +49,7 @@ package final class ManagedWindow {
     private var transition: Task<Void, Never>?
     package private(set) var phase: Phase = .idle
     package var gesture = false
+    package var offlinePolicyOverride: DockSessionOptions.OfflinePolicy?
     private var gestureStartFrame: CGRect?
     private var gestureStartedOnDockedEdge = false
     private var nilCount = 0
@@ -442,7 +443,7 @@ package final class ManagedWindow {
             log("settling begin frame=\(frame) screen=\(screen.id)")
         }
         settlingActive = settling
-        if !settling, delegate.offlinePolicy == .releaseToVisible,
+        if !settling, (offlinePolicyOverride ?? delegate.offlinePolicy) == .releaseToVisible,
            let id = dockScreenID, geometry.screen(withDisplayID: id) == nil {
             log("dock screen \(id) offline after settling; release centered and raise")
             terminate(exit: .offline)

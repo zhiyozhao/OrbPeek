@@ -24,6 +24,7 @@ Not using Homebrew? Download the DMG from [Releases](https://github.com/zhiyozha
 - A preview strip stays at the edge. Touch it with your pointer to see and use the window without switching apps.
 - Move the pointer away and the window slides back. Drag it farther into the screen to undock it.
 - Dock multiple windows on the same edge, with separate docks on each display.
+- Unplug a display and windows return to the center of a remaining screen. Reopen or upgrade within two minutes to restore docks automatically.
 - Customize shortcuts, preview strip width and opacity, or launch OrbPeek at login.
 - Chinese and English interface, following your system language.
 
@@ -51,7 +52,7 @@ You can turn off either permission at any time under System Settings → Privacy
 - No continuous screen recording, audio recording or logging of the text you type.
 - Window images are kept only in memory. The cached image is deleted when you undock its window.
 - No networking features. Window images, window titles and settings are never uploaded.
-- Preferences, shortcuts and the run log stay on your Mac. To recover windows after an unexpected exit, OrbPeek temporarily stores recovery details such as each docked window's app, title and position; these records are cleared after a normal undock or quit.
+- Preferences, shortcuts and the run log stay on your Mac. To recover windows after an unexpected exit, OrbPeek temporarily stores recovery details such as each docked window's app, title and position; normal undocks clear them; after a normal quit, records are kept for up to two minutes for automatic re-docking.
 
 ## FAQ
 
@@ -59,7 +60,7 @@ You can turn off either permission at any time under System Settings → Privacy
 The app is not notarized by Apple. On macOS 15, try opening it once, then go to System Settings → Privacy & Security and click Open Anyway near the bottom; authenticate to confirm. On macOS 14, you can also right-click OrbPeek in Finder and choose Open. Homebrew removes the download quarantine automatically, so this prompt does not appear.
 
 **Where did my windows go after OrbPeek quit unexpectedly?**
-On a normal quit, OrbPeek first restores every docked window. After an unexpected exit or force quit, the next launch automatically finds eligible windows that are still off-screen and places them fully inside the nearest display's visible area, without docking them again. Keep Accessibility enabled; windows cannot be recovered if their app or the window itself has also closed.
+On a normal quit, OrbPeek first restores every docked window and docks it again if you reopen or upgrade within two minutes; after that, only the window position is restored. After an unexpected exit or force quit, the next launch finds eligible off-screen windows and places them fully inside the nearest display's visible area. Keep Accessibility enabled; windows cannot be recovered if their app or the window itself has also closed.
 
 **How do I uninstall?**
 Run `brew uninstall --cask --zap orbpeek` to also remove logs, preferences, crash-recovery data and the legacy config. Dragging OrbPeek from Applications to the Trash leaves `~/Library/Logs/orbpeek.log`, `~/Library/Preferences/com.orbpeek.OrbPeek.plist`, `~/Library/Application Support/OrbPeek` and `~/.config/orbpeek` behind.

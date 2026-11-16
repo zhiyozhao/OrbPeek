@@ -32,6 +32,7 @@ package final class DockSession {
     @discardableResult
     package func add(window: any WindowHandle, edge: DockEdge) -> ManagedWindow {
         let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: clock)
+        managed.offlinePolicyOverride = options.offlinePolicy
         managed.log = { [weak self, weak managed] message in
             guard let managed else { return }
             let app = managed.window.bundleIdentifier ?? "unknown"
