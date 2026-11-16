@@ -59,9 +59,9 @@ Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段
 
 ## 真实素材与合成演示
 
-演示采用真实 Peekaboo 截图 + Pillow/ffmpeg 合成，不再整段录屏。先运行 `Scripts/capture-demo.sh --trial` 做不改鼠标/窗口的隐私试拍；正式采集必须约定桌面操作时间，再运行 `--capture`。脚本只截指定区域，采集前会检查是否有现有窗口重叠，支持 `DEMO_VARIANT=light|dark`。
+演示采用真实 Peekaboo 窗口截图 + Pillow/ffmpeg 合成，不再整段录屏。`Scripts/capture-demo.sh --trial` 只打开干净的 TextEdit 演示窗口并按 window ID 截 Retina 图，不按快捷键、不动鼠标；正式采集必须约定桌面操作时间，再运行 `--capture`。预览条也作为独立窗口按 ID 截取，不截任何桌面区域或其他 app。
 
-真实来源图位于 `docs/assets/demo-source/<appearance>/`。`Scripts/render-demo.py` 将背景、普通窗口、贴边预览条和滑出画面合成 30Hz MP4，并输出 960px GIF 与高清首图。OrbPeek 源码直接写 AX 位置、没有 easing，因此合成只采用线性插帧，不虚构原生缓动。
+真实来源图位于 `docs/assets/demo-source/<appearance>/`。`Scripts/render-demo.py` 用代码绘制渐变背景、简化菜单栏和鼠标，仅把 OrbPeek 自身菜单图标取自资源，再合成 30Hz MP4、960px GIF 与高清首图。OrbPeek 源码直接写 AX 位置、没有 easing，因此合成只采用线性插帧，不虚构原生缓动。
 
 ```sh
 python3 Scripts/render-demo.py
