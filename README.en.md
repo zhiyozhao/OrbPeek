@@ -31,7 +31,7 @@ Not using Homebrew? Download the DMG from [Releases](https://github.com/zhiyozha
 ## First launch
 
 1. Open OrbPeek. Its icon appears in the menu bar.
-2. Follow the prompt to System Settings → Privacy & Security → Accessibility and turn on OrbPeek. Return to the app; if it does not respond, reopen OrbPeek.
+2. Follow the prompt to System Settings → Privacy & Security → Accessibility and turn on OrbPeek. Authorization takes effect immediately; you do not need to relaunch OrbPeek.
 3. Click the menu-bar icon and grant access through the Screen Recording item.
 
 **Why Accessibility?** OrbPeek needs to read and move the windows you dock, and put them back into a visible area when you undock them or when it recovers after an unexpected exit. Without it, OrbPeek cannot move windows for you. It does not use this permission to record the text you type.
