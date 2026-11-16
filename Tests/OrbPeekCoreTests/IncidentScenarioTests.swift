@@ -179,6 +179,24 @@ struct IncidentScenarioTests {
         #expect(server.session.pending.isEmpty)
     }
 
+    @Test("adopting a pending window is idempotent")
+    func adoptIsIdempotent() async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<40 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        let pending = server.session.pending[0]
+        server.session.adopt(pending)
+        server.session.adopt(pending)
+        #expect(server.windows.filter { $0 === pending }.count == 1)
+        #expect(server.session.pending.filter { $0 === pending }.isEmpty)
+    }
+
     @Test("same display returning during lock keeps both docks")
     func sameDisplayReturns() async {
         let server = await FakeWindowServer()
