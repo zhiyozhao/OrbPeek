@@ -334,7 +334,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     @objc private func requestScreenRecording() {
-        CGRequestScreenCaptureAccess()
+        let alert = NSAlert()
+        alert.messageText = tr("alert.screenTitle")
+        alert.informativeText = tr("alert.screenMessage")
+        alert.addButton(withTitle: tr("alert.continue"))
+        alert.addButton(withTitle: tr("alert.later"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            CGRequestScreenCaptureAccess()
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
