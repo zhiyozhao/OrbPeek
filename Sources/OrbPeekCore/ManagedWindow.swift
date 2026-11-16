@@ -57,6 +57,7 @@ package final class ManagedWindow {
     private var bigDriftSince: Date?
     private var settlingActive = false
     private var lastActivationRetry: Date?
+    private var activationSucceeded = false
     private var dwell = DwellTracker()
     package var clock: () -> Date
     package var log: (String) -> Void = { _ in }
@@ -218,6 +219,7 @@ package final class ManagedWindow {
         bigDriftSince = nil
         dwell.shownSince = clock()
         lastActivationRetry = nil
+        activationSucceeded = delegate.isFrontmost(window)
         fakeStrip?.hide()
         window.raise()
         delegate.activate(window: window)
@@ -247,6 +249,11 @@ package final class ManagedWindow {
         valid = false
         log("terminate edge=\(edge) exit=\(exit) after=\(window.frame as Any)")
         delegate.removeManaged(self)
+    }
+
+    package func stopActivationRetry() {
+        activationSucceeded = true
+        lastActivationRetry = nil
     }
 
     package func beginGesture(at mouseQ: CGPoint) {
@@ -478,8 +485,9 @@ package final class ManagedWindow {
                 bigDriftSince = nil
                 perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
             }
+            if frontmost { activationSucceeded = true }
             var retryingActivation = false
-            if !frontmost, let shown = dwell.shownSince, now.timeIntervalSince(shown) < 2 {
+            if !activationSucceeded, !frontmost, let shown = dwell.shownSince, now.timeIntervalSince(shown) < 2 {
                 retryingActivation = true
                 if lastActivationRetry == nil || now.timeIntervalSince(lastActivationRetry!) >= 0.3 {
                     log("retry activating peeked window")

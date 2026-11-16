@@ -137,6 +137,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             guard let f = m.window.frame else { continue }
             if f.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(q) {
                 m.beginGesture(at: q)
+            } else {
+                m.stopActivationRetry()
             }
         }
     }
