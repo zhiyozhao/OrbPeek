@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VARIANT=${DEMO_VARIANT:-light}
+LANG=${DEMO_LANG:-zh}
 EDGE_X=${DEMO_EDGE_X:-3838}
 SOURCE=${DEMO_SOURCE:-"$ROOT/docs/assets/demo-source/$VARIANT"}
 TRIAL=${DEMO_TRIAL_OUT:-"$ROOT/Artifacts/orbpeek-demo/trial-window"}
@@ -13,42 +14,39 @@ capture_window() {
 }
 
 open_demo() {
-    local directory=$1
+    local directory=$1 filename
     mkdir -p "$directory"
-    cat > "$directory/OrbPeekDemo.txt" <<'TEXT'
-产品评审 · 会议要点
-
-目标
-让常用资料留在手边，同时减少桌面上的窗口数量。
-
-本次进展
-- 窗口可以快速贴到屏幕任意一边。
-- 鼠标碰到预览条即可查看，离开后自动收回。
-- 支持多台显示器分别使用。
-- 异常退出后，下次启动会尝试恢复窗口。
-
-待确认
-- 调整默认快捷键，避免与其他窗口工具冲突。
-- 检查较窄窗口中的文字换行。
-- 验证锁屏和显示器插拔后的位置。
-
-接口示例
-GET /v1/windows/{id}
-{
-  "edge": "right",
-  "visible": false,
-  "preview": true
-}
-
-后续安排
-整理公开截图，确认没有私人内容；再补齐使用说明。
-TEXT
-    peekaboo app launch "TextEdit" --new-instance --open "$directory/OrbPeekDemo.txt" \
+    if [[ $LANG == en ]]; then
+        filename="Git Cheatsheet.rtf"
+        cat > "$directory/demo.html" <<'HTML'
+<meta charset="utf-8"><style>body{font:14px -apple-system}h1{font-size:26px}h2{font-size:17px;margin:16px 0 6px}table{border-spacing:0}td{padding:3px 18px 3px 0}td:first-child{font-family:Menlo;font-size:13px;white-space:nowrap}</style>
+<h1>Git Cheatsheet</h1>
+<h2>View</h2><table><tr><td>git status</td><td>Working tree changes</td></tr><tr><td>git log --oneline</td><td>Commit history</td></tr><tr><td>git diff</td><td>Unstaged changes</td></tr></table>
+<h2>Branches</h2><table><tr><td>git switch -c &lt;name&gt;</td><td>Create and switch</td></tr><tr><td>git branch -d &lt;name&gt;</td><td>Delete a branch</td></tr></table>
+<h2>Undo</h2><table><tr><td>git restore &lt;file&gt;</td><td>Discard working tree changes</td></tr><tr><td>git restore --staged &lt;file&gt;</td><td>Unstage</td></tr><tr><td>git commit --amend</td><td>Amend the last commit</td></tr></table>
+<h2>Remote</h2><table><tr><td>git fetch</td><td>Fetch updates</td></tr><tr><td>git pull --rebase</td><td>Pull and rebase</td></tr><tr><td>git push</td><td>Push</td></tr></table>
+HTML
+    else
+        filename="Git 速查.rtf"
+        cat > "$directory/demo.html" <<'HTML'
+<meta charset="utf-8"><style>body{font:14px -apple-system}h1{font-size:26px}h2{font-size:17px;margin:16px 0 6px}table{border-spacing:0}td{padding:3px 18px 3px 0}td:first-child{font-family:Menlo;font-size:13px;white-space:nowrap}</style>
+<h1>Git 速查</h1>
+<h2>查看</h2><table><tr><td>git status</td><td>当前改动</td></tr><tr><td>git log --oneline</td><td>提交历史</td></tr><tr><td>git diff</td><td>未暂存的改动</td></tr></table>
+<h2>分支</h2><table><tr><td>git switch -c &lt;名称&gt;</td><td>新建并切换</td></tr><tr><td>git branch -d &lt;名称&gt;</td><td>删除分支</td></tr></table>
+<h2>撤销</h2><table><tr><td>git restore &lt;文件&gt;</td><td>丢弃工作区改动</td></tr><tr><td>git restore --staged &lt;文件&gt;</td><td>取消暂存</td></tr><tr><td>git commit --amend</td><td>修改上一次提交</td></tr></table>
+<h2>远程</h2><table><tr><td>git fetch</td><td>获取更新</td></tr><tr><td>git pull --rebase</td><td>拉取并变基</td></tr><tr><td>git push</td><td>推送</td></tr></table>
+HTML
+    fi
+    textutil -convert rtf "$directory/demo.html" -output "$directory/$filename"
+    peekaboo app launch "TextEdit" --new-instance --open "$directory/$filename" \
         --wait-ready --wait-for-window --foreground >/dev/null
     local pid
     pid=$(pgrep -n TextEdit)
-    peekaboo window list --pid "$pid" --json | python3 -c \
-        'import json,sys; data=json.load(sys.stdin); matches=[w for w in data["data"]["windows"] if w.get("window_title") == "OrbPeekDemo.txt"]; assert len(matches)==1; print(matches[0]["window_id"])'
+    local window_id
+    window_id=$(peekaboo window list --pid "$pid" --json | DEMO_FILENAME="$filename" python3 -c \
+        'import json,os,sys; data=json.load(sys.stdin); matches=[w for w in data["data"]["windows"] if w.get("window_title") == os.environ["DEMO_FILENAME"]]; assert len(matches)==1; print(matches[0]["window_id"])')
+    peekaboo window set-bounds --window-id "$window_id" --x 100 --y 100 --width 900 --height 650 >/dev/null
+    printf '%s\n' "$window_id"
 }
 
 if [[ ${1:-} == "--trial" ]]; then
@@ -64,7 +62,7 @@ if [[ ${1:-} != "--capture" ]]; then
 Retina trial (opens/closes only a clean demo window; no hotkey or mouse movement):
   Scripts/capture-demo.sh --trial
 Formal short capture (requires an agreed desktop session):
-  DEMO_VARIANT=light DEMO_EDGE_X=3838 Scripts/capture-demo.sh --capture
+  DEMO_VARIANT=light DEMO_LANG=zh DEMO_EDGE_X=3838 Scripts/capture-demo.sh --capture
 Every capture uses an exact window ID. No desktop region is ever captured.
 EOF
     exit 2
@@ -75,7 +73,7 @@ mkdir -p "$SOURCE"
 WINDOW_ID=$(open_demo "$SOURCE")
 capture_window "$WINDOW_ID" "$SOURCE/normal.png"
 
-peekaboo press ctrl+shift+right --pid "$(pgrep -n TextEdit)" --window-title OrbPeekDemo --foreground
+peekaboo press ctrl+shift+right --window-id "$WINDOW_ID" --foreground
 sleep 1
 STRIP_ID=$(peekaboo window list --app OrbPeek --json | python3 -c \
     'import json,sys; ws=json.load(sys.stdin)["data"]["windows"]; candidates=[w for w in ws if w.get("is_on_screen") and (w["bounds"]["width"] <= 64 or w["bounds"]["height"] <= 64)]; assert candidates, "no preview-strip window found"; print(max(candidates, key=lambda w:w["bounds"]["x"])["window_id"])')
