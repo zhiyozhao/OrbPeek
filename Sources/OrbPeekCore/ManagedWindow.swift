@@ -57,6 +57,8 @@ package final class ManagedWindow {
     package private(set) var pendingRedock: PendingRedock?
     private var fakeStrip: (any SnapshotStripHandling)?
     private var lastStripLayout: ScreenLayout?
+    private var lastStripRecoveryAt: Date?
+    private var lastLogAt: [String: Date] = [:]
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
     package private(set) var phase: Phase = .idle
@@ -426,14 +428,17 @@ package final class ManagedWindow {
         let quartz = geometry.sliverRect(edge: edge, size: size, perp: perp, screen: screen,
                                          thickness: config.sliverPx)
         let expected = geometry.toAppKit(quartz)
-        let onScreen = geometry.quartzVisibleFrame(of: screen).contains(quartz)
+        let intersection = geometry.quartzVisibleFrame(of: screen).intersection(quartz)
+        let onScreen = !intersection.isNull && !intersection.isEmpty
         let layoutChanged = lastStripLayout != geometry.layout
-        if layoutChanged || !onScreen || !fakeStrip.isVisible || fakeStrip.thickness != config.sliverPx {
-            log("strip re-show frame=\(expected) onScreen=\(onScreen) wasVisible=\(fakeStrip.isVisible)")
+        let recoveryAllowed = lastStripRecoveryAt.map { clock().timeIntervalSince($0) >= 1 } ?? true
+        if (layoutChanged || !onScreen || !fakeStrip.isVisible || fakeStrip.thickness != config.sliverPx), recoveryAllowed {
+            logLimited("strip re-show frame=\(expected) onScreen=\(onScreen) wasVisible=\(fakeStrip.isVisible)")
             let image = windowID.flatMap {
                 capturer.cachedSlice(for: $0, edge: edge, size: size, thickness: config.sliverPx)
             }
             fakeStrip.show(image: image, frame: expected, edge: edge)
+            lastStripRecoveryAt = clock()
         } else if fakeStrip.frame != expected {
             fakeStrip.updateFrame(expected, edge: edge)
         }
@@ -441,13 +446,20 @@ package final class ManagedWindow {
         if fakeStrip.alphaValue != opacity { fakeStrip.alphaValue = opacity }
         lastStripLayout = geometry.layout
         if !onScreen || !fakeStrip.isVisible {
-            log("strip VISIBILITY FAILURE frame=\(expected) visible=\(fakeStrip.isVisible)")
+            logLimited("strip VISIBILITY FAILURE frame=\(expected) visible=\(fakeStrip.isVisible)")
         }
+    }
+
+    private func logLimited(_ message: String) {
+        let now = clock()
+        if let last = lastLogAt[message], now.timeIntervalSince(last) < 1 { return }
+        lastLogAt[message] = now
+        log(message)
     }
 
     private func moveTo(_ pos: CGPoint?) {
         guard let pos else { return }
-        log("AX move to=\(pos)")
+        logLimited("AX move to=\(pos)")
         window.position = pos
     }
 

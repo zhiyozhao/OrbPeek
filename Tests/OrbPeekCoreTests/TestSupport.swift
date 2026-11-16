@@ -81,7 +81,9 @@ final class FakeStrip: SnapshotStripHandling {
     var level: NSWindow.Level = .floating
     var visible = false
     var isVisible: Bool { visible }
+    var showCount = 0
     func show(image: NSImage?, frame: NSRect, edge: DockEdge) {
+        showCount += 1
         self.frame = frame
         thickness = edge.slideAxis == .vertical ? frame.height : frame.width
         visible = true
