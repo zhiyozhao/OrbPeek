@@ -282,7 +282,10 @@ package final class ManagedWindow {
               let delegate, let screen = delegate.geometry.screen(withDisplayID: pending.screenID) else {
             return false
         }
-        if isLeftMousePressed() { return false }
+        if isLeftMousePressed() {
+            log("defer late re-dock: mouse button is pressed")
+            return false
+        }
         if let frame = window.frame {
             let expected = pending.placedFrame
             let unchanged = abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2 &&

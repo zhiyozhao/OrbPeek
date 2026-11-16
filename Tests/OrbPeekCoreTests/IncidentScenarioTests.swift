@@ -24,8 +24,10 @@ final class FakeWindowServer {
         first.bundleIdentifier = "com.zhao.minibrowser"
         let second = FakeWindow(frame: CGRect(x: 1500, y: 326, width: 308, height: 668))
         second.bundleIdentifier = "rednote"
-        session.add(window: first, edge: .down)
-        session.add(window: second, edge: .down)
+        let firstManaged = session.add(window: first, edge: .down)
+        firstManaged.isLeftMousePressed = { first.mouseDown }
+        let secondManaged = session.add(window: second, edge: .down)
+        secondManaged.isLeftMousePressed = { second.mouseDown }
         await drainTasks()
     }
 
@@ -131,6 +133,26 @@ struct IncidentScenarioTests {
         #expect(edited.storedFrame == CGRect(x: 50, y: 60, width: 900, height: 600))
         #expect(server.session.pending.isEmpty)
         #expect(server.delegate.removed.count == 2)
+    }
+
+    @Test("mouse down during display return defers redock")
+    func mouseDownDefersLateRedock() async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<40 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        let pending = server.session.pending[0]
+        (pending.window as! FakeWindow).mouseDown = true
+        server.delegate.layoutBox.layout = server.externalLayout
+        server.session.screenChanged()
+        server.session.poll()
+        #expect(pending.pendingRedock != nil)
+        #expect(server.windows.filter { $0.window.isSameWindow(as: pending.window) }.isEmpty)
     }
 
     @Test("manual dock cancels pending redock for the same window")
