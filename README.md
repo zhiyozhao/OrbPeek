@@ -65,6 +65,10 @@ brew install --cask zhiyozhao/tap/orbpeek
 **怎么卸载？**
 执行 `brew uninstall --cask --zap orbpeek`，或者把“应用程序”里的 OrbPeek 拖到废纸篓。
 
+## 已知限制
+
+如果系统的 ScreenCaptureKit 连续超时，OrbPeek 会重启系统录屏进程 `replayd` 来恢复预览条；这可能短暂影响其他 app 的屏幕共享或录制。只有连续 3 次超时才会触发，且重启后有 5 分钟冷却。
+
 ## 许可证
 
 [MIT](LICENSE)
