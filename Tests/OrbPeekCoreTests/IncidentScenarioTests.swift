@@ -98,8 +98,11 @@ struct IncidentScenarioTests {
         #expect(server.session.pending.count == 2)
 
         let builtIn = server.delegate.layoutBox.layout.primary!
+        let returnedBuiltIn = ScreenInfo(id: builtIn.id,
+                                         frame: builtIn.frame.offsetBy(dx: 0, dy: 202),
+                                         visibleFrame: builtIn.visibleFrame.offsetBy(dx: 0, dy: 202))
         server.delegate.layoutBox.layout = ScreenLayout(screens: [
-            server.externalLayout.screens[0], builtIn, server.externalLayout.screens[1],
+            server.externalLayout.screens[0], returnedBuiltIn, server.externalLayout.screens[1],
         ])
         server.session.screenChanged()
         for _ in 0..<50 {
@@ -128,10 +131,11 @@ struct IncidentScenarioTests {
         let builtIn = server.delegate.layoutBox.layout.primary!
         for pending in server.session.pending {
             (pending.window as! FakeWindow).storedFrame?.origin.x -= 1352
+            (pending.window as! FakeWindow).storedFrame?.origin.y += 2
         }
         let shiftedBuiltIn = ScreenInfo(id: builtIn.id,
-                                        frame: builtIn.frame.offsetBy(dx: -1352, dy: 0),
-                                        visibleFrame: builtIn.visibleFrame.offsetBy(dx: -1352, dy: 0))
+                                        frame: builtIn.frame.offsetBy(dx: -1352, dy: 200),
+                                        visibleFrame: builtIn.visibleFrame.offsetBy(dx: -1352, dy: 200))
         server.delegate.layoutBox.layout = ScreenLayout(screens: [
             server.externalLayout.screens[0], shiftedBuiltIn, server.externalLayout.screens[1],
         ])

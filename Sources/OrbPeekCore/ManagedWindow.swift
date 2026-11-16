@@ -262,7 +262,7 @@ package final class ManagedWindow {
         if exit == .offline {
             let placedFrame = window.frame ?? restoreFrame
             let placedScreen = dockScreen(in: delegate.geometry)
-            let visible = placedScreen?.visibleFrame ?? .zero
+            let visible = placedScreen.map { delegate.geometry.quartzVisibleFrame(of: $0) } ?? .zero
             pendingRedock = PendingRedock(screenID: dockScreenID ?? 0,
                                           placedScreenID: placedScreen?.id ?? 0,
                                           releasedAt: clock(), placedFrame: placedFrame,
@@ -298,7 +298,7 @@ package final class ManagedWindow {
             let expected = pending.placedFrame
             var positionMatches = true
             if let placedScreen = delegate.geometry.screen(withDisplayID: pending.placedScreenID) {
-                let visible = placedScreen.visibleFrame
+                let visible = delegate.geometry.quartzVisibleFrame(of: placedScreen)
                 let currentOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
                 positionMatches = abs(currentOffset.x - pending.placedOffset.x) <= 2 &&
                     abs(currentOffset.y - pending.placedOffset.y) <= 2
