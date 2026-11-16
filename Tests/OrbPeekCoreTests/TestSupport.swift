@@ -104,6 +104,7 @@ final class FakeDelegate: WindowDockDelegate {
     var frontmost = true
     var removed: [ManagedWindow] = []
     var stateChangeCount = 0
+    var activationCount = 0
 
     init(layout: ScreenLayout) { self.layoutBox = LayoutBox(layout) }
     func makeStrip() -> any SnapshotStripHandling {
@@ -112,7 +113,7 @@ final class FakeDelegate: WindowDockDelegate {
         return strip
     }
     func nameForWindow(_ window: any WindowHandle) -> String { "Fake" }
-    func activate(window: any WindowHandle) {}
+    func activate(window: any WindowHandle) { activationCount += 1 }
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }
     func dockStateDidChange() { stateChangeCount += 1 }
     func removeManaged(_ managed: ManagedWindow) {

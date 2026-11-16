@@ -53,6 +53,7 @@ package final class ManagedWindow {
     private var nilCount = 0
     private var valid = true
     private var bigDriftSince: Date?
+    private var lastActivationRetry: Date?
     private var dwell = DwellTracker()
     package var clock: () -> Date
     package var log: (String) -> Void = Log.info
@@ -208,6 +209,7 @@ package final class ManagedWindow {
         dwell.reset()
         bigDriftSince = nil
         dwell.shownSince = clock()
+        lastActivationRetry = nil
         fakeStrip?.hide()
         window.raise()
         delegate.activate(window: window)
@@ -444,13 +446,22 @@ package final class ManagedWindow {
                 bigDriftSince = nil
                 perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
             }
+            var retryingActivation = false
+            if !frontmost, let shown = dwell.shownSince, now.timeIntervalSince(shown) < 2 {
+                retryingActivation = true
+                if lastActivationRetry == nil || now.timeIntervalSince(lastActivationRetry!) >= 0.3 {
+                    log("retry activating peeked window")
+                    delegate.activate(window: window)
+                    lastActivationRetry = now
+                }
+            }
             let inWin = frame.insetBy(dx: -config.edgeBuffer, dy: -config.edgeBuffer).contains(mouseQ)
             dwell.noteHover(inWin, touchDwell: config.touchDwell, now: now)
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
                                              thickness: config.sliverPx)
             let onSliver = sliver.insetBy(dx: -6, dy: -6).contains(mouseQ)
             if !inGrace {
-                let lostFocus = !frontmost
+                let lostFocus = !frontmost && !retryingActivation
                 let touchedAndLeft = dwell.touched && !inWin
                 let untouchedAndAway = !dwell.touched && !inWin && !onSliver
                 if lostFocus || touchedAndLeft || untouchedAndAway {
