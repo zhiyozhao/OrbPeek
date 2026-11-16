@@ -21,7 +21,7 @@ package final class DockSession {
     package var settling = DisplaySettling()
     private let delegate: any WindowDockDelegate
     private let clock: () -> Date
-    package var log: (String) -> Void = Log.info
+    package var log: (String) -> Void = { _ in }
 
     package init(delegate: any WindowDockDelegate, options: DockSessionOptions = .init(), clock: @escaping () -> Date = Date.init) {
         self.delegate = delegate

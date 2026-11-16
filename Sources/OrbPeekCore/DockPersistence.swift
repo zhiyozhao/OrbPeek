@@ -80,7 +80,7 @@ package struct DockRecovery {
     package var log: (String) -> Void
 
     package init(store: DockStateStore, redockAfterUpgrade: Bool = true,
-                 now: @escaping () -> Date = Date.init, log: @escaping (String) -> Void = Log.info) {
+                 now: @escaping () -> Date = Date.init, log: @escaping (String) -> Void = { _ in }) {
         self.store = store
         self.redockAfterUpgrade = redockAfterUpgrade
         self.now = now

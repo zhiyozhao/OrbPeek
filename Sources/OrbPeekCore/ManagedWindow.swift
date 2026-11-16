@@ -59,7 +59,7 @@ package final class ManagedWindow {
     private var lastActivationRetry: Date?
     private var dwell = DwellTracker()
     package var clock: () -> Date
-    package var log: (String) -> Void = Log.info
+    package var log: (String) -> Void = { _ in }
     package var isLeftMousePressed: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
 
     package init(window: any WindowHandle, edge: DockEdge, delegate: any WindowDockDelegate,

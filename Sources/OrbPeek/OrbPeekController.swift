@@ -495,7 +495,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         recoveryPending = false
         Log.info("launch recovery begin")
-        DockRecovery(store: dockStateStore, redockAfterUpgrade: true).recover(
+        DockRecovery(store: dockStateStore, redockAfterUpgrade: true, log: Log.info).recover(
             geometry: geometry,
             resolver: { [weak self] record in self?.windowsForRecovery(record) ?? [] },
             onRedock: { [weak self] record, window in self?.redockRecoveredWindow(record, window: window) }
