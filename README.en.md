@@ -24,7 +24,6 @@ Not using Homebrew? Download the DMG from [Releases](https://github.com/zhiyozha
 - A preview strip stays at the edge. Touch it with your pointer to see and use the window without switching apps.
 - Move the pointer away and the window slides back. Drag it farther into the screen to undock it.
 - Dock multiple windows on the same edge, with separate docks on each display.
-- Windows follow the current display layout after display changes, sleep or locking the screen.
 - Customize shortcuts, preview strip width and opacity, or launch OrbPeek at login.
 - Chinese and English interface, following your system language.
 
