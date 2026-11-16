@@ -306,6 +306,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         viewLog.target = self
         menu.addItem(viewLog)
 
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let versionItem = NSMenuItem(title: tr("menu.version", version), action: #selector(openReleases), keyEquivalent: "")
+        versionItem.target = self
+        menu.addItem(versionItem)
+
         let quit = NSMenuItem(title: tr("menu.quit"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -379,6 +384,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     @objc private func openLog() {
         Log.info("log opened")
         NSWorkspace.shared.open(URL(fileURLWithPath: Log.path))
+    }
+
+    @objc private func openReleases() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/zhiyozhao/OrbPeek/releases")!)
     }
 
     @objc private func quit() {
