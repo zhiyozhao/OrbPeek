@@ -23,6 +23,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     package let geometry = WindowGeometry()
     private let captureEngine = SliceCapturer()
     package var capturer: any SliceCapturing { captureEngine }
+    package var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
 
     private let statusItem: NSStatusItem
     private var managed: [ManagedWindow] = []

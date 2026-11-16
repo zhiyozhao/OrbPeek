@@ -6,6 +6,7 @@ package protocol WindowDockDelegate: AnyObject {
     var config: DockConfiguration { get }
     var geometry: WindowGeometry { get }
     var capturer: any SliceCapturing { get }
+    var offlinePolicy: DockSessionOptions.OfflinePolicy { get }
     func makeStrip() -> any SnapshotStripHandling
     func nameForWindow(_ window: any WindowHandle) -> String
     func activate(window: any WindowHandle)
@@ -221,16 +222,24 @@ package final class ManagedWindow {
     package enum ExitPosition {
         case restore
         case leave
+        case offline
     }
 
     package func terminate(exit: ExitPosition) {
-        guard valid else { return }
+        guard valid, let delegate else { return }
         transition?.cancel()
-        placeUndockedWindow(preferredFrame: exit == .restore ? restoreFrame : nil)
+        OrbPeekCore.placeUndockedWindow(window: window,
+                                        preferredFrame: exit == .restore || exit == .offline ? restoreFrame : nil,
+                                        fallbackFrame: restoreFrame, centered: exit == .offline,
+                                        geometry: delegate.geometry)
+        if exit == .offline {
+            window.raise()
+            delegate.activate(window: window)
+        }
         detachStrip()
         valid = false
         log("terminate edge=\(edge) exit=\(exit)")
-        delegate?.removeManaged(self)
+        delegate.removeManaged(self)
     }
 
     package func beginGesture(at mouseQ: CGPoint) {
@@ -417,6 +426,12 @@ package final class ManagedWindow {
         let geometry = delegate.geometry
         let capturer = delegate.capturer
         guard let screen = dockScreen(in: geometry) else { return }
+        if !settling, delegate.offlinePolicy == .releaseToVisible,
+           let id = dockScreenID, geometry.screen(withDisplayID: id) == nil {
+            log("dock screen \(id) offline after settling; release centered and raise")
+            terminate(exit: .offline)
+            return
+        }
 
         switch phase {
         case .peeked:

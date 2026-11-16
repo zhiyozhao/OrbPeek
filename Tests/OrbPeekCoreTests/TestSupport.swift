@@ -18,6 +18,8 @@ final class FakeWindow: WindowHandle {
     var minimized = false
     var appHidden = false
     var mouseDown = false
+    var raiseCount = 0
+    var activateCount = 0
     var pid: pid_t? = 42
     var title: String? = "Fake"
     var bundleIdentifier: String? = "fake.app"
@@ -43,8 +45,8 @@ final class FakeWindow: WindowHandle {
     var isMinimized: Bool { minimized }
     var isAppHidden: Bool { appHidden }
     func unminimize() { minimized = false }
-    func raise() {}
-    func activate() {}
+    func raise() { raiseCount += 1 }
+    func activate() { activateCount += 1 }
     func resize(to size: CGSize) {
         lastKnownSize = size
         if storedFrame == nil { storedFrame = CGRect(origin: .zero, size: size) }
@@ -99,6 +101,7 @@ final class FakeDelegate: WindowDockDelegate {
     var geometry: WindowGeometry { WindowGeometry(layoutProvider: { self.layoutBox.layout }) }
     let fakeCapturer = FakeCapturer()
     var capturer: any SliceCapturing { fakeCapturer }
+    var offlinePolicy: DockSessionOptions.OfflinePolicy = .migrate
     var strips: [FakeStrip] = []
     var strip: FakeStrip { strips[0] }
     var frontmost = true
