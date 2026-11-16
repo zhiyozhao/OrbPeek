@@ -7,6 +7,7 @@ package protocol WindowDockDelegate: AnyObject {
     var geometry: WindowGeometry { get }
     var capturer: any SliceCapturing { get }
     var offlinePolicy: DockSessionOptions.OfflinePolicy { get }
+    func offlineWindowReleased(_ managed: ManagedWindow)
     func makeStrip() -> any SnapshotStripHandling
     func nameForWindow(_ window: any WindowHandle) -> String
     func activate(window: any WindowHandle)
@@ -43,6 +44,11 @@ package final class ManagedWindow {
         return CGRect(x: visible.minX + restoreOffset.x, y: visible.minY + restoreOffset.y,
                       width: restoreSize.width, height: restoreSize.height)
     }
+    package struct PendingRedock {
+        package let screenID: CGDirectDisplayID
+        package let releasedAt: Date
+    }
+    package private(set) var pendingRedock: PendingRedock?
     private var fakeStrip: (any SnapshotStripHandling)?
     private var lastStripLayout: ScreenLayout?
     package private(set) var windowID: CGWindowID?
@@ -106,7 +112,7 @@ package final class ManagedWindow {
         let wasHidden = phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
-        if phase == .idle {
+        if phase == .idle && restoreSize == .zero {
             guard let screen = geometry.screen(containing: frame) else { return }
             dockScreenID = screen.id
             perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
@@ -242,8 +248,9 @@ package final class ManagedWindow {
                                         fallbackFrame: restoreFrame, centered: exit == .offline,
                                         geometry: delegate.geometry)
         if exit == .offline {
+            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0, releasedAt: clock())
             window.raise()
-            delegate.activate(window: window)
+            delegate.offlineWindowReleased(self)
         }
         detachStrip()
         valid = false
@@ -254,6 +261,27 @@ package final class ManagedWindow {
     package func stopActivationRetry() {
         activationSucceeded = true
         lastActivationRetry = nil
+    }
+
+    // A late display must be the same physical display ID. The window remains
+    // eligible for two minutes, even though it was released to the visible area.
+    package func redockIfDisplayReturns() -> Bool {
+        guard let pending = pendingRedock else { return false }
+        guard clock().timeIntervalSince(pending.releasedAt) <= 120,
+              let delegate, let screen = delegate.geometry.screen(withDisplayID: pending.screenID) else {
+            return false
+        }
+        pendingRedock = nil
+        valid = true
+        phase = .idle
+        log("display \(screen.id) returned; re-docking edge=\(edge)")
+        dock(to: edge)
+        return true
+    }
+
+    package var pendingRedockExpired: Bool {
+        guard let pending = pendingRedock else { return false }
+        return clock().timeIntervalSince(pending.releasedAt) > 120
     }
 
     package func beginGesture(at mouseQ: CGPoint) {

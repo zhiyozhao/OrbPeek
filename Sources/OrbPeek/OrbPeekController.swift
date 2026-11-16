@@ -27,6 +27,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private let statusItem: NSStatusItem
     private var managed: [ManagedWindow] = []
+    private var offlinePending: [ManagedWindow] = []
     private let dockStateStore = DockStateStore()
     private var recoveryPending = true
     private var recoveryDeferralLogged = false
@@ -243,6 +244,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
         managed.removeAll()
+        offlinePending.removeAll()
         rebuildMenu()
         Log.info("restored all docked windows on signal")
     }
@@ -251,6 +253,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         Log.info("quit restore begin count=\(managed.count)")
         persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
+        offlinePending.removeAll()
         Log.info("quit restore complete; terminated")
     }
 
@@ -455,6 +458,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         Log.info("docked window frame=\(frame) edge=\(edge), total=\(managed.count)")
     }
 
+    package func offlineWindowReleased(_ managedWindow: ManagedWindow) {
+        offlinePending.append(managedWindow)
+    }
+
     package func removeManaged(_ m: ManagedWindow) {
         m.detachStrip()
         if let wid = m.windowID { captureEngine.evict(wid) }
@@ -581,6 +588,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         lastMouseQ = q
         lastMouseAt = now
         let settling = displaySettling.isSettling(at: now)
+        for pending in offlinePending {
+            if pending.redockIfDisplayReturns() { managed.append(pending) }
+        }
+        offlinePending.removeAll { $0.pendingRedock == nil || $0.pendingRedockExpired }
         for m in managed {
             // Computed per window, not hoisted: a peek fires synchronously, so
             // a window later in this same tick must see it — otherwise two

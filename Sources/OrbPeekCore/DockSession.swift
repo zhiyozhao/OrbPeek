@@ -80,6 +80,7 @@ package final class DockSession {
         let now = clock()
         let isSettling = settling.isSettling(at: now)
         for window in windows {
+            _ = window.redockIfDisplayReturns()
             window.evaluate(mouseQ: .zero, mouseVelocity: .zero,
                             frontmost: delegate.isFrontmost(window.window),
                             blockedByPeeked: false, blockedBySmaller: false,

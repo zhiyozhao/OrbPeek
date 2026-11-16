@@ -80,6 +80,29 @@ struct IncidentScenarioTests {
         #expect(logs.contains { $0.contains("id=1 frame=(0.0, 0.0, 1352.0") })
     }
 
+    @Test("late original display re-docks both windows", arguments: [4.0, 8.0, 20.0])
+    func lateDisplayReturns(delay: TimeInterval) async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<Int(delay * 10) {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        #expect(server.delegate.removed.count == 2)
+
+        server.delegate.layoutBox.layout = server.externalLayout
+        server.session.screenChanged()
+        for _ in 0..<50 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        await drainTasks()
+        #expect(server.windows.allSatisfy { $0.phase == .docked && $0.pendingRedock == nil })
+    }
+
     @Test("same display returning during lock keeps both docks")
     func sameDisplayReturns() async {
         let server = await FakeWindowServer()

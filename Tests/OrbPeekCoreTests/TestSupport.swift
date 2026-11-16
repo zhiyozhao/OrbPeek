@@ -119,6 +119,7 @@ final class FakeDelegate: WindowDockDelegate {
     func activate(window: any WindowHandle) { activationCount += 1 }
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }
     func dockStateDidChange() { stateChangeCount += 1 }
+    func offlineWindowReleased(_ managed: ManagedWindow) {}
     func removeManaged(_ managed: ManagedWindow) {
         removed.append(managed)
         stateChangeCount += 1
