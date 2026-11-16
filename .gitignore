@@ -1,5 +1,6 @@
 .build/
 Artifacts/
+.playwright-cli/
 DerivedData/
 *.xcresult/
 /OrbPeek.app
