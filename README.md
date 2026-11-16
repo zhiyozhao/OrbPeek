@@ -1,6 +1,6 @@
 # OrbPeek
 
-中文 | [English](README.en.md)
+中文 | [English](README.en.md) · [官网](https://zhiyozhao.github.io/OrbPeek/)
 
 用快捷键把窗口贴边到屏幕边缘，只留下一条预览条；鼠标碰到边缘，窗口就滑出来。
 

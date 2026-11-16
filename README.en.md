@@ -1,6 +1,6 @@
 # OrbPeek
 
-[中文](README.md) | English
+[中文](README.md) | English · [Website](https://zhiyozhao.github.io/OrbPeek/)
 
 Dock a window to any screen edge with a shortcut, leaving a preview strip; touch the strip with your pointer and the window slides back out.
 
