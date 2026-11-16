@@ -24,3 +24,6 @@
 "alert.axMessage" = "否则无法移动窗口。请在系统设置 → 隐私与安全性 → 辅助功能中勾选 OrbPeek（若未列出，点 + 添加）。授权后即可使用，不需要重启。";
 "alert.openSettings" = "打开设置";
 "alert.later" = "稍后";
+"alert.screenTitle" = "为什么需要「屏幕录制」？";
+"alert.screenMessage" = "只用于生成贴边窗口的预览条，不录像、不录音。不授权也能贴边，只是预览条会显示为占位条。";
+"alert.continue" = "继续";

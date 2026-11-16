@@ -24,3 +24,6 @@
 "alert.axMessage" = "OrbPeek can't move windows without it. Enable OrbPeek in System Settings → Privacy & Security → Accessibility (click + to add it if it's not listed). You can use OrbPeek as soon as it is enabled; no relaunch is needed.";
 "alert.openSettings" = "Open Settings";
 "alert.later" = "Later";
+"alert.screenTitle" = "Why Screen Recording?";
+"alert.screenMessage" = "This is only used to create preview strips for docked windows. It does not record video or audio. Without it, docking still works, but preview strips show placeholders.";
+"alert.continue" = "Continue";
