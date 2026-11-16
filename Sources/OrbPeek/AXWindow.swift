@@ -9,6 +9,7 @@ import OrbPeekCore
 // of values that AX APIs are guaranteed to return, so they cannot fail.
 package final class AXWindow: WindowHandle {
     let element: AXUIElement
+    var log: (String) -> Void = Log.info
 
     init(_ element: AXUIElement) {
         self.element = element
@@ -65,7 +66,7 @@ package final class AXWindow: WindowHandle {
             var copy = p
             guard let value = AXValueCreate(.cgPoint, &copy) else { return }
             let err = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
-            if err != .success { Log.info("AXWindow position error \(err.rawValue) to \(p)") }
+            if err != .success { log("AXWindow position error \(err.rawValue) to \(p)") }
         }
     }
 
@@ -109,7 +110,7 @@ package final class AXWindow: WindowHandle {
         var copy = size
         guard let value = AXValueCreate(.cgSize, &copy) else { return }
         let error = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
-        if error != .success { Log.info("AXWindow size error \(error.rawValue) to \(size)") }
+        if error != .success { log("AXWindow size error \(error.rawValue) to \(size)") }
     }
 
     package func isSameWindow(as other: any WindowHandle) -> Bool {

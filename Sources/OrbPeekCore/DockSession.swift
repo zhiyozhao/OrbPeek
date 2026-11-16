@@ -1,8 +1,8 @@
 import Foundation
 
-// Product-policy switches are explicit so the two undecided behaviors do not
-// leak into this incident fix. Only .migrate exists until the user chooses an
-// offline-screen policy; re-docking after a normal upgrade remains off.
+// Product-policy switches are explicit: offline displays release to visible,
+// and a recent normal upgrade may restore docks. Alternative policies remain
+// isolated here rather than being scattered through the state machine.
 package struct DockSessionOptions {
     package enum OfflinePolicy { case migrate, releaseToVisible }
     package var offlinePolicy: OfflinePolicy = .releaseToVisible

@@ -29,6 +29,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var managed: [ManagedWindow] = []
     private let dockStateStore = DockStateStore()
     private var recoveryPending = true
+    private var recoveryDeferralLogged = false
     private var pollTimer: Timer?
     private var settingsWindow: NSWindow?
     private var shortcutPermissionPrompt = PermissionPromptGate()
@@ -164,8 +165,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 // kCGDisplayBeginConfigurationFlag (the C constant is not imported).
                 if flags.contains(CGDisplayChangeSummaryFlags(rawValue: 1 << 0)) {
                     controller.displaySettling.displayReconfigurationBegan(at: Date())
+                    controller.logLayout("display reconfiguration begin")
                 } else {
                     controller.displaySettling.displayReconfigurationEnded(at: Date())
+                    controller.logLayout("display reconfiguration end")
                 }
             }
         }, context)
@@ -175,7 +178,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         ) { _ in
             Task { @MainActor in
                 (NSApplication.shared.delegate as? OrbPeekController)?.displaySettling.screenParametersChanged(at: Date())
-                Log.info("screen parameters changed, settling 3s")
+                (NSApplication.shared.delegate as? OrbPeekController)?.logLayout("screen parameters changed")
             }
         }
     }
@@ -205,6 +208,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             Task { @MainActor in
                 if let controller = NSApplication.shared.delegate as? OrbPeekController {
                     controller.displaySettling.didWake(at: Date())
+                    controller.logLayout("wake")
                     controller.reseedLockState()
                 }
             }
@@ -223,7 +227,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         Task { @MainActor in
             self.screenLocked = false
             self.displaySettling.screenUnlocked(at: Date())
-            Log.info("screen unlocked, poll resumed")
+            self.logLayout("screen unlocked")
         }
     }
 
@@ -233,6 +237,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     func restoreAll() {
+        Log.info("signal restore begin count=\(managed.count)")
         persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
         managed.removeAll()
@@ -241,9 +246,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Log.info("quit restore begin count=\(managed.count)")
         persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
-        Log.info("terminated")
+        Log.info("quit restore complete; terminated")
     }
 
     private func promptAccessibility() {
@@ -405,6 +411,20 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     // MARK: Docking
 
+    private func makeManagedWindow(_ window: any WindowHandle, edge: DockEdge) -> ManagedWindow {
+        let managedWindow = ManagedWindow(window: window, edge: edge, delegate: self)
+        managedWindow.log = { [weak managedWindow] message in
+            guard let managedWindow else { return }
+            let app = managedWindow.window.bundleIdentifier ?? "unknown"
+            let wid = managedWindow.windowID.map(String.init) ?? "pending"
+            Log.info("[win=\(managedWindow.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
+        }
+        if let axWindow = window as? AXWindow {
+            axWindow.log = { message in managedWindow.log(message) }
+        }
+        return managedWindow
+    }
+
     // Dock the frontmost window off the given edge of the desktop.
     private func dockFrontmost(_ edge: DockEdge) {
         guard AXWindow.isProcessTrusted else {
@@ -426,7 +446,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             return
         }
 
-        let m = ManagedWindow(window: window, edge: edge, delegate: self)
+        let m = makeManagedWindow(window, edge: edge)
         managed.append(m)
         m.dock()
         rebuildMenu()
@@ -457,9 +477,24 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         catch { Log.info("dock state clear failed: \(error.localizedDescription)") }
     }
 
+    private func logLayout(_ reason: String) {
+        let description = geometry.layout.screens.map {
+            "id=\($0.id) frame=\($0.frame) visible=\($0.visibleFrame)"
+        }.joined(separator: " | ")
+        Log.info("\(reason); layout \(description)")
+    }
+
     private func recoverOrphanedWindowsIfPossible() {
-        guard recoveryPending, AXWindow.isProcessTrusted else { return }
+        guard recoveryPending else { return }
+        guard AXWindow.isProcessTrusted else {
+            if !recoveryDeferralLogged {
+                recoveryDeferralLogged = true
+                Log.info("launch recovery deferred: AX unavailable")
+            }
+            return
+        }
         recoveryPending = false
+        Log.info("launch recovery begin")
         DockRecovery(store: dockStateStore, redockAfterUpgrade: true).recover(
             geometry: geometry,
             resolver: { [weak self] record in self?.windowsForRecovery(record) ?? [] },
@@ -468,7 +503,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func redockRecoveredWindow(_ record: DockedWindowRecord, window: any WindowHandle) {
-        let managedWindow = ManagedWindow(window: window, edge: record.edge, delegate: self)
+        let managedWindow = makeManagedWindow(window, edge: record.edge)
         managed.append(managedWindow)
         managedWindow.dock()
         rebuildMenu()

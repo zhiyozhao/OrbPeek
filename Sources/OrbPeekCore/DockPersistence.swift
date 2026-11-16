@@ -91,11 +91,12 @@ package struct DockRecovery {
                          resolver: (DockedWindowRecord) -> [any WindowHandle],
                          onRedock: ((DockedWindowRecord, any WindowHandle) -> Void)? = nil) {
         guard let records = try? store.load() else {
+            log("launch recovery load failed; clear journal")
             try? store.clear()
             return
         }
         try? store.clear()
-        log("launch recovery loaded records=\(records.count)")
+        log("launch recovery loaded records=\(records.count); journal cleared before actions")
         var recovered = Set<ObjectIdentifier>()
         for record in records {
             let candidates = resolver(record)
@@ -134,10 +135,15 @@ package struct DockRecovery {
                     geometry.quartzVisibleFrame(of: $0).contains(frame)
                 }
                 if !fullyVisible {
+                    log("crash recovery place matched window frame=\(frame)")
                     OrbPeekCore.placeUndockedWindow(window: matched, preferredFrame: record.restoreFrame.rect,
                                                     fallbackFrame: frame, geometry: geometry)
                     recovered.insert(ObjectIdentifier(matched))
+                } else {
+                    log("crash recovery matched window already visible; no-op")
                 }
+            } else {
+                log("crash recovery matched window unavailable; skip")
             }
 
             // Titles are unstable in browsers/editors. Every window belonging
@@ -150,6 +156,7 @@ package struct DockRecovery {
                     return total + (intersection.isNull || intersection.isEmpty ? 0 : intersection.width * intersection.height)
                 }
                 guard visibleArea / (frame.width * frame.height) < 0.1 else { continue }
+                log("crash recovery fallback visibleRatio=\(visibleArea / (frame.width * frame.height))")
                 OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: nil,
                                                 fallbackFrame: frame, geometry: geometry)
                 recovered.insert(ObjectIdentifier(window))

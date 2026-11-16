@@ -54,6 +54,7 @@ package final class ManagedWindow {
     private var nilCount = 0
     private var valid = true
     private var bigDriftSince: Date?
+    private var settlingActive = false
     private var lastActivationRetry: Date?
     private var dwell = DwellTracker()
     package var clock: () -> Date
@@ -168,6 +169,9 @@ package final class ManagedWindow {
         let fullImage = canCapture
             ? await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
             : nil
+        if !canCapture {
+            log("capture skipped sliceOnScreen=\(sliceOnScreen) frontmost=\(delegate.isFrontmost(window))")
+        }
         if canCapture && fullImage == nil {
             log("capture FAILED edge=\(edge) — strip shows cache/placeholder")
         }
@@ -198,6 +202,7 @@ package final class ManagedWindow {
         guard let fakeStrip else { return }
         let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
         fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
+        log("strip show frame=\(currentStripFrame) visible=\(fakeStrip.isVisible)")
     }
 
     package func peek() {
@@ -239,7 +244,7 @@ package final class ManagedWindow {
         }
         detachStrip()
         valid = false
-        log("terminate edge=\(edge) exit=\(exit)")
+        log("terminate edge=\(edge) exit=\(exit) after=\(window.frame as Any)")
         delegate.removeManaged(self)
     }
 
@@ -331,9 +336,11 @@ package final class ManagedWindow {
     package func restore() {
         guard valid else { return }
         transition?.cancel()
+        let before = window.frame
         placeUndockedWindow(preferredFrame: restoreFrame)
         detachStrip()
         valid = false
+        log("restore complete before=\(before as Any) after=\(window.frame as Any)")
     }
 
     // The single safety net for every cancellation, release, quit and signal
@@ -346,6 +353,7 @@ package final class ManagedWindow {
     }
 
     package func detachStrip() {
+        if let fakeStrip { log("strip hide frame=\(fakeStrip.frame) visible=\(fakeStrip.isVisible)") }
         fakeStrip?.hide()
         fakeStrip = nil
     }
@@ -383,6 +391,7 @@ package final class ManagedWindow {
 
     private func moveTo(_ pos: CGPoint?) {
         guard let pos else { return }
+        log("AX move to=\(pos)")
         window.position = pos
     }
 
@@ -392,6 +401,7 @@ package final class ManagedWindow {
                           blockedByPeeked: Bool, blockedBySmaller: Bool, settling: Bool, now: Date) {
         guard valid, let delegate else { return }
         guard let frame = window.frame else {
+            if nilCount == 0 { log("window frame unreadable start edge=\(edge)") }
             nilCount += 1
             if nilCount > 30 {
                 if let wid = windowID, delegate.capturer.windowExists(wid) {
@@ -403,6 +413,7 @@ package final class ManagedWindow {
             }
             return
         }
+        if nilCount > 0 { log("window frame readable again edge=\(edge)") }
         nilCount = 0
         let mousePressed = isLeftMousePressed()
         if gesture && !mousePressed {
@@ -427,6 +438,10 @@ package final class ManagedWindow {
         let geometry = delegate.geometry
         let capturer = delegate.capturer
         guard let screen = dockScreen(in: geometry) else { return }
+        if settling && !settlingActive {
+            log("settling begin frame=\(frame) screen=\(screen.id)")
+        }
+        settlingActive = settling
         if !settling, delegate.offlinePolicy == .releaseToVisible,
            let id = dockScreenID, geometry.screen(withDisplayID: id) == nil {
             log("dock screen \(id) offline after settling; release centered and raise")

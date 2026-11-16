@@ -57,6 +57,8 @@ struct IncidentScenarioTests {
         #expect(server.windows.count == 2)
         #expect(server.delegate.strips.count == 2)
 
+        var logs: [String] = []
+        server.session.log = { logs.append($0) }
         server.session.lock()
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
@@ -73,6 +75,9 @@ struct IncidentScenarioTests {
         #expect(second.storedFrame?.origin == CGPoint(x: 522, y: 122.5))
         #expect(first.raiseCount > 0)
         #expect(second.raiseCount > 0)
+        #expect(logs.contains { $0.contains("com.zhao.minibrowser") && $0.contains("offline after settling") })
+        #expect(logs.contains { $0.contains("rednote") && $0.contains("offline after settling") })
+        #expect(logs.contains { $0.contains("id=1 frame=(0.0, 0.0, 1352.0") })
     }
 
     @Test("same display returning during lock keeps both docks")
