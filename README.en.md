@@ -2,14 +2,14 @@
 
 [中文](README.md) | English
 
-Dock a window to any screen edge with a shortcut, leaving a slim visual handle; touch the edge with your pointer and the window slides back out.
+Dock a window to any screen edge with a shortcut, leaving a preview strip; touch the strip with your pointer and the window slides back out.
 
 [![Latest release](https://img.shields.io/github/v/release/zhiyozhao/OrbPeek?label=latest)](https://github.com/zhiyozhao/OrbPeek/releases/latest)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-dark.gif">
-  <img alt="A window docks to the right screen edge as a slim strip; touching the strip slides the window out, and moving the pointer away slides it back" src="docs/assets/demo-light.gif" width="960">
+  <img alt="A window docks to the right screen edge as a preview strip; touching the strip slides the window out, and moving the pointer away slides it back" src="docs/assets/demo-light.gif" width="960">
 </picture>
 
 ```bash
@@ -21,11 +21,11 @@ Not using Homebrew? Download the DMG from [Releases](https://github.com/zhiyozha
 ## Highlights
 
 - Press `Control + Shift + an arrow key` to dock the current window to that edge: left, right, top or bottom.
-- A visual handle stays at the edge. Touch it with your pointer to see and use the window without switching apps.
+- A preview strip stays at the edge. Touch it with your pointer to see and use the window without switching apps.
 - Move the pointer away and the window slides back. Drag it farther into the screen to undock it.
 - Dock multiple windows on the same edge, with separate docks on each display.
 - Windows follow the current display layout after display changes, sleep or locking the screen.
-- Customize shortcuts, strip width and opacity, or launch OrbPeek at login.
+- Customize shortcuts, preview strip width and opacity, or launch OrbPeek at login.
 - Chinese and English interface, following your system language.
 
 ## First launch
@@ -36,16 +36,16 @@ Not using Homebrew? Download the DMG from [Releases](https://github.com/zhiyozha
 
 **Why Accessibility?** OrbPeek needs to read and move the windows you dock, and put them back into a visible area when you undock them or when it recovers after an unexpected exit. Without it, OrbPeek cannot move windows for you. It does not use this permission to record the text you type.
 
-**Why Screen Recording too?** This is only used to create the visual handle for a docked window. It does not record continuously or capture audio. You can dock and reveal windows without this permission, but the edge will show a translucent placeholder instead of the window image.
+**Why Screen Recording too?** This is only used to create the preview strip for a docked window. It does not record continuously or capture audio. You can dock and reveal windows without this permission, but the edge will show a translucent placeholder instead of the window image.
 
 You can turn off either permission at any time under System Settings → Privacy & Security. Without Accessibility, OrbPeek cannot move windows. Without Screen Recording, it cannot create new window images.
 
 ## Usage
 
 - **Dock**: focus the window you want to put away, then press `Control + Shift + ← / → / ↑ / ↓`.
-- **Peek**: move your pointer onto its edge strip. The window comes to the front; move the pointer away and it slides back.
+- **Peek**: move your pointer onto its preview strip. The window comes to the front; move the pointer away and it slides back.
 - **Undock**: drag the revealed window farther into the screen, or click the menu-bar icon and choose the window's name.
-- **Customize**: open Settings from the menu-bar icon to change the four shortcuts, strip width, opacity and Launch at Login.
+- **Customize**: open Settings from the menu-bar icon to change the four shortcuts, preview strip width, opacity and Launch at Login.
 
 ## Privacy
 
