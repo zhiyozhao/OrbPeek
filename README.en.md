@@ -65,6 +65,10 @@ On a normal quit, OrbPeek first restores every docked window. After an unexpecte
 **How do I uninstall?**
 Run `brew uninstall --cask --zap orbpeek`, or drag OrbPeek from Applications to the Trash.
 
+## Known limitations
+
+If ScreenCaptureKit repeatedly times out, OrbPeek restarts the system recording process `replayd` to recover preview strips. This may briefly interrupt another app's screen sharing or recording. A restart requires three consecutive timeouts and is followed by a five-minute cooldown.
+
 ## License
 
 [MIT](LICENSE)
