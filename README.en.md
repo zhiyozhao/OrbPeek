@@ -57,7 +57,7 @@ You can turn off either permission at any time under System Settings → Privacy
 ## FAQ
 
 **Opening the app from the DMG says the developer cannot be verified.**
-The app is not notarized by Apple. In Finder, right-click OrbPeek, choose Open, then confirm once more.
+The app is not notarized by Apple. On macOS 15, try opening it once, then go to System Settings → Privacy & Security and click Open Anyway near the bottom; authenticate to confirm. On macOS 14, you can also right-click OrbPeek in Finder and choose Open. Homebrew removes the download quarantine automatically, so this prompt does not appear.
 
 **Where did my windows go after OrbPeek quit unexpectedly?**
 On a normal quit, OrbPeek first restores every docked window. After an unexpected exit or force quit, the next launch automatically finds eligible windows that are still off-screen and places them fully inside the nearest display's visible area, without docking them again. Keep Accessibility enabled; windows cannot be recovered if their app or the window itself has also closed.
