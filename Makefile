@@ -10,6 +10,9 @@ check: lint test build
 lint:
 	plutil -lint Info.plist
 	bash -n Scripts/build-app.sh
+	bash -n Scripts/version.sh
+	bash -n Scripts/release-notes.sh
+	Scripts/release-notes.sh 1.1.0 | grep -q '修复'
 
 build:
 	swift build
