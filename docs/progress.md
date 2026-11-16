@@ -31,6 +31,12 @@
 - tap 的 zap 已补恢复数据与旧配置；GitHub description/topics 已设置，homepage 保持空白。
 - 本轮不打 tag、不发版，不操作正在运行的 /Applications/OrbPeek.app。
 
+## 2026-11-16 — 官网与真实演示（devs/site）
+
+- 新增 `site/` 中英静态单页，无统计或第三方脚本；Playwright 已检查 1440/768/390、浅色/深色，无横向溢出或控制台错误。截图在 `Artifacts/site/`。
+- 演示改为真实 Peekaboo 截图 + Pillow/ffmpeg 合成。`capture-demo.sh` 提供隐私试拍和正式采集，`render-demo.py` 输出 2x MP4、960px GIF、高清首图。
+- 当前候选区域均与用户窗口重叠，因此未执行试拍或正式采集；未生成真实素材，官网保留明确占位。
+
 ## 2026-11-13 — 用户主页与演示图
 
 - 重写中英 README：安装、两项权限、使用、隐私和异常退出恢复说明均按代码核对；开发内容留在开发文档。

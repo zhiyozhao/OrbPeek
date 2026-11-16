@@ -12,6 +12,7 @@ lint:
 	bash -n Scripts/build-app.sh
 	bash -n Scripts/version.sh
 	bash -n Scripts/release-notes.sh
+	bash -n Scripts/capture-demo.sh
 	Scripts/release-notes.sh 1.1.0 | grep -q '修复'
 
 build:
