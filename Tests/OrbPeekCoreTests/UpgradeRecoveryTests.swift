@@ -78,6 +78,25 @@ struct UpgradeRecoveryTests {
         #expect(!redocked)
     }
 
+    @Test("expired clean exit still rescues an off-screen window")
+    func expiredExitUsesVisibleFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = DockStateStore(fileURL: directory.appendingPathComponent("docked-windows.json"))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = await makeDockedFixture(layout: testLayout)
+        fixture.managed.restore()
+        let exitedAt = fixture.clock.now
+        let record = try #require(fixture.managed.persistenceRecord(cleanExit: true, exitedAt: exitedAt))
+        try store.save([record])
+        fixture.window.storedFrame = CGRect(x: -399, y: 100, width: 400, height: 400)
+        DockRecovery(store: store, now: { exitedAt.addingTimeInterval(121) }).recover(
+            geometry: fixture.delegate.geometry, resolver: { _ in [fixture.window] },
+            onRedock: { _, _ in #expect(Bool(false), "expired record must not re-dock") }
+        )
+        let visible = fixture.delegate.geometry.quartzVisibleFrame(of: testPrimary)
+        #expect(visible.contains(fixture.window.storedFrame!))
+    }
+
     @Test("discards an exit record older than two minutes")
     func expiredExitIsSkipped() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
