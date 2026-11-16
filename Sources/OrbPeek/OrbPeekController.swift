@@ -30,6 +30,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var recoveryPending = true
     private var pollTimer: Timer?
     private var settingsWindow: NSWindow?
+    private var shortcutPermissionPrompt = PermissionPromptGate()
 
     override init() {
         settings = Config()
@@ -405,6 +406,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     // Dock the frontmost window off the given edge of the desktop.
     private func dockFrontmost(_ edge: DockEdge) {
+        guard AXWindow.isProcessTrusted else {
+            if shortcutPermissionPrompt.shouldPrompt() { promptAccessibility() }
+            return
+        }
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               pid != ProcessInfo.processInfo.processIdentifier else { return }
         guard let window = AXWindow.focusedWindow(ofPID: pid) else { return }
