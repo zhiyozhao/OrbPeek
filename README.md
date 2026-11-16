@@ -63,7 +63,7 @@ brew install --cask zhiyozhao/tap/orbpeek
 正常退出时，OrbPeek 会先把所有贴边窗口放回来。意外退出或被强制结束后，下次启动会自动寻找仍然存在的屏外窗口，把它们放回最近显示器的可见区域，不会重新贴边。请保持辅助功能权限开启；如果所属 app 或窗口也已经关闭，就无法恢复。
 
 **怎么卸载？**
-执行 `brew uninstall --cask --zap orbpeek`，或者把“应用程序”里的 OrbPeek 拖到废纸篓。
+执行 `brew uninstall --cask --zap orbpeek` 会同时清理日志、偏好设置、崩溃恢复数据和旧配置。直接把“应用程序”里的 OrbPeek 拖到废纸篓会留下 `~/Library/Logs/orbpeek.log`、`~/Library/Preferences/com.orbpeek.OrbPeek.plist`、`~/Library/Application Support/OrbPeek` 和 `~/.config/orbpeek`。
 
 ## 已知限制
 

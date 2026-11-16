@@ -63,7 +63,7 @@ The app is not notarized by Apple. On macOS 15, try opening it once, then go to 
 On a normal quit, OrbPeek first restores every docked window. After an unexpected exit or force quit, the next launch automatically finds eligible windows that are still off-screen and places them fully inside the nearest display's visible area, without docking them again. Keep Accessibility enabled; windows cannot be recovered if their app or the window itself has also closed.
 
 **How do I uninstall?**
-Run `brew uninstall --cask --zap orbpeek`, or drag OrbPeek from Applications to the Trash.
+Run `brew uninstall --cask --zap orbpeek` to also remove logs, preferences, crash-recovery data and the legacy config. Dragging OrbPeek from Applications to the Trash leaves `~/Library/Logs/orbpeek.log`, `~/Library/Preferences/com.orbpeek.OrbPeek.plist`, `~/Library/Application Support/OrbPeek` and `~/.config/orbpeek` behind.
 
 ## Known limitations
 
