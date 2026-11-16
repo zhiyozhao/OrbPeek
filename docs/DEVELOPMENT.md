@@ -57,12 +57,14 @@ Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段
 
 不要对 `/Applications/OrbPeek.app` 或用户正在管理的窗口做自动化操作。开发日志写入 `~/Library/Logs/orbpeek.log`，不要提交日志和构建产物。
 
-## 主页演示图
+## 真实素材与合成演示
 
-`Scripts/render-demo.py` 使用 Pillow 程序化绘制浅色、深色示意动图，不读取屏幕或依赖系统权限。修改后重新生成：
+演示采用真实 Peekaboo 截图 + Pillow/ffmpeg 合成，不再整段录屏。先运行 `Scripts/capture-demo.sh --trial` 做不改鼠标/窗口的隐私试拍；正式采集必须约定桌面操作时间，再运行 `--capture`。脚本只截指定区域，采集前会检查是否有现有窗口重叠，支持 `DEMO_VARIANT=light|dark`。
+
+真实来源图位于 `docs/assets/demo-source/<appearance>/`。`Scripts/render-demo.py` 将背景、普通窗口、贴边预览条和滑出画面合成 30Hz MP4，并输出 960px GIF 与高清首图。OrbPeek 源码直接写 AX 位置、没有 easing，因此合成只采用线性插帧，不虚构原生缓动。
 
 ```sh
 python3 Scripts/render-demo.py
 ```
 
-输出为 `docs/assets/demo-light.gif` 和 `docs/assets/demo-dark.gif`；图中不使用文字，保持两种配色和动作时序一致。
+输出包括 `docs/assets/orbpeek-demo-{light,dark}.mp4`、`demo-{light,dark}.gif` 和 `orbpeek-poster-{light,dark}.png`。未采集真实来源时脚本会失败，不生成替代画面。
