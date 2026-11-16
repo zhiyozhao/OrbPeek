@@ -39,7 +39,7 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停贴边条时�
 
 - bundle id `com.orbpeek.OrbPeek`、app 名 `OrbPeek.app`、DMG `OrbPeek-VERSION.dmg`、`v*` tag 发布、Homebrew cask `zhiyozhao/homebrew-tap` 的 `orbpeek` 接口保持不变。
 - 本地和 CI 都只用钥匙串中的自签名 **DEV X**；找不到证书直接失败，禁止 ad-hoc 回退。release secrets 仍是 `SIGNING_P12_BASE64`、`SIGNING_P12_PASSWORD`。
-- 发布仍走原 `.github/workflows/release.yml`，不要在开发循环中打 tag；版本由 CI 从 tag 写入 Info.plist。
+- 发布仍走原 `.github/workflows/release.yml`，不要在开发循环中打 tag；本地与 CI 都由 `Scripts/version.sh` 从最近 tag 读取版本。
 - 依赖固定为 `zhiyozhao/KeyboardShortcuts` 的 `2.4.0-resilient-resource-bundle` 分支。其 `Contents/Resources` bundle 查找补丁是手工打包不崩溃的关键，不得直接换回 upstream。
 - `Scripts/build-app.sh` 必须复制 SPM bundles 到 `Contents/Resources` 并用 `actool` 编译资产。图标只由 `Scripts/make-icon.swift` 生成，菜单图标依赖 `template-rendering-intent`。
 - UI 字符串继续中英双语并通过 `tr()`；不要绕过 `L10n.swift` 的手工 bundle 加载。菜单中文文案保持中文。
