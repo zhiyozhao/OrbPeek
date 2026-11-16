@@ -113,6 +113,35 @@ struct IncidentScenarioTests {
         #expect((server.windows[1].window as! FakeWindow).storedFrame?.origin.x == -307)
     }
 
+    @Test("primary-screen change does not look like a user move")
+    func lateDisplayWithShiftedBuiltIn() async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<40 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        #expect(server.session.pending.count == 2)
+        let builtIn = server.delegate.layoutBox.layout.primary!
+        for pending in server.session.pending {
+            (pending.window as! FakeWindow).storedFrame?.origin.x -= 1352
+        }
+        let shiftedBuiltIn = ScreenInfo(id: builtIn.id,
+                                        frame: builtIn.frame.offsetBy(dx: -1352, dy: 0),
+                                        visibleFrame: builtIn.visibleFrame.offsetBy(dx: -1352, dy: 0))
+        server.delegate.layoutBox.layout = ScreenLayout(screens: [
+            server.externalLayout.screens[0], shiftedBuiltIn, server.externalLayout.screens[1],
+        ])
+        server.session.screenChanged()
+        server.session.poll()
+        await drainTasks()
+        #expect(server.windows.count == 2)
+        #expect(server.windows.allSatisfy { $0.dockScreen(in: server.delegate.geometry)?.id == 3 })
+    }
+
     @Test("user edits after offline release cancel late redock")
     func userEditCancelsLateRedock() async {
         let server = await FakeWindowServer()

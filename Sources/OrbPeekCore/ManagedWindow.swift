@@ -51,8 +51,10 @@ package final class ManagedWindow {
     }
     package struct PendingRedock {
         package let screenID: CGDirectDisplayID
+        package let placedScreenID: CGDirectDisplayID
         package let releasedAt: Date
         package let placedFrame: CGRect
+        package let placedOffset: CGPoint
     }
     package private(set) var pendingRedock: PendingRedock?
     private var fakeStrip: (any SnapshotStripHandling)?
@@ -258,8 +260,14 @@ package final class ManagedWindow {
                                         fallbackFrame: restoreFrame, centered: exit == .offline,
                                         geometry: delegate.geometry)
         if exit == .offline {
-            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0, releasedAt: clock(),
-                                          placedFrame: window.frame ?? restoreFrame)
+            let placedFrame = window.frame ?? restoreFrame
+            let placedScreen = dockScreen(in: delegate.geometry)
+            let visible = placedScreen?.visibleFrame ?? .zero
+            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0,
+                                          placedScreenID: placedScreen?.id ?? 0,
+                                          releasedAt: clock(), placedFrame: placedFrame,
+                                          placedOffset: CGPoint(x: placedFrame.minX - visible.minX,
+                                                                y: placedFrame.minY - visible.minY))
             window.raise()
             delegate.offlineWindowReleased(self)
         }
@@ -288,9 +296,15 @@ package final class ManagedWindow {
         }
         if let frame = window.frame {
             let expected = pending.placedFrame
-            let unchanged = abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2 &&
-                abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
-            if !unchanged {
+            var positionMatches = true
+            if let placedScreen = delegate.geometry.screen(withDisplayID: pending.placedScreenID) {
+                let visible = placedScreen.visibleFrame
+                let currentOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
+                positionMatches = abs(currentOffset.x - pending.placedOffset.x) <= 2 &&
+                    abs(currentOffset.y - pending.placedOffset.y) <= 2
+            }
+            let sizeMatches = abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
+            if !positionMatches || !sizeMatches {
                 log("skip late re-dock: user moved/resized window after release")
                 pendingRedock = nil
                 return false
