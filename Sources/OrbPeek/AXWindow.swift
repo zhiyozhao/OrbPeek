@@ -125,6 +125,21 @@ package final class AXWindow: WindowHandle {
         return (t?.isEmpty ?? true) ? nil : t
     }
 
+    package var windowID: CGWindowID? {
+        guard let pid, let frame else { return nil }
+        let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] ?? []
+        for item in list {
+            guard (item[kCGWindowOwnerPID as String] as? Int) == Int(pid),
+                  let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                  let candidate = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  abs(candidate.minX - frame.minX) <= 2, abs(candidate.minY - frame.minY) <= 2,
+                  abs(candidate.width - frame.width) <= 2, abs(candidate.height - frame.height) <= 2,
+                  let id = item[kCGWindowNumber as String] as? Int else { continue }
+            return CGWindowID(id)
+        }
+        return nil
+    }
+
     package var bundleIdentifier: String? {
         guard let pid else { return nil }
         return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier

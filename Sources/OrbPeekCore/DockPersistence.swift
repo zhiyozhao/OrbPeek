@@ -98,39 +98,55 @@ package struct DockRecovery {
         try? store.clear()
         log("launch recovery loaded records=\(records.count); journal cleared before actions")
         var recovered = Set<ObjectIdentifier>()
+        var recoveredWindowIDs = Set<CGWindowID>()
+        func alreadyRecovered(_ window: any WindowHandle) -> Bool {
+            if let id = window.windowID { return recoveredWindowIDs.contains(id) }
+            return recovered.contains(ObjectIdentifier(window))
+        }
+        func markRecovered(_ window: any WindowHandle) {
+            if let id = window.windowID { recoveredWindowIDs.insert(id) }
+            recovered.insert(ObjectIdentifier(window))
+        }
+
         for record in records {
-            let candidates = resolver(record)
+            let resolved = resolver(record)
+            // A clean-exit restore is valid only in the same app process. Crash
+            // recovery intentionally allows bundle-ID-based process restarts.
+            let candidates = record.isCleanExit ? resolved.filter { $0.pid == record.processID } : resolved
             log("recovery app=\(record.bundleIdentifier ?? "unknown") candidates=\(candidates.count) cleanExit=\(record.isCleanExit)")
             let titled = record.isCleanExit ? candidates : candidates.filter { record.title == nil || $0.title == record.title }
             let matched = titled.min { lhs, rhs in
                 func score(_ window: any WindowHandle) -> CGFloat {
                     guard let frame = window.frame else { return .infinity }
-                    let reference = record.isCleanExit ? record.restoreFrame.rect : record.parkedFrame.rect
+                    let reference = record.parkedFrame.rect
                     return abs(frame.minX - reference.minX) + abs(frame.minY - reference.minY) +
                         abs(frame.width - reference.width) + abs(frame.height - reference.height)
                 }
                 return score(lhs) < score(rhs)
             }
             if record.isCleanExit {
-                guard redockAfterUpgrade, let exitedAt = record.exitedAt else {
-                    log("skip clean-exit record: policy or timestamp unavailable")
-                    continue
-                }
-                let age = now().timeIntervalSince(exitedAt)
-                guard age >= 0 && age <= 120 else {
-                    log("skip expired clean-exit record age=\(Int(age))s")
-                    continue
-                }
-                if let matched, let onRedock {
-                    log("re-dock recovered window edge=\(record.edge) age=\(Int(age))s")
+                let age = record.exitedAt.map { now().timeIntervalSince($0) } ?? .infinity
+                let identityMatches = matched.map {
+                    record.windowID == nil || $0.windowID == record.windowID
+                } ?? false
+                let positionMatches = matched?.frame.map { frame in
+                    let expected = record.parkedFrame.rect
+                    return abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2 &&
+                        abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
+                } ?? false
+                if redockAfterUpgrade, age >= 0 && age <= 120, identityMatches, positionMatches,
+                   let matched, !alreadyRecovered(matched), let onRedock {
+                    log("re-dock recovered window edge=\(record.edge) age=\(Int(age))s wid=\(matched.windowID as Any)")
                     onRedock(record, matched)
-                    recovered.insert(ObjectIdentifier(matched))
+                    markRecovered(matched)
                 } else {
-                    log("clean-exit window not found; skip")
+                    log("clean-exit re-dock skipped: identity/position/age/duplicate mismatch")
                 }
-                continue
             }
-            if let matched, let frame = matched.frame {
+
+            // Every record, including expired or unmatched clean exits, still
+            // gets the off-screen safety net before this launch is done.
+            if let matched, let frame = matched.frame, !alreadyRecovered(matched) {
                 let fullyVisible = geometry.layout.screens.contains {
                     geometry.quartzVisibleFrame(of: $0).contains(frame)
                 }
@@ -138,18 +154,15 @@ package struct DockRecovery {
                     log("crash recovery place matched window frame=\(frame)")
                     OrbPeekCore.placeUndockedWindow(window: matched, preferredFrame: record.restoreFrame.rect,
                                                     fallbackFrame: frame, geometry: geometry)
-                    recovered.insert(ObjectIdentifier(matched))
+                    markRecovered(matched)
                 } else {
                     log("crash recovery matched window already visible; no-op")
                 }
-            } else {
+            } else if matched == nil {
                 log("crash recovery matched window unavailable; skip")
             }
 
-            // Titles are unstable in browsers/editors. Every window belonging
-            // to a recorded app with <10% visible area is an OrbPeek leftover;
-            // normal application windows do not park themselves off-screen.
-            for window in candidates where !recovered.contains(ObjectIdentifier(window)) {
+            for window in candidates where !alreadyRecovered(window) {
                 guard let frame = window.frame, frame.width > 0, frame.height > 0 else { continue }
                 let visibleArea = geometry.layout.screens.reduce(CGFloat.zero) { total, screen in
                     let intersection = geometry.quartzVisibleFrame(of: screen).intersection(frame)
@@ -159,7 +172,7 @@ package struct DockRecovery {
                 log("crash recovery fallback visibleRatio=\(visibleArea / (frame.width * frame.height))")
                 OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: nil,
                                                 fallbackFrame: frame, geometry: geometry)
-                recovered.insert(ObjectIdentifier(window))
+                markRecovered(window)
             }
         }
     }

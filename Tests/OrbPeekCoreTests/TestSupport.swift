@@ -21,6 +21,7 @@ final class FakeWindow: WindowHandle {
     var raiseCount = 0
     var activateCount = 0
     var pid: pid_t? = 42
+    var windowID: CGWindowID?
     var title: String? = "Fake"
     var bundleIdentifier: String? = "fake.app"
 

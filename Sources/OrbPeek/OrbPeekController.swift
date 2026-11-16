@@ -241,8 +241,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func restoreAll() {
         Log.info("signal restore begin count=\(managed.count)")
-        persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
+        persistDockedWindows(cleanExit: true, exitedAt: Date())
         managed.removeAll()
         offlinePending.removeAll()
         rebuildMenu()
@@ -251,8 +251,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func applicationWillTerminate(_ notification: Notification) {
         Log.info("quit restore begin count=\(managed.count)")
-        persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
+        persistDockedWindows(cleanExit: true, exitedAt: Date())
         offlinePending.removeAll()
         Log.info("quit restore complete; terminated")
     }
