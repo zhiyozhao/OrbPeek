@@ -1,5 +1,5 @@
 APP := OrbPeek.app
-VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist 2>/dev/null)
+VERSION := $(shell Scripts/version.sh 2>/dev/null)
 DMG := OrbPeek-$(VERSION).dmg
 
 .PHONY: check lint build test run package clean
@@ -29,6 +29,7 @@ run:
 
 ## package: 复用发布流程的 .app 构建和 DMG 命令
 package:
+	Scripts/version.sh >/dev/null
 	Scripts/build-app.sh
 	rm -rf dmg
 	mkdir dmg

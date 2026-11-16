@@ -7,6 +7,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/OrbPeek "$APP/Contents/MacOS/OrbPeek"
 cp Info.plist "$APP/Contents/Info.plist"
+# The latest git tag is the single version source for local and CI builds.
+# CI's tag-specific version step writes the same value before this script.
+VERSION=$(Scripts/version.sh)
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 # SPM resource bundles of dependencies (e.g. KeyboardShortcuts' Recorder
 # localizations) go in Contents/Resources — the only codesign-sealable place.
 # Our KeyboardShortcuts fork resolves them from there (the stock SwiftPM
