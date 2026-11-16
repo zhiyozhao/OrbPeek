@@ -69,6 +69,7 @@ h1 { margin: 0; font-size: clamp(44px, 5.1vw, 68px); line-height: 1.12; letter-s
 .steps > li > span { display: grid; flex: 0 0 34px; height: 34px; place-items: center; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); font-size: 14px; font-weight: 700; }
 .steps h3 { margin: 2px 0 8px; font-size: 18px; }
 .steps p { margin: 0; color: var(--muted); font-size: 15px; }
+.shortcut { white-space: nowrap; }
 kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--ink); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .86em; white-space: nowrap; }
 
 .privacy { margin-inline: calc((100vw - min(calc(100vw - 48px), var(--max))) / -2); padding-inline: calc((100vw - min(calc(100vw - 48px), var(--max))) / 2); background: var(--accent-soft); border-top-color: transparent; }
