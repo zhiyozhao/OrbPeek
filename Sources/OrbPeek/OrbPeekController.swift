@@ -28,7 +28,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private let statusItem: NSStatusItem
     private lazy var session = DockSession(delegate: self)
     private var managed: [ManagedWindow] { session.windows }
-    private var offlinePending: [ManagedWindow] = []
     private let dockStateStore = DockStateStore()
     private var recoveryPending = true
     private var recoveryDeferralLogged = false
@@ -243,7 +242,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         Log.info("signal restore begin count=\(managed.count)")
         let exited = session.quit()
         persistDockedWindows(cleanExit: true, exitedAt: Date(), windows: exited)
-        offlinePending.removeAll()
+        session.clearPending()
         rebuildMenu()
         Log.info("restored all docked windows on signal")
     }
@@ -252,7 +251,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         Log.info("quit restore begin count=\(managed.count)")
         let exited = session.quit()
         persistDockedWindows(cleanExit: true, exitedAt: Date(), windows: exited)
-        offlinePending.removeAll()
+        session.clearPending()
         Log.info("quit restore complete; terminated")
     }
 
@@ -438,6 +437,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               pid != ProcessInfo.processInfo.processIdentifier else { return }
         guard let window = AXWindow.focusedWindow(ofPID: pid) else { return }
+        session.cancelPending(for: window)
         guard let frame = window.frame, frame.size.width > 0, frame.size.height > 0 else { return }
 
         if let existing = managed.first(where: { $0.window.isSameWindow(as: window) }) {
@@ -456,7 +456,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     package func offlineWindowReleased(_ managedWindow: ManagedWindow) {
-        offlinePending.append(managedWindow)
+        session.deferPending(managedWindow)
     }
 
     package func removeManaged(_ m: ManagedWindow) {
@@ -583,10 +583,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         lastMouseQ = q
         lastMouseAt = now
-        for pending in offlinePending {
-            if pending.redockIfDisplayReturns() { session.adopt(pending) }
-        }
-        offlinePending.removeAll { $0.pendingRedock == nil || $0.pendingRedockExpired }
         session.poll(mouseQ: q, mouseVelocity: velocity) { [weak self] in
             self?.closerDockedUnder(q, excluding: $0) ?? false
         }

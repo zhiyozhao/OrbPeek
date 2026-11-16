@@ -19,6 +19,7 @@ final class FakeWindowServer {
         delegate = FakeDelegate(layout: external)
         delegate.offlinePolicy = .releaseToVisible
         session = DockSession(delegate: delegate, clock: { fakeClock.now })
+        delegate.onOfflineRelease = session.deferPending
         let first = FakeWindow(frame: CGRect(x: 633, y: 566, width: 722, height: 496))
         first.bundleIdentifier = "com.zhao.minibrowser"
         let second = FakeWindow(frame: CGRect(x: 1500, y: 326, width: 308, height: 668))
@@ -69,8 +70,8 @@ struct IncidentScenarioTests {
         }
 
         #expect(server.delegate.removed.count == 2)
-        let first = server.windows[0].window as! FakeWindow
-        let second = server.windows[1].window as! FakeWindow
+        let first = server.session.pending[0].window as! FakeWindow
+        let second = server.session.pending[1].window as! FakeWindow
         #expect(first.storedFrame?.origin == CGPoint(x: 315, y: 208.5))
         #expect(second.storedFrame?.origin == CGPoint(x: 522, y: 122.5))
         #expect(first.raiseCount > 0)
@@ -92,8 +93,12 @@ struct IncidentScenarioTests {
             server.session.poll()
         }
         #expect(server.delegate.removed.count == 2)
+        #expect(server.session.pending.count == 2)
 
-        server.delegate.layoutBox.layout = server.externalLayout
+        let builtIn = server.delegate.layoutBox.layout.primary!
+        server.delegate.layoutBox.layout = ScreenLayout(screens: [
+            server.externalLayout.screens[0], builtIn, server.externalLayout.screens[1],
+        ])
         server.session.screenChanged()
         for _ in 0..<50 {
             server.clock.advance(0.1)
@@ -101,6 +106,55 @@ struct IncidentScenarioTests {
         }
         await drainTasks()
         #expect(server.windows.allSatisfy { $0.phase == .docked && $0.pendingRedock == nil })
+        #expect(server.windows.allSatisfy { $0.dockScreen(in: server.delegate.geometry)?.id == 3 })
+        #expect((server.windows[0].window as! FakeWindow).storedFrame?.origin.x == -721)
+        #expect((server.windows[1].window as! FakeWindow).storedFrame?.origin.x == -307)
+    }
+
+    @Test("user edits after offline release cancel late redock")
+    func userEditCancelsLateRedock() async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<40 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        let edited = server.session.pending[1].window as! FakeWindow
+        edited.storedFrame = CGRect(x: 50, y: 60, width: 900, height: 600)
+        server.delegate.layoutBox.layout = server.externalLayout
+        server.session.screenChanged()
+        server.session.poll()
+
+        #expect(edited.storedFrame == CGRect(x: 50, y: 60, width: 900, height: 600))
+        #expect(server.session.pending.isEmpty)
+        #expect(server.delegate.removed.count == 2)
+    }
+
+    @Test("manual dock cancels pending redock for the same window")
+    func manualDockCancelsPending() async {
+        let server = await FakeWindowServer()
+        server.session.lock()
+        server.removeExternalDisplays()
+        server.openBuiltInDisplay()
+        server.session.unlock()
+        for _ in 0..<40 {
+            server.clock.advance(0.1)
+            server.session.poll()
+        }
+        let window = server.session.pending[0].window
+        server.session.add(window: window, edge: .left)
+        server.delegate.layoutBox.layout = server.externalLayout
+        server.session.screenChanged()
+        server.session.poll()
+        await drainTasks()
+
+        #expect(server.windows.count == 2)
+        #expect(server.windows.filter { $0.window.isSameWindow(as: window) }.count == 1)
+        #expect(server.windows.first { $0.window.isSameWindow(as: window) }?.edge == .left)
+        #expect(server.session.pending.isEmpty)
     }
 
     @Test("same display returning during lock keeps both docks")

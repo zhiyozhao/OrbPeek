@@ -17,6 +17,7 @@ package struct DockSessionOptions {
 package final class DockSession {
     package let options: DockSessionOptions
     package private(set) var windows: [ManagedWindow] = []
+    package private(set) var pending: [ManagedWindow] = []
     package private(set) var screenLocked = false
     package var settling = DisplaySettling()
     private let delegate: any WindowDockDelegate
@@ -40,6 +41,7 @@ package final class DockSession {
             let wid = managed.windowID.map(String.init) ?? "pending"
             self?.log("[win=\(managed.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
         }
+        cancelPending(for: window)
         configure?(managed)
         windows.append(managed)
         managed.dock()
@@ -47,11 +49,27 @@ package final class DockSession {
     }
 
     package func adopt(_ managed: ManagedWindow) {
-        if !windows.contains(where: { $0 === managed }) { windows.append(managed) }
+        cancelPending(for: managed.window)
+        if !windows.contains(where: { $0 === managed || $0.window.isSameWindow(as: managed.window) }) {
+            windows.append(managed)
+        }
     }
 
     package func remove(_ managed: ManagedWindow) {
         windows.removeAll { $0 === managed }
+    }
+
+    package func deferPending(_ managed: ManagedWindow) {
+        if !pending.contains(where: { $0 === managed }) { pending.append(managed) }
+        remove(managed)
+    }
+
+    package func cancelPending(for window: any WindowHandle) {
+        pending.removeAll { $0.window.isSameWindow(as: window) }
+    }
+
+    package func clearPending() {
+        pending.removeAll()
     }
 
     package func lock() {
@@ -90,8 +108,13 @@ package final class DockSession {
         guard !screenLocked else { return }
         let now = clock()
         let isSettling = settling.isSettling(at: now)
-        for window in windows {
-            _ = window.redockIfDisplayReturns()
+        let pendingWindows = pending
+        for pendingWindow in pendingWindows {
+            if pendingWindow.redockIfDisplayReturns() { adopt(pendingWindow) }
+        }
+        pending.removeAll { $0.pendingRedock == nil || $0.pendingRedockExpired }
+        let currentWindows = windows
+        for window in currentWindows {
             let blockedByPeeked = windows.contains { $0 !== window && $0.phase.isPeeked }
             window.evaluate(mouseQ: mouseQ, mouseVelocity: mouseVelocity,
                             frontmost: delegate.isFrontmost(window.window),

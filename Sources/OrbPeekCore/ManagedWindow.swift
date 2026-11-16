@@ -52,6 +52,7 @@ package final class ManagedWindow {
     package struct PendingRedock {
         package let screenID: CGDirectDisplayID
         package let releasedAt: Date
+        package let placedFrame: CGRect
     }
     package private(set) var pendingRedock: PendingRedock?
     private var fakeStrip: (any SnapshotStripHandling)?
@@ -110,7 +111,7 @@ package final class ManagedWindow {
         dock(to: newEdge)
     }
 
-    package func dock(to newEdge: DockEdge? = nil) {
+    package func dock(to newEdge: DockEdge? = nil, targetScreenID: CGDirectDisplayID? = nil) {
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
         transition?.cancel()
@@ -124,6 +125,8 @@ package final class ManagedWindow {
             let visible = geometry.quartzVisibleFrame(of: screen)
             restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
             restoreSize = frame.size
+        } else if let targetScreenID {
+            dockScreenID = targetScreenID
         } else if phase != .docked,
                   let recordedID = dockScreenID,
                   geometry.screen(withDisplayID: recordedID) != nil,
@@ -253,7 +256,8 @@ package final class ManagedWindow {
                                         fallbackFrame: restoreFrame, centered: exit == .offline,
                                         geometry: delegate.geometry)
         if exit == .offline {
-            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0, releasedAt: clock())
+            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0, releasedAt: clock(),
+                                          placedFrame: window.frame ?? restoreFrame)
             window.raise()
             delegate.offlineWindowReleased(self)
         }
@@ -276,11 +280,22 @@ package final class ManagedWindow {
               let delegate, let screen = delegate.geometry.screen(withDisplayID: pending.screenID) else {
             return false
         }
+        if isLeftMousePressed() { return false }
+        if let frame = window.frame {
+            let expected = pending.placedFrame
+            let unchanged = abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2 &&
+                abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
+            if !unchanged {
+                log("skip late re-dock: user moved/resized window after release")
+                pendingRedock = nil
+                return false
+            }
+        }
         pendingRedock = nil
         valid = true
         phase = .idle
         log("display \(screen.id) returned; re-docking edge=\(edge)")
-        dock(to: edge)
+        dock(to: edge, targetScreenID: pending.screenID)
         return true
     }
 

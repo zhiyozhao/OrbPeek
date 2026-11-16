@@ -109,6 +109,7 @@ final class FakeDelegate: WindowDockDelegate {
     var removed: [ManagedWindow] = []
     var stateChangeCount = 0
     var activationCount = 0
+    var onOfflineRelease: ((ManagedWindow) -> Void)?
 
     init(layout: ScreenLayout) { self.layoutBox = LayoutBox(layout) }
     func makeStrip() -> any SnapshotStripHandling {
@@ -120,7 +121,7 @@ final class FakeDelegate: WindowDockDelegate {
     func activate(window: any WindowHandle) { activationCount += 1 }
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }
     func dockStateDidChange() { stateChangeCount += 1 }
-    func offlineWindowReleased(_ managed: ManagedWindow) {}
+    func offlineWindowReleased(_ managed: ManagedWindow) { onOfflineRelease?(managed) }
     func removeManaged(_ managed: ManagedWindow) {
         removed.append(managed)
         stateChangeCount += 1
