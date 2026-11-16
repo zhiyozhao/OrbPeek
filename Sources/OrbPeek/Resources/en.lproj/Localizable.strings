@@ -16,6 +16,7 @@
 "menu.undockHint" = "Click to Undock";
 "menu.settings" = "Settings…";
 "menu.openLog" = "Open Log…";
+"menu.version" = "OrbPeek %@";
 "menu.quit" = "Quit OrbPeek";
 "menu.window" = "Window";
 "menu.close" = "Close";
