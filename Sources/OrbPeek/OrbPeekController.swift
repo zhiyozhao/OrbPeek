@@ -233,16 +233,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     func restoreAll() {
+        persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
         managed.removeAll()
-        clearDockState()
         rebuildMenu()
         Log.info("restored all docked windows on signal")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        persistDockedWindows(cleanExit: true, exitedAt: Date())
         for m in managed { m.restore() }
-        clearDockState()
         Log.info("terminated")
     }
 
@@ -442,8 +442,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         rebuildMenu()
     }
 
-    private func persistDockedWindows() {
-        let records = managed.compactMap { $0.persistenceRecord() }
+    private func persistDockedWindows(cleanExit: Bool = false, exitedAt: Date? = nil) {
+        let records = managed.compactMap { $0.persistenceRecord(cleanExit: cleanExit, exitedAt: exitedAt) }
         do {
             if records.isEmpty { try dockStateStore.clear() }
             else { try dockStateStore.save(records) }
@@ -460,9 +460,18 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private func recoverOrphanedWindowsIfPossible() {
         guard recoveryPending, AXWindow.isProcessTrusted else { return }
         recoveryPending = false
-        DockRecovery(store: dockStateStore).recover(geometry: geometry) { [weak self] record in
-            self?.windowsForRecovery(record) ?? []
-        }
+        DockRecovery(store: dockStateStore, redockAfterUpgrade: true).recover(
+            geometry: geometry,
+            resolver: { [weak self] record in self?.windowsForRecovery(record) ?? [] },
+            onRedock: { [weak self] record, window in self?.redockRecoveredWindow(record, window: window) }
+        )
+    }
+
+    private func redockRecoveredWindow(_ record: DockedWindowRecord, window: any WindowHandle) {
+        let managedWindow = ManagedWindow(window: window, edge: record.edge, delegate: self)
+        managed.append(managedWindow)
+        managedWindow.dock()
+        rebuildMenu()
     }
 
     private func windowsForRecovery(_ record: DockedWindowRecord) -> [any WindowHandle] {

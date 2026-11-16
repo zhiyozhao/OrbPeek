@@ -70,12 +70,13 @@ package final class ManagedWindow {
 
     package var appName: String { delegate?.nameForWindow(window) ?? "Window" }
 
-    package func persistenceRecord() -> DockedWindowRecord? {
+    package func persistenceRecord(cleanExit: Bool = false, exitedAt: Date? = nil) -> DockedWindowRecord? {
         guard valid, phase != .idle, let pid = window.pid else { return nil }
         return DockedWindowRecord(
             processID: pid, bundleIdentifier: window.bundleIdentifier, title: window.title,
             windowID: windowID, restoreFrame: restoreFrame,
-            parkedFrame: window.frame ?? restoreFrame, dockScreenID: dockScreenID, edge: edge
+            parkedFrame: window.frame ?? restoreFrame, dockScreenID: dockScreenID, edge: edge,
+            cleanExit: cleanExit, exitedAt: exitedAt
         )
     }
 

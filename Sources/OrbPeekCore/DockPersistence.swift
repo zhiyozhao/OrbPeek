@@ -23,9 +23,13 @@ package struct DockedWindowRecord: Codable, Equatable {
     package var parkedFrame: PersistedRect
     package var dockScreenID: CGDirectDisplayID?
     package var edge: DockEdge
+    package var cleanExit: Bool?
+    package var exitedAt: Date?
+    package var isCleanExit: Bool { cleanExit ?? false }
 
     package init(processID: pid_t, bundleIdentifier: String?, title: String?, windowID: CGWindowID?,
-                 restoreFrame: CGRect, parkedFrame: CGRect, dockScreenID: CGDirectDisplayID?, edge: DockEdge) {
+                 restoreFrame: CGRect, parkedFrame: CGRect, dockScreenID: CGDirectDisplayID?, edge: DockEdge,
+                 cleanExit: Bool = false, exitedAt: Date? = nil) {
         self.processID = processID
         self.bundleIdentifier = bundleIdentifier
         self.title = title
@@ -34,6 +38,8 @@ package struct DockedWindowRecord: Codable, Equatable {
         self.parkedFrame = PersistedRect(parkedFrame)
         self.dockScreenID = dockScreenID
         self.edge = edge
+        self.cleanExit = cleanExit
+        self.exitedAt = exitedAt
     }
 }
 
@@ -69,28 +75,59 @@ package struct DockStateStore {
 @MainActor
 package struct DockRecovery {
     package let store: DockStateStore
+    package let redockAfterUpgrade: Bool
+    package let now: () -> Date
+    package var log: (String) -> Void
 
-    package init(store: DockStateStore) { self.store = store }
+    package init(store: DockStateStore, redockAfterUpgrade: Bool = true,
+                 now: @escaping () -> Date = Date.init, log: @escaping (String) -> Void = Log.info) {
+        self.store = store
+        self.redockAfterUpgrade = redockAfterUpgrade
+        self.now = now
+        self.log = log
+    }
 
     package func recover(geometry: WindowGeometry,
-                         resolver: (DockedWindowRecord) -> [any WindowHandle]) {
+                         resolver: (DockedWindowRecord) -> [any WindowHandle],
+                         onRedock: ((DockedWindowRecord, any WindowHandle) -> Void)? = nil) {
         guard let records = try? store.load() else {
             try? store.clear()
             return
         }
-        defer { try? store.clear() }
+        try? store.clear()
+        log("launch recovery loaded records=\(records.count)")
         var recovered = Set<ObjectIdentifier>()
         for record in records {
             let candidates = resolver(record)
-            let titled = candidates.filter { record.title == nil || $0.title == record.title }
+            log("recovery app=\(record.bundleIdentifier ?? "unknown") candidates=\(candidates.count) cleanExit=\(record.isCleanExit)")
+            let titled = record.isCleanExit ? candidates : candidates.filter { record.title == nil || $0.title == record.title }
             let matched = titled.min { lhs, rhs in
                 func score(_ window: any WindowHandle) -> CGFloat {
                     guard let frame = window.frame else { return .infinity }
-                    let parked = record.parkedFrame.rect
-                    return abs(frame.minX - parked.minX) + abs(frame.minY - parked.minY) +
-                        abs(frame.width - parked.width) + abs(frame.height - parked.height)
+                    let reference = record.isCleanExit ? record.restoreFrame.rect : record.parkedFrame.rect
+                    return abs(frame.minX - reference.minX) + abs(frame.minY - reference.minY) +
+                        abs(frame.width - reference.width) + abs(frame.height - reference.height)
                 }
                 return score(lhs) < score(rhs)
+            }
+            if record.isCleanExit {
+                guard redockAfterUpgrade, let exitedAt = record.exitedAt else {
+                    log("skip clean-exit record: policy or timestamp unavailable")
+                    continue
+                }
+                let age = now().timeIntervalSince(exitedAt)
+                guard age >= 0 && age <= 120 else {
+                    log("skip expired clean-exit record age=\(Int(age))s")
+                    continue
+                }
+                if let matched, let onRedock {
+                    log("re-dock recovered window edge=\(record.edge) age=\(Int(age))s")
+                    onRedock(record, matched)
+                    recovered.insert(ObjectIdentifier(matched))
+                } else {
+                    log("clean-exit window not found; skip")
+                }
+                continue
             }
             if let matched, let frame = matched.frame {
                 let fullyVisible = geometry.layout.screens.contains {
