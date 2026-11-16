@@ -14,45 +14,22 @@ capture_window() {
 }
 
 open_demo() {
-    local directory=$1 filename
+    local directory=$1 binary pid title
     mkdir -p "$directory"
-    if [[ $LANG == en ]]; then
-        filename="Git Cheatsheet.rtf"
-        cat > "$directory/demo.html" <<'HTML'
-<meta charset="utf-8"><style>body{font:14px -apple-system}h1{font-size:26px}h2{font-size:17px;margin:16px 0 6px}table{border-spacing:0}td{padding:3px 18px 3px 0}td:first-child{font-family:Menlo;font-size:13px;white-space:nowrap}</style>
-<h1>Git Cheatsheet</h1>
-<h2>View</h2><table><tr><td>git status</td><td>Working tree changes</td></tr><tr><td>git log --oneline</td><td>Commit history</td></tr><tr><td>git diff</td><td>Unstaged changes</td></tr></table>
-<h2>Branches</h2><table><tr><td>git switch -c &lt;name&gt;</td><td>Create and switch</td></tr><tr><td>git branch -d &lt;name&gt;</td><td>Delete a branch</td></tr></table>
-<h2>Undo</h2><table><tr><td>git restore &lt;file&gt;</td><td>Discard working tree changes</td></tr><tr><td>git restore --staged &lt;file&gt;</td><td>Unstage</td></tr><tr><td>git commit --amend</td><td>Amend the last commit</td></tr></table>
-<h2>Remote</h2><table><tr><td>git fetch</td><td>Fetch updates</td></tr><tr><td>git pull --rebase</td><td>Pull and rebase</td></tr><tr><td>git push</td><td>Push</td></tr></table>
-HTML
-    else
-        filename="Git 速查.rtf"
-        cat > "$directory/demo.html" <<'HTML'
-<meta charset="utf-8"><style>body{font:14px -apple-system}h1{font-size:26px}h2{font-size:17px;margin:16px 0 6px}table{border-spacing:0}td{padding:3px 18px 3px 0}td:first-child{font-family:Menlo;font-size:13px;white-space:nowrap}</style>
-<h1>Git 速查</h1>
-<h2>查看</h2><table><tr><td>git status</td><td>当前改动</td></tr><tr><td>git log --oneline</td><td>提交历史</td></tr><tr><td>git diff</td><td>未暂存的改动</td></tr></table>
-<h2>分支</h2><table><tr><td>git switch -c &lt;名称&gt;</td><td>新建并切换</td></tr><tr><td>git branch -d &lt;名称&gt;</td><td>删除分支</td></tr></table>
-<h2>撤销</h2><table><tr><td>git restore &lt;文件&gt;</td><td>丢弃工作区改动</td></tr><tr><td>git restore --staged &lt;文件&gt;</td><td>取消暂存</td></tr><tr><td>git commit --amend</td><td>修改上一次提交</td></tr></table>
-<h2>远程</h2><table><tr><td>git fetch</td><td>获取更新</td></tr><tr><td>git pull --rebase</td><td>拉取并变基</td></tr><tr><td>git push</td><td>推送</td></tr></table>
-HTML
-    fi
-    textutil -convert rtf "$directory/demo.html" -output "$directory/$filename"
-    peekaboo app launch "TextEdit" --new-instance --open "$directory/$filename" \
-        --wait-ready --wait-for-window --foreground >/dev/null
-    local pid
-    pid=$(pgrep -n TextEdit)
-    local window_id
-    window_id=$(peekaboo window list --pid "$pid" --json | DEMO_FILENAME="$filename" python3 -c \
-        'import json,os,sys; data=json.load(sys.stdin); matches=[w for w in data["data"]["windows"] if w.get("window_title") == os.environ["DEMO_FILENAME"]]; assert len(matches)==1; print(matches[0]["window_id"])')
-    peekaboo window set-bounds --window-id "$window_id" --x 100 --y 100 --width 900 --height 650 >/dev/null
-    printf '%s\n' "$window_id"
+    binary="$ROOT/Artifacts/orbpeek-demo/demo-window"
+    swiftc "$ROOT/Scripts/demo-window.swift" -o "$binary"
+    "$binary" --appearance "$VARIANT" --language "$LANG" >"$directory/demo-window.log" 2>&1 &
+    pid=$!
+    sleep 1
+    if [[ $LANG == en ]]; then title="Git Cheatsheet"; else title="Git 速查"; fi
+    peekaboo window list --pid "$pid" --json | DEMO_TITLE="$title" python3 -c \
+        'import json,os,sys; data=json.load(sys.stdin); matches=[w for w in data["data"]["windows"] if w.get("window_title") == os.environ["DEMO_TITLE"]]; assert len(matches)==1; print(matches[0]["window_id"])'
 }
 
 if [[ ${1:-} == "--trial" ]]; then
     WINDOW_ID=$(open_demo "$TRIAL")
     capture_window "$WINDOW_ID" "$TRIAL/normal.png"
-    peekaboo window close --window-id "$WINDOW_ID" >/dev/null
+    peekaboo window close --window-id "$WINDOW_ID" >/dev/null 2>&1 || true
     printf '%s\n' "$TRIAL/normal.png"
     exit 0
 fi
@@ -83,6 +60,6 @@ peekaboo move --at "$EDGE_X,400" --smooth --duration 400 --foreground
 sleep 1
 capture_window "$WINDOW_ID" "$SOURCE/peeked.png"
 peekaboo move --at "2400,400" --smooth --duration 300 --foreground
-peekaboo window close --window-id "$WINDOW_ID" >/dev/null
+peekaboo window close --window-id "$WINDOW_ID" >/dev/null 2>&1 || true
 
 find "$SOURCE" -maxdepth 1 -name '*.png' -print | sort
