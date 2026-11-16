@@ -30,7 +30,8 @@ package final class DockSession {
     }
 
     @discardableResult
-    package func add(window: any WindowHandle, edge: DockEdge) -> ManagedWindow {
+    package func add(window: any WindowHandle, edge: DockEdge,
+                     configure: ((ManagedWindow) -> Void)? = nil) -> ManagedWindow {
         let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: clock)
         managed.offlinePolicyOverride = options.offlinePolicy
         managed.log = { [weak self, weak managed] message in
@@ -39,9 +40,18 @@ package final class DockSession {
             let wid = managed.windowID.map(String.init) ?? "pending"
             self?.log("[win=\(managed.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
         }
+        configure?(managed)
         windows.append(managed)
         managed.dock()
         return managed
+    }
+
+    package func adopt(_ managed: ManagedWindow) {
+        if !windows.contains(where: { $0 === managed }) { windows.append(managed) }
+    }
+
+    package func remove(_ managed: ManagedWindow) {
+        windows.removeAll { $0 === managed }
     }
 
     package func lock() {
@@ -75,24 +85,30 @@ package final class DockSession {
         log("display reconfiguration ended; \(layoutDescription)")
     }
 
-    package func poll() {
+    package func poll(mouseQ: CGPoint = .zero, mouseVelocity: CGPoint = .zero,
+                      blockedBySmaller: ((ManagedWindow) -> Bool)? = nil) {
         guard !screenLocked else { return }
         let now = clock()
         let isSettling = settling.isSettling(at: now)
         for window in windows {
             _ = window.redockIfDisplayReturns()
-            window.evaluate(mouseQ: .zero, mouseVelocity: .zero,
+            let blockedByPeeked = windows.contains { $0 !== window && $0.phase.isPeeked }
+            window.evaluate(mouseQ: mouseQ, mouseVelocity: mouseVelocity,
                             frontmost: delegate.isFrontmost(window.window),
-                            blockedByPeeked: false, blockedBySmaller: false,
+                            blockedByPeeked: blockedByPeeked,
+                            blockedBySmaller: blockedBySmaller?(window) ?? false,
                             settling: isSettling, now: now)
         }
     }
 
-    package func quit() {
+    @discardableResult
+    package func quit() -> [ManagedWindow] {
         log("quit restore begin count=\(windows.count)")
-        for window in windows { window.restore() }
+        let exited = windows
+        for window in exited { window.restore() }
         windows.removeAll()
         log("quit restore complete")
+        return exited
     }
 
     private var layoutDescription: String {

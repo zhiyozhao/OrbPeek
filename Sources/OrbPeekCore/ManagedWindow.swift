@@ -16,6 +16,11 @@ package protocol WindowDockDelegate: AnyObject {
     func removeManaged(_ managed: ManagedWindow)
 }
 
+package extension WindowDockDelegate {
+    var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
+    func offlineWindowReleased(_ managed: ManagedWindow) {}
+}
+
 // Per-window state machine. Phases: idle, docked, docking (capture in flight),
 // and peeked. Transitions are serialized by one cancellable Task per window.
 @MainActor

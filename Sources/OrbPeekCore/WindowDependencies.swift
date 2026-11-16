@@ -18,6 +18,10 @@ package protocol WindowHandle: AnyObject {
     func isSameWindow(as other: any WindowHandle) -> Bool
 }
 
+package extension WindowHandle {
+    var windowID: CGWindowID? { nil }
+}
+
 package struct DockConfiguration {
     package var edgeBuffer: CGFloat
     package var sliverPx: CGFloat

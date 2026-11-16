@@ -26,7 +26,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     package var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
 
     private let statusItem: NSStatusItem
-    private var managed: [ManagedWindow] = []
+    private lazy var session = DockSession(delegate: self)
+    private var managed: [ManagedWindow] { session.windows }
     private var offlinePending: [ManagedWindow] = []
     private let dockStateStore = DockStateStore()
     private var recoveryPending = true
@@ -157,7 +158,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // seconds after a screen change, "settling" suppresses the external-move
     // release: managed windows are re-anchored to their recomputed positions
     // instead of being dropped where macOS left them.
-    private var displaySettling = DisplaySettling()
 
     private func installSettleObservers() {
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -167,10 +167,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let controller = Unmanaged<OrbPeekController>.fromOpaque(context).takeUnretainedValue()
                 // kCGDisplayBeginConfigurationFlag (the C constant is not imported).
                 if flags.contains(CGDisplayChangeSummaryFlags(rawValue: 1 << 0)) {
-                    controller.displaySettling.displayReconfigurationBegan(at: Date())
+                    controller.session.settling.displayReconfigurationBegan(at: Date())
                     controller.logLayout("display reconfiguration begin")
                 } else {
-                    controller.displaySettling.displayReconfigurationEnded(at: Date())
+                    controller.session.settling.displayReconfigurationEnded(at: Date())
                     controller.logLayout("display reconfiguration end")
                 }
             }
@@ -180,7 +180,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             object: nil, queue: nil
         ) { _ in
             Task { @MainActor in
-                (NSApplication.shared.delegate as? OrbPeekController)?.displaySettling.screenParametersChanged(at: Date())
+                (NSApplication.shared.delegate as? OrbPeekController)?.session.settling.screenParametersChanged(at: Date())
                 (NSApplication.shared.delegate as? OrbPeekController)?.logLayout("screen parameters changed")
             }
         }
@@ -193,7 +193,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // Gate instead: freeze evaluation while locked (macOS preserves frames
     // across lock, so there is genuinely nothing to do). Same approach as
     // AltTab's ScreenLockEvents.
-    private var screenLocked = false
+    private var screenLocked: Bool { session.screenLocked }
 
     private func installSessionGate() {
         let dnc = DistributedNotificationCenter.default()
@@ -210,7 +210,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
             Task { @MainActor in
                 if let controller = NSApplication.shared.delegate as? OrbPeekController {
-                    controller.displaySettling.didWake(at: Date())
+                    controller.session.settling.didWake(at: Date())
                     controller.logLayout("wake")
                     controller.reseedLockState()
                 }
@@ -221,29 +221,28 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     @objc private nonisolated func handleScreenLocked() {
         Task { @MainActor in
-            self.screenLocked = true
+            self.session.lock()
             Log.info("screen locked, poll frozen")
         }
     }
 
     @objc private nonisolated func handleScreenUnlocked() {
         Task { @MainActor in
-            self.screenLocked = false
-            self.displaySettling.screenUnlocked(at: Date())
+            self.session.unlock()
             self.logLayout("screen unlocked")
         }
     }
 
     private func reseedLockState() {
         guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return }
-        screenLocked = (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false
+        if (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false { session.lock() }
+        else { session.unlock() }
     }
 
     func restoreAll() {
         Log.info("signal restore begin count=\(managed.count)")
-        for m in managed { m.restore() }
-        persistDockedWindows(cleanExit: true, exitedAt: Date())
-        managed.removeAll()
+        let exited = session.quit()
+        persistDockedWindows(cleanExit: true, exitedAt: Date(), windows: exited)
         offlinePending.removeAll()
         rebuildMenu()
         Log.info("restored all docked windows on signal")
@@ -251,8 +250,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func applicationWillTerminate(_ notification: Notification) {
         Log.info("quit restore begin count=\(managed.count)")
-        for m in managed { m.restore() }
-        persistDockedWindows(cleanExit: true, exitedAt: Date())
+        let exited = session.quit()
+        persistDockedWindows(cleanExit: true, exitedAt: Date(), windows: exited)
         offlinePending.removeAll()
         Log.info("quit restore complete; terminated")
     }
@@ -417,17 +416,17 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // MARK: Docking
 
     private func makeManagedWindow(_ window: any WindowHandle, edge: DockEdge) -> ManagedWindow {
-        let managedWindow = ManagedWindow(window: window, edge: edge, delegate: self)
-        managedWindow.log = { [weak managedWindow] message in
-            guard let managedWindow else { return }
-            let app = managedWindow.window.bundleIdentifier ?? "unknown"
-            let wid = managedWindow.windowID.map(String.init) ?? "pending"
-            Log.info("[win=\(managedWindow.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
+        return session.add(window: window, edge: edge) { managedWindow in
+            managedWindow.log = { [weak managedWindow] message in
+                guard let managedWindow else { return }
+                let app = managedWindow.window.bundleIdentifier ?? "unknown"
+                let wid = managedWindow.windowID.map(String.init) ?? "pending"
+                Log.info("[win=\(managedWindow.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
+            }
+            if let axWindow = window as? AXWindow {
+                axWindow.log = { message in managedWindow.log(message) }
+            }
         }
-        if let axWindow = window as? AXWindow {
-            axWindow.log = { message in managedWindow.log(message) }
-        }
-        return managedWindow
     }
 
     // Dock the frontmost window off the given edge of the desktop.
@@ -451,9 +450,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             return
         }
 
-        let m = makeManagedWindow(window, edge: edge)
-        managed.append(m)
-        m.dock()
+        _ = makeManagedWindow(window, edge: edge)
         rebuildMenu()
         Log.info("docked window frame=\(frame) edge=\(edge), total=\(managed.count)")
     }
@@ -465,14 +462,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     package func removeManaged(_ m: ManagedWindow) {
         m.detachStrip()
         if let wid = m.windowID { captureEngine.evict(wid) }
-        managed.removeAll { $0 === m }
+        session.remove(m)
         Log.info("removed managed window, total=\(managed.count)")
         persistDockedWindows()
         rebuildMenu()
     }
 
-    private func persistDockedWindows(cleanExit: Bool = false, exitedAt: Date? = nil) {
-        let records = managed.compactMap { $0.persistenceRecord(cleanExit: cleanExit, exitedAt: exitedAt) }
+    private func persistDockedWindows(cleanExit: Bool = false, exitedAt: Date? = nil,
+                                      windows: [ManagedWindow]? = nil) {
+        let records = (windows ?? managed).compactMap { $0.persistenceRecord(cleanExit: cleanExit, exitedAt: exitedAt) }
         do {
             if records.isEmpty { try dockStateStore.clear() }
             else { try dockStateStore.save(records) }
@@ -512,9 +510,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func redockRecoveredWindow(_ record: DockedWindowRecord, window: any WindowHandle) {
-        let managedWindow = makeManagedWindow(window, edge: record.edge)
-        managed.append(managedWindow)
-        managedWindow.dock()
+        _ = makeManagedWindow(window, edge: record.edge)
         rebuildMenu()
     }
 
@@ -587,20 +583,12 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         lastMouseQ = q
         lastMouseAt = now
-        let settling = displaySettling.isSettling(at: now)
         for pending in offlinePending {
-            if pending.redockIfDisplayReturns() { managed.append(pending) }
+            if pending.redockIfDisplayReturns() { session.adopt(pending) }
         }
         offlinePending.removeAll { $0.pendingRedock == nil || $0.pendingRedockExpired }
-        for m in managed {
-            // Computed per window, not hoisted: a peek fires synchronously, so
-            // a window later in this same tick must see it — otherwise two
-            // overlapping windows can both peek in one tick.
-            let blockedByPeeked = managed.contains { $0 !== m && $0.phase.isPeeked }
-            let blockedByCloser = m.phase.isDocked && closerDockedUnder(q, excluding: m)
-            m.evaluate(mouseQ: q, mouseVelocity: velocity, frontmost: appIsFrontmost(m),
-                       blockedByPeeked: blockedByPeeked, blockedBySmaller: blockedByCloser,
-                       settling: settling, now: now)
+        session.poll(mouseQ: q, mouseVelocity: velocity) { [weak self] in
+            self?.closerDockedUnder(q, excluding: $0) ?? false
         }
         // While a window is peeked it is raised to the front — drop the strips
         // to normal level so they can't cover it; restore floating after.
