@@ -54,6 +54,7 @@ package protocol SnapshotStripHandling: AnyObject {
     var thickness: CGFloat { get }
     var alphaValue: CGFloat { get set }
     var level: NSWindow.Level { get set }
+    var isVisible: Bool { get }
     func show(image: NSImage?, frame: NSRect, edge: DockEdge)
     func updateFrame(_ frame: NSRect, edge: DockEdge)
     func hide()

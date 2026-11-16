@@ -216,10 +216,10 @@ package struct WindowGeometry {
         let v = quartzVisibleFrame(of: screen)
         let perp = absolutePerp(for: edge, perpOffset: storedPerp, screen: screen)
         switch edge {
-        case .left: return CGRect(x: v.minX, y: perp, width: thickness, height: size.height)
-        case .right: return CGRect(x: v.maxX - thickness, y: perp, width: thickness, height: size.height)
-        case .up: return CGRect(x: perp, y: v.minY, width: size.width, height: thickness)
-        case .down: return CGRect(x: perp, y: v.maxY - thickness, width: size.width, height: thickness)
+        case .left: return CGRect(x: v.minX, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height), width: thickness, height: size.height)
+        case .right: return CGRect(x: v.maxX - thickness, y: clamped(perp, lo: v.minY, hi: v.maxY - size.height), width: thickness, height: size.height)
+        case .up: return CGRect(x: clamped(perp, lo: v.minX, hi: v.maxX - size.width), y: v.minY, width: size.width, height: thickness)
+        case .down: return CGRect(x: clamped(perp, lo: v.minX, hi: v.maxX - size.width), y: v.maxY - thickness, width: size.width, height: thickness)
         }
     }
 

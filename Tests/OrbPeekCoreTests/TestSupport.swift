@@ -77,6 +77,7 @@ final class FakeStrip: SnapshotStripHandling {
     var alphaValue: CGFloat = 1
     var level: NSWindow.Level = .floating
     var visible = false
+    var isVisible: Bool { visible }
     func show(image: NSImage?, frame: NSRect, edge: DockEdge) {
         self.frame = frame
         thickness = edge.slideAxis == .vertical ? frame.height : frame.width
@@ -98,13 +99,18 @@ final class FakeDelegate: WindowDockDelegate {
     var geometry: WindowGeometry { WindowGeometry(layoutProvider: { self.layoutBox.layout }) }
     let fakeCapturer = FakeCapturer()
     var capturer: any SliceCapturing { fakeCapturer }
-    let strip = FakeStrip()
+    var strips: [FakeStrip] = []
+    var strip: FakeStrip { strips[0] }
     var frontmost = true
     var removed: [ManagedWindow] = []
     var stateChangeCount = 0
 
     init(layout: ScreenLayout) { self.layoutBox = LayoutBox(layout) }
-    func makeStrip() -> any SnapshotStripHandling { strip }
+    func makeStrip() -> any SnapshotStripHandling {
+        let strip = FakeStrip()
+        strips.append(strip)
+        return strip
+    }
     func nameForWindow(_ window: any WindowHandle) -> String { "Fake" }
     func activate(window: any WindowHandle) {}
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }

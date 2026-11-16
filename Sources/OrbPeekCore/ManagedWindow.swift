@@ -43,6 +43,7 @@ package final class ManagedWindow {
                       width: restoreSize.width, height: restoreSize.height)
     }
     private var fakeStrip: (any SnapshotStripHandling)?
+    private var lastStripLayout: ScreenLayout?
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
     package private(set) var phase: Phase = .idle
@@ -343,6 +344,31 @@ package final class ManagedWindow {
         if fakeStrip.level != target { fakeStrip.level = target }
     }
 
+    private func ensureStripVisible(geometry: WindowGeometry, config: DockConfiguration,
+                                    capturer: any SliceCapturing, screen: ScreenInfo, size: CGSize) {
+        guard let fakeStrip else { return }
+        let quartz = geometry.sliverRect(edge: edge, size: size, perp: perp, screen: screen,
+                                         thickness: config.sliverPx)
+        let expected = geometry.toAppKit(quartz)
+        let onScreen = geometry.quartzVisibleFrame(of: screen).contains(quartz)
+        let layoutChanged = lastStripLayout != geometry.layout
+        if layoutChanged || !onScreen || !fakeStrip.isVisible || fakeStrip.thickness != config.sliverPx {
+            log("strip re-show frame=\(expected) onScreen=\(onScreen) wasVisible=\(fakeStrip.isVisible)")
+            let image = windowID.flatMap {
+                capturer.cachedSlice(for: $0, edge: edge, size: size, thickness: config.sliverPx)
+            }
+            fakeStrip.show(image: image, frame: expected, edge: edge)
+        } else if fakeStrip.frame != expected {
+            fakeStrip.updateFrame(expected, edge: edge)
+        }
+        let opacity = CGFloat(config.stripOpacity)
+        if fakeStrip.alphaValue != opacity { fakeStrip.alphaValue = opacity }
+        lastStripLayout = geometry.layout
+        if !onScreen || !fakeStrip.isVisible {
+            log("strip VISIBILITY FAILURE frame=\(expected) visible=\(fakeStrip.isVisible)")
+        }
+    }
+
     private func moveTo(_ pos: CGPoint?) {
         guard let pos else { return }
         window.position = pos
@@ -453,19 +479,8 @@ package final class ManagedWindow {
                 }
                 moveTo(target)
             }
-            if let fakeStrip {
-                let expected = geometry.toAppKit(
-                    geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen, thickness: config.sliverPx)
-                )
-                if fakeStrip.thickness != config.sliverPx, let wid = windowID,
-                   let img = capturer.cachedSlice(for: wid, edge: edge, size: frame.size, thickness: config.sliverPx) {
-                    fakeStrip.show(image: img, frame: expected, edge: edge)
-                } else if fakeStrip.frame != expected {
-                    fakeStrip.updateFrame(expected, edge: edge)
-                }
-                let opacity = CGFloat(config.stripOpacity)
-                if fakeStrip.alphaValue != opacity { fakeStrip.alphaValue = opacity }
-            }
+            ensureStripVisible(geometry: geometry, config: config, capturer: capturer,
+                               screen: screen, size: frame.size)
             let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
                                              thickness: config.sliverPx)
             if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
