@@ -8,6 +8,6 @@
 python3 -m http.server 4173 --bind 127.0.0.1 --directory site
 ```
 
-然后打开 `http://127.0.0.1:4173/`。真实录屏尚未接入，`demo-placeholder` 是有意保留的占位；素材完成后替换该区域，不要拿示意图冒充实拍。
+然后打开 `http://127.0.0.1:4173/`。首屏已接入真实窗口截图 + 代码合成动画。`orbpeek-demo-{light,dark}.mp4` 和首图由 `Scripts/render-demo.py` 生成并复制到本目录，不要手改成示意图。
 
 不部署、不绑定域名。上线需用户批准，DNS 和托管由 infra-ops 处理。
