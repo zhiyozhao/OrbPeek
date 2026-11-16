@@ -21,6 +21,6 @@
 "menu.window" = "Window";
 "menu.close" = "Close";
 "alert.axTitle" = "OrbPeek Needs Accessibility Permission";
-"alert.axMessage" = "OrbPeek can't move windows without it. Enable OrbPeek in System Settings → Privacy & Security → Accessibility (click + to add it if it's not listed), then relaunch OrbPeek.";
+"alert.axMessage" = "OrbPeek can't move windows without it. Enable OrbPeek in System Settings → Privacy & Security → Accessibility (click + to add it if it's not listed). You can use OrbPeek as soon as it is enabled; no relaunch is needed.";
 "alert.openSettings" = "Open Settings";
 "alert.later" = "Later";
