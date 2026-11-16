@@ -16,15 +16,38 @@ open_demo() {
     local directory=$1
     mkdir -p "$directory"
     cat > "$directory/OrbPeekDemo.txt" <<'TEXT'
-OrbPeek 演示窗口
+产品评审 · 会议要点
 
-这是一个专门演示的干净窗口，不包含个人信息。
-按 Control + Shift + 右方向键，把它贴到屏幕右边。
-鼠标碰到预览条，窗口就会滑出来。
+目标
+让常用资料留在手边，同时减少桌面上的窗口数量。
+
+本次进展
+- 窗口可以快速贴到屏幕任意一边。
+- 鼠标碰到预览条即可查看，离开后自动收回。
+- 支持多台显示器分别使用。
+- 异常退出后，下次启动会尝试恢复窗口。
+
+待确认
+- 调整默认快捷键，避免与其他窗口工具冲突。
+- 检查较窄窗口中的文字换行。
+- 验证锁屏和显示器插拔后的位置。
+
+接口示例
+GET /v1/windows/{id}
+{
+  "edge": "right",
+  "visible": false,
+  "preview": true
+}
+
+后续安排
+整理公开截图，确认没有私人内容；再补齐使用说明。
 TEXT
     peekaboo app launch "TextEdit" --new-instance --open "$directory/OrbPeekDemo.txt" \
         --wait-ready --wait-for-window --foreground >/dev/null
-    peekaboo window list --app TextEdit --json | python3 -c \
+    local pid
+    pid=$(pgrep -n TextEdit)
+    peekaboo window list --pid "$pid" --json | python3 -c \
         'import json,sys; data=json.load(sys.stdin); matches=[w for w in data["data"]["windows"] if w.get("window_title") == "OrbPeekDemo.txt"]; assert len(matches)==1; print(matches[0]["window_id"])'
 }
 
@@ -52,7 +75,7 @@ mkdir -p "$SOURCE"
 WINDOW_ID=$(open_demo "$SOURCE")
 capture_window "$WINDOW_ID" "$SOURCE/normal.png"
 
-peekaboo press ctrl+shift+right --app TextEdit --window-title OrbPeekDemo --foreground
+peekaboo press ctrl+shift+right --pid "$(pgrep -n TextEdit)" --window-title OrbPeekDemo --foreground
 sleep 1
 STRIP_ID=$(peekaboo window list --app OrbPeek --json | python3 -c \
     'import json,sys; ws=json.load(sys.stdin)["data"]["windows"]; candidates=[w for w in ws if w.get("is_on_screen") and (w["bounds"]["width"] <= 64 or w["bounds"]["height"] <= 64)]; assert candidates, "no preview-strip window found"; print(max(candidates, key=lambda w:w["bounds"]["x"])["window_id"])')
