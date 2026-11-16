@@ -44,6 +44,10 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 `make package` 和 release workflow 使用相同的 DMG 结构：app、`/Applications` 符号链接、UDZO。不要改变 `Info.plist` 中的 `com.orbpeek.OrbPeek`、`OrbPeek.app`、`OrbPeek-VERSION.dmg` 命名约定或 release secrets。
 
+Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段，缺段或空段会失败。这个改动只替换 `gh release create` 的 notes 来源；tag 触发、DEV X 签名、DMG 资产名和 cask URL 格式均不变，因此不影响发布与 Homebrew 兼容。
+
+发布清单：更新 CHANGELOG → `make check` → 提交并推送 main → 打 annotated `vX.Y.Z` tag 并推送 → 等 Release 和 tap 同步完成。版本无需手改 Info.plist。
+
 ## 调试入口
 
 - `OrbPeek.app/Contents/MacOS/OrbPeek --self-test`：需要辅助功能权限，会移动再恢复当前前台窗口；自动检查不运行它。

@@ -81,5 +81,6 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           DMG_NAME="${DMG_TEMPLATE/VERSION/$VERSION}"
+          Scripts/release-notes.sh "$VERSION" > release-notes.md
           gh release create "$GITHUB_REF_NAME" "$DMG_NAME" \
-            --title "$DISPLAY_NAME $VERSION" --generate-notes
+            --title "$DISPLAY_NAME $VERSION" --notes-file release-notes.md
