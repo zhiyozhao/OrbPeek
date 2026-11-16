@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VARIANT=${DEMO_VARIANT:-light}
 LANG=${DEMO_LANG:-zh}
-EDGE_X=${DEMO_EDGE_X:-3838}
+EDGE_X=${DEMO_EDGE_X:-1918}
 SOURCE=${DEMO_SOURCE:-"$ROOT/docs/assets/demo-source/$VARIANT"}
 TRIAL=${DEMO_TRIAL_OUT:-"$ROOT/Artifacts/orbpeek-demo/trial-window"}
 
@@ -46,20 +46,37 @@ EOF
 fi
 
 pgrep -x OrbPeek >/dev/null
+START=$(date +%s)
 mkdir -p "$SOURCE"
+ORBPID=$(pgrep -x OrbPeek)
+STRIP_COUNT_BEFORE=$(swift "$ROOT/Scripts/find-orbpeek-strip.swift" "$ORBPID" --count)
 WINDOW_ID=$(open_demo "$SOURCE")
 capture_window "$WINDOW_ID" "$SOURCE/normal.png"
 
-peekaboo press ctrl+shift+right --window-id "$WINDOW_ID" --foreground
+peekaboo window focus --window-id "$WINDOW_ID"
+osascript -e 'tell application "System Events" to key code 124 using {control down}'
 sleep 1
-STRIP_ID=$(peekaboo window list --app OrbPeek --json | python3 -c \
-    'import json,sys; ws=json.load(sys.stdin)["data"]["windows"]; candidates=[w for w in ws if w.get("is_on_screen") and (w["bounds"]["width"] <= 64 or w["bounds"]["height"] <= 64)]; assert candidates, "no preview-strip window found"; print(max(candidates, key=lambda w:w["bounds"]["x"])["window_id"])')
+STRIP_ID=$(swift "$ROOT/Scripts/find-orbpeek-strip.swift" "$ORBPID")
 capture_window "$STRIP_ID" "$SOURCE/docked.png"
 
-peekaboo move --at "$EDGE_X,400" --smooth --duration 400 --foreground
-sleep 1
+peekaboo move --at "$EDGE_X,400" --smooth --profile linear --duration 300 --foreground &
+MOVER=$!
+sleep 0.2
+capture_window "$WINDOW_ID" "$SOURCE/mid-peek.png"
+wait "$MOVER"
+sleep 0.3
 capture_window "$WINDOW_ID" "$SOURCE/peeked.png"
-peekaboo move --at "2400,400" --smooth --duration 300 --foreground
+peekaboo move --at "2400,400" --smooth --profile linear --duration 200 --foreground
+sleep 1
+peekaboo move --at "$EDGE_X,400" --smooth --profile linear --duration 200 --foreground
+sleep 0.5
+peekaboo drag --from "1500,110" --to "900,300" --duration 500 --window-id "$WINDOW_ID" --foreground
+peekaboo move --at "2400,400" --smooth --profile linear --duration 200 --foreground
 peekaboo window close --window-id "$WINDOW_ID" >/dev/null 2>&1 || true
+rm -f "$SOURCE/demo-window.log"
 
+STRIP_COUNT_AFTER=$(swift "$ROOT/Scripts/find-orbpeek-strip.swift" "$ORBPID" --count)
+[[ $STRIP_COUNT_AFTER == "$STRIP_COUNT_BEFORE" ]] || { echo 'OrbPeek preview-strip count changed unexpectedly' >&2; exit 1; }
+[[ $STRIP_COUNT_AFTER -gt $STRIP_COUNT_BEFORE ]] && { echo 'Demo strip remains' >&2; exit 1; }
+printf 'capture finished in %ss; preview strips before/after=%s/%s\n' "$(( $(date +%s) - START ))" "$STRIP_COUNT_BEFORE" "$STRIP_COUNT_AFTER"
 find "$SOURCE" -maxdepth 1 -name '*.png' -print | sort

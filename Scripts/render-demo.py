@@ -6,6 +6,7 @@ OrbPeek writes AX positions immediately (no easing) and polls at 30 Hz, so all
 synthetic motion uses linear 30 Hz samples; six-frame transitions aid legibility.
 """
 from pathlib import Path
+import shutil
 import subprocess
 from PIL import Image, ImageDraw
 
@@ -104,7 +105,8 @@ def render_variant(variant):
     out.mkdir(parents=True, exist_ok=True)
     for index, frame in enumerate(frames):
         frame.save(out / f"{index:04d}.jpg", quality=91, optimize=True)
-    normal_frame.save(ASSETS / f"orbpeek-poster-{variant}.png")
+    poster = ASSETS / f"orbpeek-poster-{variant}.png"
+    normal_frame.save(poster)
 
     video = ASSETS / f"orbpeek-demo-{variant}.mp4"
     subprocess.run(["ffmpeg", "-y", "-framerate", str(FPS), "-i", str(out / "%04d.jpg"),
@@ -121,6 +123,10 @@ def render_variant(variant):
           f"{gif.name}={gif.stat().st_size / 1e6:.2f}MB")
     if gif.stat().st_size > 3_000_000:
         print(f"warning: {gif} exceeds the 3MB target")
+    site_assets = ROOT / "site/assets"
+    site_assets.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(video, site_assets / video.name)
+    shutil.copy2(poster, site_assets / poster.name)
 
 
 def main():
