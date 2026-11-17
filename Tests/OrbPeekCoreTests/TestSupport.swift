@@ -109,6 +109,7 @@ final class FakeDelegate: WindowDockDelegate {
     var capturer: any SliceCapturing { fakeCapturer }
     var offlinePolicy: DockSessionOptions.OfflinePolicy = .migrate
     var slideAnimator: (any SlideAnimating)?
+    var reduceMotion = false
     var strips: [FakeStrip] = []
     var strip: FakeStrip { strips[0] }
     var frontmost = true

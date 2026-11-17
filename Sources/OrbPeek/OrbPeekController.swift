@@ -24,6 +24,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private let captureEngine = SliceCapturer()
     package var capturer: any SliceCapturing { captureEngine }
     package let slideAnimator = SlideAnimator()
+    package var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     package var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
 
     private let statusItem: NSStatusItem

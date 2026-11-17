@@ -107,6 +107,23 @@ struct SlideIntegrationTests {
         #expect(fixture.delegate.strip.frame == original)
     }
 
+    @Test("reduce-motion bypasses both overlay transitions")
+    func reduceMotionUsesDirectMoves() async {
+        let fixture = makeIdleFixture(layout: testLayout)
+        let animator = RecordingAnimator()
+        fixture.delegate.slideAnimator = animator
+        fixture.delegate.reduceMotion = true
+        fixture.delegate.fakeCapturer.captureImage = testImage()
+        fixture.managed.dock()
+        await drainTasks()
+        #expect(animator.plans.isEmpty)
+        #expect(fixture.window.storedFrame?.origin.x == -699)
+        fixture.delegate.fakeCapturer.cachedImage = NSImage(cgImage: testImage(), size: .zero)
+        fixture.managed.peek()
+        #expect(animator.plans.isEmpty)
+        #expect(fixture.window.storedFrame?.origin == CGPoint(x: 300, y: 580))
+    }
+
     @Test("missing capture uses the original direct-move path")
     func noImageFallback() async {
         let fixture = makeIdleFixture(layout: testLayout)

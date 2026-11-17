@@ -8,6 +8,7 @@ package protocol WindowDockDelegate: AnyObject {
     var capturer: any SliceCapturing { get }
     var offlinePolicy: DockSessionOptions.OfflinePolicy { get }
     var slideAnimator: (any SlideAnimating)? { get }
+    var reduceMotion: Bool { get }
     func offlineWindowReleased(_ managed: ManagedWindow)
     func makeStrip() -> any SnapshotStripHandling
     func nameForWindow(_ window: any WindowHandle) -> String
@@ -20,6 +21,7 @@ package protocol WindowDockDelegate: AnyObject {
 package extension WindowDockDelegate {
     var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
     var slideAnimator: (any SlideAnimating)? { nil }
+    var reduceMotion: Bool { false }
     func offlineWindowReleased(_ managed: ManagedWindow) {}
 }
 
@@ -233,8 +235,9 @@ package final class ManagedWindow {
         delegate.dockStateDidChange()
         guard let fakeStrip else { return }
         let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if let fullImage, let animator = delegate.slideAnimator, !reduceMotion {
+        let reduceMotion = delegate.reduceMotion
+        if let fullImage, let animator = delegate.slideAnimator,
+           SlideAnimationPlan.shouldAnimate(hasImage: true, reduceMotion: reduceMotion) {
             let plan = SlideAnimationPlan.dock(windowFrame: geometry.toAppKit(currentFrame),
                                                stripFrame: currentStripFrame, edge: edge)
             let started = animator.play(image: NSImage(cgImage: fullImage, size: currentFrame.size), plan: plan) { [weak self] _ in
@@ -266,10 +269,11 @@ package final class ManagedWindow {
         window.raise()
         delegate.activate(window: window)
         let targetPosition = delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen)
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reduceMotion = delegate.reduceMotion
         if let targetPosition,
            let image = windowID.flatMap({ delegate.capturer.cachedImage(for: $0) }),
-           let animator = delegate.slideAnimator, !reduceMotion {
+           let animator = delegate.slideAnimator,
+           SlideAnimationPlan.shouldAnimate(hasImage: true, reduceMotion: reduceMotion) {
             let stripFrame = delegate.geometry.toAppKit(
                 delegate.geometry.sliverRect(edge: edge, size: frame.size, perp: perp,
                                              screen: screen, thickness: delegate.config.sliverPx)
