@@ -86,6 +86,27 @@ struct SlideIntegrationTests {
         #expect(fixture.window.storedFrame?.origin == CGPoint(x: 300, y: 580))
     }
 
+    @Test("cancelling a peek preserves the strip on every edge", arguments: [DockEdge.left, .right, .up, .down])
+    func cancelKeepsStripFrame(edge: DockEdge) async {
+        let fixture = makeIdleFixture(layout: testLayout, edge: edge)
+        let animator = RecordingAnimator()
+        fixture.delegate.slideAnimator = animator
+        fixture.delegate.fakeCapturer.captureImage = testImage()
+        fixture.managed.dock()
+        await drainTasks()
+        animator.finish()
+        let original = fixture.delegate.strip.frame
+        fixture.delegate.fakeCapturer.cachedImage = NSImage(cgImage: testImage(), size: .zero)
+        fixture.managed.peek()
+        for _ in 0..<3 {
+            fixture.clock.advance(0.03)
+            tick(fixture)
+        }
+        fixture.managed.dock()
+        await drainTasks()
+        #expect(fixture.delegate.strip.frame == original)
+    }
+
     @Test("missing capture uses the original direct-move path")
     func noImageFallback() async {
         let fixture = makeIdleFixture(layout: testLayout)

@@ -66,6 +66,7 @@ package final class ManagedWindow {
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
     private var animationGeneration = 0
+    private var slideInProgress = false
     package private(set) var phase: Phase = .idle
     package var gesture = false
     package var offlinePolicyOverride: DockSessionOptions.OfflinePolicy?
@@ -109,6 +110,7 @@ package final class ManagedWindow {
 
     private func cancelTransition() {
         animationGeneration += 1
+        slideInProgress = false
         transition?.cancel()
         delegate?.slideAnimator?.cancel()
     }
@@ -277,8 +279,10 @@ package final class ManagedWindow {
             let generation = animationGeneration
             let started = animator.play(image: image, plan: plan) { [weak self] _ in
                 guard let self, generation == self.animationGeneration else { return }
+                self.slideInProgress = false
                 self.moveTo(targetPosition)
             }
+            slideInProgress = started
             if !started { moveTo(targetPosition) }
         } else {
             moveTo(targetPosition)
@@ -601,7 +605,9 @@ package final class ManagedWindow {
                 return
             } else {
                 bigDriftSince = nil
-                perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+                if !slideInProgress {
+                    perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+                }
             }
             if frontmost { activationSucceeded = true }
             var retryingActivation = false
