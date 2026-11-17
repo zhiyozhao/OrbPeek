@@ -38,17 +38,19 @@ final class SlideAnimator: SlideAnimating {
             return false
         }
         self.completion = completion
-        let panel = SlideOverlayPanel(image: image, frame: plan.startFrame)
+        let layout = SlideOverlayGeometry(plan: plan)
+        let panel = SlideOverlayPanel(image: image, frame: layout.panelFrame)
         self.panel = panel
+        let layer = panel.contentView!.layer!
+        layer.frame = layout.layerStartFrame
         panel.orderFrontRegardless()
 
-        let center = CGPoint(x: plan.endFrame.midX, y: plan.endFrame.midY)
         let position = CABasicAnimation(keyPath: "position")
-        position.fromValue = NSValue(point: panel.contentView!.layer!.position)
-        position.toValue = NSValue(point: center)
+        position.fromValue = NSValue(point: CGPoint(x: layout.layerStartFrame.midX, y: layout.layerStartFrame.midY))
+        position.toValue = NSValue(point: CGPoint(x: layout.layerEndFrame.midX, y: layout.layerEndFrame.midY))
         let bounds = CABasicAnimation(keyPath: "bounds")
-        bounds.fromValue = NSValue(rect: panel.contentView!.layer!.bounds)
-        bounds.toValue = NSValue(rect: CGRect(origin: .zero, size: plan.endFrame.size))
+        bounds.fromValue = NSValue(rect: layer.bounds)
+        bounds.toValue = NSValue(rect: CGRect(origin: .zero, size: layout.layerEndFrame.size))
         let opacity = CABasicAnimation(keyPath: "opacity")
         opacity.fromValue = plan.kind == .dock ? 1 : 0.65
         opacity.toValue = plan.kind == .dock ? 0.25 : 1

@@ -41,6 +41,18 @@ package struct SlideAnimationPlan: Equatable {
     }
 }
 
+package struct SlideOverlayGeometry: Equatable {
+    package let panelFrame: CGRect
+    package let layerStartFrame: CGRect
+    package let layerEndFrame: CGRect
+
+    package init(plan: SlideAnimationPlan) {
+        panelFrame = plan.startFrame.union(plan.endFrame)
+        layerStartFrame = plan.startFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
+        layerEndFrame = plan.endFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
+    }
+}
+
 @MainActor
 package final class SlideAnimationStateMachine {
     package enum State: Equatable {

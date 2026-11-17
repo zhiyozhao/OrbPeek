@@ -19,6 +19,20 @@ struct SlideAnimationTests {
         }
     }
 
+    @Test("overlay covers the full animation path in local coordinates")
+    func overlayGeometry() {
+        for edge in [DockEdge.left, .right, .up, .down] {
+            let plan = SlideAnimationPlan.dock(windowFrame: start, stripFrame: end, edge: edge)
+            let layout = SlideOverlayGeometry(plan: plan)
+            #expect(layout.panelFrame == start.union(end))
+            #expect(layout.layerStartFrame == start.offsetBy(dx: -layout.panelFrame.minX, dy: -layout.panelFrame.minY))
+            #expect(layout.layerEndFrame == end.offsetBy(dx: -layout.panelFrame.minX, dy: -layout.panelFrame.minY))
+            #expect(layout.panelFrame.contains(layout.layerEndFrame))
+            #expect(layout.layerEndFrame.origin.x >= 0)
+            #expect(layout.layerEndFrame.origin.y >= 0)
+        }
+    }
+
     @Test("peek plan goes from strip to the real window target")
     func peekGeometry() {
         let plan = SlideAnimationPlan.peek(stripFrame: end, windowFrame: start, edge: .right)
