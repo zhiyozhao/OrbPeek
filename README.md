@@ -4,7 +4,7 @@
 
 <h1 align="center">OrbPeek</h1>
 
-<p align="center">把 Mac 上的窗口贴到屏幕边上，鼠标移过去，它就滑出来。</p>
+<p align="center">把窗口藏到屏幕边上，鼠标移过去就滑出来。</p>
 
 <p align="center"><a href="#安装"><b>安装</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/">官网</a></p>
 

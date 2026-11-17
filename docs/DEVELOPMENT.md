@@ -71,3 +71,11 @@ node Scripts/demo/preview.mjs <目录>      # 官网和 README 的预览截图�
 ```
 
 输出：`site/assets/demo-<lang>-<theme>.{mp4,webm}`、`poster-*.jpg`，`docs/assets/demo-<lang>-<theme>.gif`、`hero-<lang>-<theme>.png`。中间帧在 `Artifacts/demo-frames/`（已忽略）。
+
+## 发版时一并更新
+
+GitHub 仓库 About（中文在前）。和带滑动动画的版本一起改，开发中不要执行：
+
+```sh
+gh repo edit zhiyozhao/OrbPeek --description "把窗口藏到屏幕边上，鼠标移过去就滑出来。 Tuck windows into the edge of your screen and hover to slide them back out."
+```

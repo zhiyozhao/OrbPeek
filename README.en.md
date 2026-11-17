@@ -4,7 +4,7 @@
 
 <h1 align="center">OrbPeek</h1>
 
-<p align="center">Dock any Mac window to the screen edge. Move the pointer there and it slides back out.</p>
+<p align="center">Tuck windows into the edge of your screen and hover to slide them back out.</p>
 
 <p align="center"><a href="#install"><b>Install</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/en/">Website</a></p>
 
