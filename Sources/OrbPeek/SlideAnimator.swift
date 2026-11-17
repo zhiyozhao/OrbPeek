@@ -31,12 +31,14 @@ final class SlideAnimator: SlideAnimating {
     private let stateMachine = SlideAnimationStateMachine()
     private var panel: SlideOverlayPanel?
     private var completion: ((Bool) -> Void)?
+    private var activeID: Int?
 
     func play(image: NSImage, plan: SlideAnimationPlan, completion: @escaping (Bool) -> Void) -> Bool {
-        guard stateMachine.begin(plan) else {
+        guard let id = stateMachine.begin(plan) else {
             completion(false)
             return false
         }
+        activeID = id
         self.completion = completion
         let layout = SlideOverlayGeometry(plan: plan)
         let panel = SlideOverlayPanel(image: image, frame: layout.panelFrame)
@@ -62,11 +64,12 @@ final class SlideAnimator: SlideAnimating {
         group.isRemovedOnCompletion = false
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self, weak panel] in
-            guard let self else { return }
-            self.stateMachine.finish()
+            guard let self, self.activeID == id else { return }
+            self.stateMachine.finish(id)
             // Complete the real-window handoff before removing the overlay.
             self.completion?(true)
             self.completion = nil
+            self.activeID = nil
             panel?.orderOut(nil)
             self.panel = nil
         }
@@ -78,9 +81,10 @@ final class SlideAnimator: SlideAnimating {
     func cancel() {
         guard panel != nil else { return }
         panel?.contentView?.layer?.removeAllAnimations()
-        stateMachine.cancel()
+        if let activeID { stateMachine.cancel(activeID) }
         completion?(false)
         completion = nil
+        activeID = nil
         panel?.orderOut(nil)
         panel = nil
     }

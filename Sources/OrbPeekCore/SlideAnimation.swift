@@ -57,30 +57,32 @@ package struct SlideOverlayGeometry: Equatable {
 package final class SlideAnimationStateMachine {
     package enum State: Equatable {
         case idle
-        case running(SlideAnimationPlan)
+        case running(SlideAnimationPlan, Int)
         case finished
         case cancelled
     }
     package private(set) var state: State = .idle
+    private var generation = 0
     package init() {}
 
-    package func begin(_ plan: SlideAnimationPlan) -> Bool {
+    package func begin(_ plan: SlideAnimationPlan) -> Int? {
         switch state {
         case .idle, .finished, .cancelled:
-            state = .running(plan)
-            return true
+            generation += 1
+            state = .running(plan, generation)
+            return generation
         case .running:
-            return false
+            return nil
         }
     }
 
-    package func cancel() {
-        guard case .running = state else { return }
+    package func cancel(_ id: Int) {
+        guard case let .running(_, current) = state, current == id else { return }
         state = .cancelled
     }
 
-    package func finish() {
-        guard case .running = state else { return }
+    package func finish(_ id: Int) {
+        guard case let .running(_, current) = state, current == id else { return }
         state = .finished
     }
 }

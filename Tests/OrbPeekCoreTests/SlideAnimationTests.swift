@@ -45,20 +45,34 @@ struct SlideAnimationTests {
     func lifecycle() {
         let machine = SlideAnimationStateMachine()
         let plan = SlideAnimationPlan.dock(windowFrame: start, stripFrame: end, edge: .down)
-        #expect(machine.begin(plan))
-        #expect(!machine.begin(plan))
-        machine.finish()
+        let first = machine.begin(plan)
+        #expect(first != nil)
+        #expect(machine.begin(plan) == nil)
+        machine.finish(first!)
         #expect(machine.state == .finished)
-        #expect(machine.begin(plan))
-        machine.cancel()
+        let nextID = machine.begin(plan)
+        #expect(nextID != nil)
+        machine.cancel(nextID!)
         #expect(machine.state == .cancelled)
 
         let second = SlideAnimationStateMachine()
-        #expect(second.begin(plan))
-        second.cancel()
+        let secondID = second.begin(plan)
+        #expect(secondID != nil)
+        second.cancel(secondID!)
         #expect(second.state == .cancelled)
-        second.finish()
+        second.finish(secondID!)
         #expect(second.state == .cancelled)
+    }
+
+    @Test("an old completion cannot finish a newer animation")
+    func staleCompletionIsIgnored() {
+        let machine = SlideAnimationStateMachine()
+        let oldID = machine.begin(SlideAnimationPlan.dock(windowFrame: start, stripFrame: end, edge: .down))!
+        machine.cancel(oldID)
+        let newID = machine.begin(SlideAnimationPlan.peek(stripFrame: end, windowFrame: start, edge: .down))!
+        machine.finish(oldID)
+        machine.cancel(oldID)
+        #expect(machine.state == .running(SlideAnimationPlan.peek(stripFrame: end, windowFrame: start, edge: .down), newID))
     }
 
     @Test("missing image or reduce-motion bypasses animation")
