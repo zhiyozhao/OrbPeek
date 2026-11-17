@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OrbPeek: dock a window to the screen edge</title>
-<meta name="description" content="A macOS menu bar app. Press ⌃⇧ and an arrow key to move the front window off screen, leaving a thin preview strip. Point at the strip and the window appears.">
+<meta name="description" content="A macOS menu bar app. Press ⌃⇧ and an arrow key to move the front window off screen, leaving a thin preview strip. Move the pointer onto the strip and the window appears.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
@@ -20,33 +20,35 @@
       <a href="#how" class="hide-s">How it works</a>
       <a href="#permissions" class="hide-s">Permissions</a>
       <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
-      <a href="../" lang="zh-CN">中文</a>
-      <a href="./" aria-current="page">English</a>
+      <a href="../" lang="zh-CN" hreflang="zh-CN">中文</a>
     </nav>
+    <a class="btn" href="#install">Install</a>
   </div>
 </header>
 
 <main>
   <div class="hero wrap">
-    <h1>Dock a window to the screen edge. Touch the edge to see it.</h1>
-    <p class="lead">OrbPeek is a macOS menu bar app. Press <kbd>⌃</kbd><kbd>⇧</kbd> and an arrow key to move the front window off screen, leaving a thin preview strip at that edge. Point at the strip and the window appears against the edge; move away and it goes back.</p>
-    <div class="install">
+    <h1>Dock a window to the screen edge. Move the pointer there and it’s back.</h1>
+    <p class="lead">OrbPeek is a macOS menu bar app. Press <kbd>⌃</kbd><kbd>⇧</kbd> and an arrow key to move the front window off screen, leaving a thin preview strip at that edge. Move the pointer onto the strip and the window appears against the edge; move away and it goes back.</p>
+    <section class="install" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Install</h2>
       <div class="cmd"><code>brew install --cask zhiyozhao/tap/orbpeek</code><button class="copy" type="button" data-copy="brew install --cask zhiyozhao/tap/orbpeek" data-done="Copied">Copy</button></div>
       <p class="meta">macOS 14 or later · Free and open source · Version 1.1.1 · <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">Download DMG</a></p>
-    </div>
+      <p class="meta small">The DMG is not notarized by Apple; see the <a href="https://github.com/zhiyozhao/OrbPeek/blob/main/README.en.md#install">README</a> for opening it the first time. Homebrew installs skip this step.</p>
+    </section>
   </div>
 
   <figure class="demo">
-    <video id="demo" data-base="../assets/demo-en-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="../assets/poster-en-light.jpg" aria-label="Demo: after ⌃⇧→ the Notes window moves off screen and a preview strip stays at the right edge. Pointing at the strip brings the window back against the right edge; moving away hides it again.">
+    <video id="demo" data-base="../assets/demo-en-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="../assets/poster-en-light.jpg" aria-label="Demo: after ⌃⇧→ the Notes window moves off screen and a preview strip stays at the right edge, shown magnified 6×. Pointing at the strip brings the window back against the right edge; moving away hides it again.">
       <source src="../assets/demo-en-light.webm" type="video/webm">
       <source src="../assets/demo-en-light.mp4" type="video/mp4">
     </video>
-    <figcaption class="caption">Press ⌃⇧→ and the window docks to the right edge. Point at the strip and it appears; move away and it goes back.</figcaption>
+    <figcaption class="caption">Press ⌃⇧→ and the window docks to the right edge, leaving a very thin preview strip there. Move the pointer onto the strip and the window appears; move away and it goes back.<br>The keystroke overlay and the zoom box are added for the demo; OrbPeek doesn’t show them.</figcaption>
   </figure>
 
   <section class="wrap">
     <h2>Your main window keeps its space</h2>
-    <p class="intro">Notes, chat, a terminal: windows you glance at all day get in the way when they sit next to your work. OrbPeek moves only the window you pick and leaves every other window where it is.</p>
+    <p class="intro">Notes, chat, a terminal: windows you glance at all day get in the way when they sit next to your work. OrbPeek moves only the window that is in front when you press the shortcut and leaves every other window where it is.</p>
     <div class="compare">
       <div>
         <h3>Minimize</h3>
@@ -55,13 +57,13 @@
       </div>
       <div>
         <h3>Split View</h3>
-        <p class="them">Two windows share the screen, so your main window is always narrower.</p>
+        <p class="them">Two windows share the screen, so your main window has to give up part of its width.</p>
         <p>OrbPeek leaves your main window's size alone. The other window covers it only while you look at it.</p>
       </div>
       <div>
         <h3>Stage Manager</h3>
         <p class="them">Rearranges all your windows and keeps thumbnails along one side.</p>
-        <p>OrbPeek handles only the window you pressed the shortcut on. Your layout stays the same.</p>
+        <p>OrbPeek leaves your layout alone and moves one window.</p>
       </div>
     </div>
   </section>
@@ -77,21 +79,21 @@
       </figure>
       <div>
         <h2>The preview strip</h2>
-        <p>What stays at the edge is a picture of the window's own edge: dock it right and you see its left edge, dock it to the top and you see its bottom edge. The strip lines up with where the window was, so you can tell which window it is and where.</p>
-        <p>By default the strip is 15 px wide and half transparent, and clicks pass through it. You can change its width and opacity in Settings. It is a still picture, not a live view; it is taken again when the window goes back while its app is in front.</p>
+        <p>What stays at the edge is a picture of the window's own edge: dock it right and you see its left edge, dock it to the top and you see its bottom edge. The strip lines up with where the window was.</p>
+        <p>By default the strip is 15 px wide and half transparent, so it is faint; you can change its width and opacity in Settings. The picture does not update live. After you look at the window and move away, it goes back with a fresh picture. The strip responds only to the pointer resting on it; clicks pass through to the window underneath.</p>
       </div>
     </div>
   </section>
 
   <section class="wrap" id="how">
     <h2>How it works</h2>
-    <p class="intro">Everything starts with a shortcut.</p>
+    <p class="intro">Docking and switching edges use the shortcut. Everything else uses the pointer.</p>
     <table class="keys">
       <tr><th>Dock</th><td><kbd>⌃</kbd><kbd>⇧</kbd> plus <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> docks the front window to the left, right, top or bottom edge. Press another direction on a docked window to move it to that edge.</td></tr>
-      <tr><th>See it</th><td>Rest the pointer on the strip for a moment (0.15 s). Fling the pointer at the screen edge and the window appears at once.</td></tr>
+      <tr><th>See it</th><td>Rest the pointer on the strip for a moment (0.15 s). Fling the pointer onto the strip and the window appears at once, without the wait.</td></tr>
       <tr><th>Hide it again</th><td>Move the pointer out after using the window, or switch to another app.</td></tr>
       <tr><th>Move or resize</th><td>While the window is out, drag it along the edge and the strip follows to the new spot. Resizing keeps it docked.</td></tr>
-      <tr><th>Undock</th><td>Click the window's name in the menu bar icon and it goes back to where it was. Or drag it toward the middle of the screen while it is out, and it stays where you drop it.</td></tr>
+      <tr><th>Undock</th><td>Click the window's name in the menu bar icon and it goes back to where it was. Or, while it is out, drag it more than 40 px toward the middle of the screen and it stays where you drop it. Minimizing the window or hiding its app (<kbd>⌘</kbd><kbd>H</kbd>) also undocks it.</td></tr>
     </table>
     <p class="note">You can change the shortcuts in Settings. Quitting OrbPeek puts every docked window back where it was.</p>
   </section>

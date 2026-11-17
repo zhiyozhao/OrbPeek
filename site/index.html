@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OrbPeek：把窗口贴到屏幕边上</title>
-<meta name="description" content="macOS 菜单栏工具。按 ⌃⇧ 加方向键，把当前窗口移出屏幕，只在边上留一条预览；鼠标碰到预览条，窗口就出现。">
+<meta name="description" content="macOS 菜单栏工具。按 ⌃⇧ 加方向键，把当前窗口移出屏幕，只在边上留一条预览；鼠标移到预览条上，窗口就出现。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
@@ -20,33 +20,35 @@
       <a href="#how" class="hide-s">用法</a>
       <a href="#permissions" class="hide-s">权限</a>
       <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
-      <a href="./" aria-current="page" lang="zh-CN">中文</a>
-      <a href="en/" lang="en">English</a>
+      <a href="en/" lang="en" hreflang="en">English</a>
     </nav>
+    <a class="btn" href="#install">安装</a>
   </div>
 </header>
 
 <main>
   <div class="hero wrap">
-    <h1>把窗口贴到屏幕边上，<br>要看时碰一下。</h1>
+    <h1>把窗口贴到屏幕边上，<br>鼠标移过去就出现。</h1>
     <p class="lead">OrbPeek 是 macOS 菜单栏工具。按 <kbd>⌃</kbd><kbd>⇧</kbd> 加方向键，当前窗口移出屏幕，边上只留一条预览。鼠标移到预览条上，窗口贴着这条边出现；移开，它就收回去。</p>
-    <div class="install">
+    <section class="install" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">安装</h2>
       <div class="cmd"><code>brew install --cask zhiyozhao/tap/orbpeek</code><button class="copy" type="button" data-copy="brew install --cask zhiyozhao/tap/orbpeek" data-done="已复制">复制</button></div>
       <p class="meta">macOS 14 或更高版本 · 免费开源 · 版本 1.1.1 · <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">下载 DMG</a></p>
-    </div>
+      <p class="meta small">DMG 没有经过 Apple 公证，第一次打开的步骤见 <a href="https://github.com/zhiyozhao/OrbPeek#安装">README</a>。用 Homebrew 安装不需要这一步。</p>
+    </section>
   </div>
 
   <figure class="demo">
-    <video id="demo" data-base="assets/demo-zh-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="assets/poster-zh-light.jpg" aria-label="演示：按 ⌃⇧→ 后备忘录窗口移出屏幕，右边留下预览条；鼠标移到预览条上，窗口贴着右边出现；鼠标移开，窗口收回。">
+    <video id="demo" data-base="assets/demo-zh-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="assets/poster-zh-light.jpg" aria-label="演示：按 ⌃⇧→ 后备忘录窗口移出屏幕，右边留下预览条，画面放大 6 倍展示预览条；鼠标移到预览条上，窗口贴着右边出现；鼠标移开，窗口收回。">
       <source src="assets/demo-zh-light.webm" type="video/webm">
       <source src="assets/demo-zh-light.mp4" type="video/mp4">
     </video>
-    <figcaption class="caption">按 ⌃⇧→，窗口贴到右边。鼠标碰到预览条，窗口出现；移开，窗口收回。</figcaption>
+    <figcaption class="caption">按 ⌃⇧→，窗口贴到右边，屏幕右边缘留下一条很窄的预览条。鼠标移到预览条上，窗口出现；移开，窗口收回。<br>按键提示和放大框是演示加的，OrbPeek 本身不显示。</figcaption>
   </figure>
 
   <section class="wrap">
     <h2>主窗口不用让位</h2>
-    <p class="intro">笔记、聊天、终端这类窗口，要时不时看一眼，放在旁边又挡着手头的事。OrbPeek 只动你选中的那个窗口，其他窗口原样不动。</p>
+    <p class="intro">笔记、聊天、终端这类窗口，要时不时看一眼，放在旁边又挡着手头的事。OrbPeek 只动你按快捷键时最前面的那个窗口，其他窗口原样不动。</p>
     <div class="compare">
       <div>
         <h3>最小化</h3>
@@ -55,13 +57,13 @@
       </div>
       <div>
         <h3>分屏</h3>
-        <p class="them">两个窗口平分屏幕，主窗口一直变窄。</p>
+        <p class="them">两个窗口平分屏幕，主窗口要让出一部分宽度。</p>
         <p>OrbPeek 不改主窗口的大小，另一个窗口只在你看它时盖在上面。</p>
       </div>
       <div>
         <h3>台前调度</h3>
         <p class="them">重排所有窗口，屏幕一侧常驻缩略图。</p>
-        <p>OrbPeek 只管你按了快捷键的窗口，桌面布局不变。</p>
+        <p>OrbPeek 不改桌面布局，只动一个窗口。</p>
       </div>
     </div>
   </section>
@@ -77,21 +79,21 @@
       </figure>
       <div>
         <h2>预览条</h2>
-        <p>窗口贴边后，屏幕边上留下的是它边缘的一张截图：贴到右边就显示窗口的左边缘，贴到上边就显示窗口的下边缘。预览条和窗口原来的位置对齐，一眼就知道是哪个窗口、在哪里。</p>
-        <p>预览条默认宽 15 px、半透明，不挡鼠标点击。宽度和不透明度可以在设置里调。截图不会实时刷新；窗口收回时如果它的 app 在前台，会重新截一次。</p>
+        <p>窗口贴边后，屏幕边上留下的是它边缘的一张截图：贴到右边就显示窗口的左边缘，贴到上边就显示窗口的下边缘。预览条和窗口原来的位置对齐。</p>
+        <p>预览条默认宽 15 px、半透明，所以很淡；宽度和不透明度可以在设置里调。截图不会实时刷新，看过窗口、鼠标移开让它收回时，会换成新的截图。预览条只响应鼠标停留，点击会穿过它，落到下面的窗口上。</p>
       </div>
     </div>
   </section>
 
   <section class="wrap" id="how">
     <h2>用法</h2>
-    <p class="intro">所有操作都从快捷键开始。</p>
+    <p class="intro">贴边和换边用快捷键，其余操作用鼠标。</p>
     <table class="keys">
       <tr><th>贴边</th><td><kbd>⌃</kbd><kbd>⇧</kbd> 加 <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd>，把当前窗口贴到左、右、上、下边。对已贴边的窗口按另一个方向，就换一条边。</td></tr>
-      <tr><th>查看</th><td>鼠标在预览条上停一下（0.15 秒）。快速把鼠标甩向屏幕边，窗口会立刻出现。</td></tr>
+      <tr><th>查看</th><td>鼠标在预览条上停一下（0.15 秒）。快速把鼠标甩到预览条上，窗口会立刻出现，不用等。</td></tr>
       <tr><th>收回</th><td>在窗口里停留过再移开，或者切到别的 app，窗口就收回边上。</td></tr>
       <tr><th>挪位置、改大小</th><td>窗口出现时，沿着这条边拖动，松手后预览条跟到新位置；改窗口大小也不会取消。</td></tr>
-      <tr><th>取消贴边</th><td>在菜单栏图标里点这个窗口的名字，它回到贴边前的位置。也可以在它出现时把它往屏幕中间拖开，它会留在你松手的地方。</td></tr>
+      <tr><th>取消贴边</th><td>在菜单栏图标里点这个窗口的名字，它回到贴边前的位置。也可以在它出现时往屏幕中间拖开 40 px 以上，它会留在你松手的地方。最小化这个窗口或隐藏它的 app（<kbd>⌘</kbd><kbd>H</kbd>）也会取消贴边。</td></tr>
     </table>
     <p class="note">快捷键可以在设置里改。退出 OrbPeek 时，所有贴边的窗口都会回到原来的位置。</p>
   </section>
@@ -116,7 +118,7 @@
     <ul class="nots">
       <li><b>不自动贴边</b><span>只有按快捷键才会贴边，把窗口拖到屏幕边上不会。</span></li>
       <li><b>不实时预览</b><span>预览条是一张截图，OrbPeek 不会持续录屏。</span></li>
-      <li><b>不管窗口布局</b><span>不平铺、不分屏，其他窗口它不碰。</span></li>
+      <li><b>不管窗口布局</b><span>不平铺、不分屏，其他窗口它不动。</span></li>
       <li><b>不联网</b><span>没有账号、统计或自动上传。</span></li>
     </ul>
   </section>

@@ -21,6 +21,7 @@
   - A peeked window hides once the pointer has been inside it for 0.3s
     (touchDwell) and then leaves the window + 12pt buffer (edgeBuffer).
   - Peek raises and activates the window's app; hiding does not change focus.
+  The keystroke HUD and the 6x loupe are demo overlays, not part of the app.
 -->
 <style>
   :root {
@@ -173,8 +174,8 @@
   .caret { display: inline-block; width: 2px; height: 17px; vertical-align: -3px; margin-left: 1px; background: #e6a700; }
 
   /* ---------- strip: a still crop of the window, not a live view ---------- */
-  #strip { position: absolute; overflow: hidden; border-radius: 10px 0 0 10px; z-index: 40; }
-  #strip .slice { position: absolute; left: 0; top: 0; border-radius: 10px 0 0 10px; box-shadow: none !important; }
+  .strip { position: absolute; overflow: hidden; border-radius: 10px 0 0 10px; z-index: 40; }
+  .strip .slice { position: absolute; left: 0; top: 0; border-radius: 10px 0 0 10px; box-shadow: none !important; }
 
   /* ---------- demo overlay: keystroke ---------- */
   #hud {
@@ -190,6 +191,20 @@
   }
   .light .key { background: #fff; color: #1d1d1f; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 1.5px 0 rgba(0,0,0,0.12); }
   .dark .key { background: #3a3a3c; color: #f2f2f4; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.6), inset 0 0.5px 0 rgba(255,255,255,0.12), 0 1.5px 0 rgba(0,0,0,0.4); }
+
+  /* ---------- demo overlay: magnified view of the strip ---------- */
+  #loupe { position: absolute; z-index: 70; transform-origin: 100% 0; }
+  #loupe .lens { position: relative; overflow: hidden; border-radius: 18px; }
+  .light #loupe .lens { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.18), 0 18px 48px rgba(0,0,0,0.28); }
+  .dark #loupe .lens { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.7), inset 0 0 0 0.5px rgba(255,255,255,0.14), 0 18px 48px rgba(0,0,0,0.55); }
+  #loupe .world { position: absolute; left: 0; top: 0; width: 1640px; height: 900px; transform-origin: 0 0; }
+  #loupe .label {
+    margin-top: 10px; text-align: center; font-size: 13px; font-weight: 500; letter-spacing: -0.08px;
+  }
+  .light #loupe .label { color: rgba(0,0,0,0.72); }
+  .dark #loupe .label { color: rgba(255,255,255,0.78); }
+  #mark { position: absolute; z-index: 65; border-radius: 7px 0 0 7px; border: 1.5px solid rgba(255,255,255,0.92); border-right: 0;
+    box-shadow: 0 0 0 0.5px rgba(0,0,0,0.25), 0 1px 6px rgba(0,0,0,0.18); }
 
   #cursor { position: absolute; left: 0; top: 0; width: 26px; height: 36px; z-index: 100; filter: drop-shadow(0 1.2px 1.6px rgba(0,0,0,0.38)); }
   #fade { position: absolute; inset: 0; z-index: 200; pointer-events: none; }
@@ -245,7 +260,9 @@
   </div>
 
   <div class="win notes" id="notes"></div>
-  <div id="strip"></div>
+  <div id="strip" class="strip"></div>
+  <div id="mark"></div>
+  <div id="loupe"><div class="lens"><div class="world"></div></div><div class="label"></div></div>
 
   <div id="hud"><span class="key">⌃</span><span class="key">⇧</span><span class="key">→</span></div>
   <svg id="cursor" viewBox="0 0 26 36">
@@ -267,6 +284,7 @@ const T = {
     notesMenus: ['文件', '编辑', '格式', '显示', '窗口', '帮助'],
     editorMenus: ['文件', '编辑', '显示', '查找', '运行', '窗口', '帮助'],
     clock: '11月17日 周二  09:41',
+    loupe: '预览条 · 放大 6 倍',
     date: '2026年11月17日 09:38',
     title: '周四发布',
     items: [[true, '跑完全部测试'], [true, '更新更新记录'], [false, '打标签 v2.4'], [false, '检查 Homebrew 安装'], [false, '回复设计稿评论']],
@@ -278,6 +296,7 @@ const T = {
     notesMenus: ['File', 'Edit', 'Format', 'View', 'Window', 'Help'],
     editorMenus: ['File', 'Edit', 'View', 'Find', 'Run', 'Window', 'Help'],
     clock: 'Tue Nov 17  9:41 AM',
+    loupe: 'Preview strip · 6× zoom',
     date: 'November 17, 2026 at 9:38 AM',
     title: 'Thursday release',
     items: [[true, 'Run the full test suite'], [true, 'Update the changelog'], [false, 'Tag v2.4'], [false, 'Check the Homebrew install'], [false, 'Reply to design review']],
@@ -377,6 +396,38 @@ const PEEK_X = SCREEN_W - NOTES.w;                  // peekPosition(.right): vis
 const PARK_X = SCREEN_W - 1;                        // hiddenPosition: desktop maxX - 1
 strip.style.cssText += `left:${SCREEN_W - SLIVER}px;top:${NOTES.y}px;width:${SLIVER}px;height:${NOTES.h}px;opacity:${OPACITY}`;
 
+// ---- loupe: a still 6x view of the strip's top while it is docked ----
+// The lens runs a little past the screen edge; that part is drawn as the
+// display bezel so the edge itself is visible.
+const LOUPE = { x: 1398, y: 134, w: 52, h: 74, zoom: 6, right: 1310, top: 118 };
+{
+  const world = document.querySelector('#loupe .world');
+  world.appendChild(document.querySelector('.wallpaper').cloneNode(true));
+  const parked = document.createElement('div');
+  parked.className = 'win notes inactive';
+  parked.style.cssText = `left:${PARK_X}px;top:${NOTES.y}px`;
+  parked.innerHTML = notesInner(false);
+  world.appendChild(parked);
+  const copy = document.createElement('div');
+  copy.className = 'strip';
+  copy.style.cssText = strip.style.cssText;
+  copy.innerHTML = strip.innerHTML;
+  world.appendChild(copy);
+  const bezel = document.createElement('div');
+  bezel.style.cssText = `position:absolute;left:${SCREEN_W}px;top:0;width:200px;height:900px;background:#0a0a0b`;
+  world.appendChild(bezel);
+  world.style.transform = `scale(${LOUPE.zoom}) translate(${-LOUPE.x}px, ${-LOUPE.y}px)`;
+  const lens = document.querySelector('#loupe .lens');
+  lens.style.width = LOUPE.w * LOUPE.zoom + 'px';
+  lens.style.height = LOUPE.h * LOUPE.zoom + 'px';
+  const loupe = document.getElementById('loupe');
+  loupe.style.left = LOUPE.right - LOUPE.w * LOUPE.zoom + 'px';
+  loupe.style.top = LOUPE.top + 'px';
+  loupe.querySelector('.label').textContent = T.loupe;
+  const mark = document.getElementById('mark');
+  mark.style.cssText = `left:${LOUPE.x}px;top:${LOUPE.y}px;width:${LOUPE.w}px;height:${LOUPE.h}px`;
+}
+
 // ---- timeline (seconds) ----
 const POLL = 1 / 30, CAPTURE = 0.05, PEEK_DWELL = 0.15, TOUCH_DWELL = 0.3;
 const easeInOut = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
@@ -384,10 +435,10 @@ const easeOut = u => 1 - Math.pow(1 - u, 3);
 const STRIP_X = SCREEN_W - 6;
 const path = [
   // [start, end, from, to, ease]
-  [1.75, 2.30, [1000, 520], [700, 540], easeInOut],    // over to the editor
-  [2.95, 3.70, [700, 540], [STRIP_X, 452], easeOut],   // to the strip, slowing down (no slam)
-  [4.15, 4.55, [STRIP_X, 452], [1252, 404], easeInOut],// into the peeked window
-  [5.55, 6.15, [1252, 404], [1000, 520], easeInOut],   // away, ending where the loop starts
+  [1.75, 2.30, [930, 610], [700, 540], easeInOut],    // over to the editor
+  [3.35, 4.10, [700, 540], [STRIP_X, 452], easeOut],   // to the strip, slowing down (no slam)
+  [4.55, 4.95, [STRIP_X, 452], [1252, 404], easeInOut],// into the peeked window
+  [5.95, 6.55, [1252, 404], [930, 610], easeInOut],   // away, ending where the loop starts
 ];
 const KEY_AT = 1.00;
 const DOCK_AT = KEY_AT + CAPTURE;
@@ -397,7 +448,7 @@ const ARRIVE = path[1][1];
 const PEEK_AT = ARRIVE + PEEK_DWELL + POLL;
 // the pointer leaves window + buffer while moving away; find that time
 function cursorAt(t) {
-  let p = [1000, 520];
+  let p = [930, 610];
   for (const [a, b, from, to, ease] of path) {
     if (t >= b) { p = to; continue; }
     if (t > a) { const u = ease((t - a) / (b - a)); p = [from[0] + (to[0] - from[0]) * u, from[1] + (to[1] - from[1]) * u]; }
@@ -410,7 +461,8 @@ for (let t = path[3][0]; t < path[3][1]; t += 0.001) {
   if (cursorAt(t)[0] < PEEK_X - EDGE_BUFFER) { LEAVE_AT = t; break; }
 }
 const HIDE_AT = LEAVE_AT + POLL + CAPTURE;
-const FADE_START = 7.60, DURATION = 8.20;
+const FADE_START = 8.00, DURATION = 8.60;
+const LOUPE_IN = 1.40, LOUPE_OUT = 3.05, LOUPE_FADE = 0.25;
 
 function state(t) {
   const s = {};
@@ -426,6 +478,8 @@ function state(t) {
   else if (t < PEEK_AT) s.front = 'editor';
   else s.front = 'notes';
   s.hud = t < KEY_AT - 0.12 ? 0 : t < KEY_AT ? (t - KEY_AT + 0.12) / 0.12 : t < 2.05 ? 1 : t < 2.3 ? 1 - (t - 2.05) / 0.25 : 0;
+  s.loupe = t < LOUPE_IN ? 0 : t < LOUPE_IN + LOUPE_FADE ? easeOut((t - LOUPE_IN) / LOUPE_FADE)
+    : t < LOUPE_OUT ? 1 : t < LOUPE_OUT + LOUPE_FADE ? 1 - easeInOut((t - LOUPE_OUT) / LOUPE_FADE) : 0;
   s.hudScale = t < KEY_AT ? 0.96 + 0.04 * s.hud : 1;
   s.caret = t < DOCK_AT && (Math.floor(t / 0.53) % 2 === 0);
   s.fade = t < FADE_START ? 0 : Math.min(1, (t - FADE_START) / (DURATION - FADE_START));
@@ -444,6 +498,12 @@ function apply(s) {
   strip.style.display = s.strip ? 'block' : 'none';
   el('appname').textContent = s.front === 'notes' ? T.notes : T.editor;
   el('menus').innerHTML = (s.front === 'notes' ? T.notesMenus : T.editorMenus).map(m => `<span class="item">${m}</span>`).join('');
+  const loupe = el('loupe');
+  loupe.style.opacity = s.loupe;
+  loupe.style.transform = `scale(${0.94 + 0.06 * s.loupe})`;
+  loupe.style.display = s.loupe > 0 ? 'block' : 'none';
+  el('mark').style.opacity = s.loupe;
+  el('mark').style.display = s.loupe > 0 ? 'block' : 'none';
   const hud = el('hud');
   hud.style.opacity = s.hud;
   hud.style.transform = `translateX(-50%) scale(${s.hudScale})`;
@@ -461,7 +521,7 @@ window.setTime = t => {
   // loop: cross-fade back to the opening frame (rendered into #fade as a still)
   el('fade').style.opacity = s.fade;
 };
-window.timeline = { DOCK_AT, PEEK_AT, LEAVE_AT, HIDE_AT, FADE_START, DURATION };
+window.timeline = { LOUPE_IN, LOUPE_OUT, DOCK_AT, PEEK_AT, LEAVE_AT, HIDE_AT, FADE_START, DURATION };
 setTime(Number(params.get('t') || 0));
 </script>
 </body>

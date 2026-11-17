@@ -25,7 +25,8 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 68px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 body {
   margin: 0;
   background: var(--bg);
@@ -52,6 +53,11 @@ kbd, code { font-family: var(--mono); font-size: 0.88em; }
 .brand:hover { text-decoration: none; }
 .brand img { width: 26px; height: 26px; }
 .nav .links { margin-left: auto; display: flex; gap: 22px; }
+.btn {
+  flex: none; padding: 5px 14px; border-radius: 980px; background: var(--link); color: #fff;
+  font-size: 14px; font-weight: 500; line-height: 1.5;
+}
+.btn:hover { text-decoration: none; filter: brightness(1.08); }
 .nav .links a { color: var(--muted); }
 .nav .links a:hover { color: var(--fg); text-decoration: none; }
 .nav .links a[aria-current] { color: var(--fg); }
@@ -74,7 +80,9 @@ html[lang="en"] .hero h1 { max-width: 14em; letter-spacing: -0.025em; }
   font-size: clamp(17px, 2vw, 21px);
   line-height: 1.55;
 }
-.install { margin: 36px auto 0; display: inline-flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.hero .install { padding: 0; margin: 36px auto 0; display: inline-flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.hero .install h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.meta.small { font-size: 13px; max-width: 34em; }
 .cmd {
   display: flex; align-items: center; gap: 4px; max-width: 100%;
   background: var(--code); border: 0.5px solid var(--line); border-radius: 12px;
@@ -158,6 +166,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
   .keys th { width: 40%; }
   .cmd code { font-size: 13px; white-space: normal; overflow-wrap: anywhere; text-align: left; }
   .nav .links { gap: 16px; }
+  .nav .wrap { gap: 16px; }
   .nav .links .hide-s { display: none; }
 }
 @media (max-width: 480px) {

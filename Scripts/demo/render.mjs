@@ -42,7 +42,7 @@ async function stripCloseUp(browser, theme) {
   await page.goto(sceneURL({ theme, lang: 'zh' }));
   await page.evaluate(() => document.fonts.ready);
   const tl = await page.evaluate(() => window.timeline);
-  await page.evaluate(t => window.setTime(t), tl.DOCK_AT + 1.0);
+  await page.evaluate(t => window.setTime(t), tl.HIDE_AT + 0.8); // docked, no demo overlays
   await page.screenshot({ path: path.join(site, `strip-${theme}.png`), clip: { x: 1370, y: 120, width: 70, height: 210 } });
   await page.close();
 }

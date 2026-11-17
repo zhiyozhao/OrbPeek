@@ -61,12 +61,13 @@ Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段
 
 演示画面全部由代码生成，不截取或录制真实桌面。`Scripts/demo/scene.html` 是一个 HTML/CSS 画的 macOS 15 场景，`Scripts/demo/render.mjs` 用 Playwright 在无头 Chromium 里按 2x 逐帧截图，再用 ffmpeg 编码。
 
-场景里的 OrbPeek 行为按源码默认值：预览条 15 px、50% 不透明、窗口一侧 10pt 圆角、无阴影，内容是窗口对应边缘的静态截图；停 0.15 秒后出现（30Hz 轮询）；在窗口里停 0.3 秒后离开窗口外 12pt 才收回；贴边和收回前各等一次约 50ms 的抓图。源码直接写 AX 位置，没有滑动动画，所以画面里窗口是瞬间移动的；改了 app 行为要同步改 `scene.html` 里的常量。
+场景里的 OrbPeek 行为按源码默认值：预览条 15 px、50% 不透明、窗口一侧 10pt 圆角、无阴影，内容是窗口对应边缘的静态截图；停 0.15 秒后出现（30Hz 轮询）；在窗口里停 0.3 秒后离开窗口外 12pt 才收回；贴边和收回前各等一次约 50ms 的抓图。源码直接写 AX 位置，没有滑动动画，所以画面里窗口是瞬间移动的；改了 app 行为要同步改 `scene.html` 里的常量。按键提示（⌃⇧→）和贴边后 1.4–3.3 秒的 6 倍放大框是演示叠加层，不是 app 的界面，图注里要写明。
 
 ```sh
-node Scripts/demo/render.mjs              # 全部：zh/en × light/dark，约 15 分钟
+node Scripts/demo/render.mjs              # 全部：zh/en × light/dark，约 20 分钟
 node Scripts/demo/render.mjs dark en      # 单个变体
 node Scripts/demo/shot.mjs light zh 1.5 4 # 查看某几个时间点的静帧
+node Scripts/demo/preview.mjs <目录>      # 官网和 README 的预览截图，并检查安装区位置
 ```
 
 输出：`site/assets/demo-<lang>-<theme>.{mp4,webm}`、`poster-*.jpg`、`strip-<theme>.png`，`docs/assets/demo-<lang>-<theme>.gif`、`hero-<lang>-<theme>.png`。中间帧在 `Artifacts/demo-frames/`（已忽略）。

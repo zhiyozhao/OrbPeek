@@ -63,9 +63,20 @@ for (const lang of ['zh', 'en']) {
       await page.waitForTimeout(400);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       const src = await page.evaluate(() => document.getElementById('demo').currentSrc.split('/').pop());
+      const install = await page.evaluate(() => {
+        const r = document.getElementById('install').getBoundingClientRect();
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: window.innerHeight };
+      });
       const file = path.join(out, `site-${lang}-${scheme}-${device}.png`);
+      await page.screenshot({ path: path.join(out, `site-${lang}-${scheme}-${device}-first-screen.png`) });
       await page.screenshot({ path: file, fullPage: true });
-      shots.push({ file: path.basename(file), video: src, horizontalOverflow: overflow, errors });
+      // The nav button must land on the install section.
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.click('.nav .btn');
+      await page.waitForTimeout(900);
+      const afterClick = await page.evaluate(() => Math.round(document.getElementById('install').getBoundingClientRect().top));
+      await page.evaluate(() => window.scrollTo(0, 0));
+      shots.push({ file: path.basename(file), video: src, horizontalOverflow: overflow, errors, install, installTopAfterNavClick: afterClick });
       await ctx.close();
     }
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: scheme });
@@ -73,8 +84,14 @@ for (const lang of ['zh', 'en']) {
     const name = lang === 'en' ? 'README.en.md' : 'README.md';
     await page.goto(pathToFileURL(path.join(root, `.${name}.preview.html`)).href, { waitUntil: 'load' });
     const file = path.join(out, `readme-${lang}-${scheme}.png`);
+    const install = await page.evaluate(() => {
+      const h = [...document.querySelectorAll('h2')].find(e => /^(安装|Install)$/.test(e.textContent.trim()));
+      const pre = h.nextElementSibling.getBoundingClientRect();
+      return { headingTop: Math.round(h.getBoundingClientRect().top), commandBottom: Math.round(pre.bottom), viewport: window.innerHeight };
+    });
+    await page.screenshot({ path: path.join(out, `readme-${lang}-${scheme}-first-screen.png`) });
     await page.screenshot({ path: file, fullPage: true });
-    shots.push({ file: path.basename(file) });
+    shots.push({ file: path.basename(file), install });
     await ctx.close();
   }
 }
