@@ -63,6 +63,11 @@ package final class SliceCapturer: SliceCapturing {
         return slice(from: entry.image, edge: edge, windowSize: size, thickness: thickness)
     }
 
+    package func cachedImage(for windowID: CGWindowID) -> NSImage? {
+        guard let entry = windowImages[windowID] else { return nil }
+        return NSImage(cgImage: entry.image, size: entry.size)
+    }
+
     // Crop the slice for an edge out of a full-window image. Slice choice
     // mimics the window really sliding off the edge: up -> bottom slice,
     // down -> title bar, left -> right edge, right -> left edge.

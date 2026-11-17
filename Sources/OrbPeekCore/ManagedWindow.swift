@@ -7,6 +7,7 @@ package protocol WindowDockDelegate: AnyObject {
     var geometry: WindowGeometry { get }
     var capturer: any SliceCapturing { get }
     var offlinePolicy: DockSessionOptions.OfflinePolicy { get }
+    var slideAnimator: (any SlideAnimating)? { get }
     func offlineWindowReleased(_ managed: ManagedWindow)
     func makeStrip() -> any SnapshotStripHandling
     func nameForWindow(_ window: any WindowHandle) -> String
@@ -18,6 +19,7 @@ package protocol WindowDockDelegate: AnyObject {
 
 package extension WindowDockDelegate {
     var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
+    var slideAnimator: (any SlideAnimating)? { nil }
     func offlineWindowReleased(_ managed: ManagedWindow) {}
 }
 
@@ -63,6 +65,7 @@ package final class ManagedWindow {
     private var lastLogAt: [String: Date] = [:]
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
+    private var animationGeneration = 0
     package private(set) var phase: Phase = .idle
     package var gesture = false
     package var offlinePolicyOverride: DockSessionOptions.OfflinePolicy?
@@ -104,6 +107,12 @@ package final class ManagedWindow {
         return geometry.layout.primary
     }
 
+    private func cancelTransition() {
+        animationGeneration += 1
+        transition?.cancel()
+        delegate?.slideAnimator?.cancel()
+    }
+
     // MARK: Transitions
 
     // Explicit hotkey re-dock. Automatic hide-on-leave calls dock(to:) directly.
@@ -118,7 +127,7 @@ package final class ManagedWindow {
     package func dock(to newEdge: DockEdge? = nil, targetScreenID: CGDirectDisplayID? = nil) {
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
-        transition?.cancel()
+        cancelTransition()
         let wasHidden = phase == .docked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
@@ -216,20 +225,33 @@ package final class ManagedWindow {
             geometry.sliverRect(edge: edge, size: currentFrame.size, perp: perp,
                                 screen: currentScreen, thickness: config.sliverPx)
         )
+        let generation = animationGeneration
         moveTo(currentHiddenPos)
         phase = .docked
         delegate.dockStateDidChange()
         guard let fakeStrip else { return }
         let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
-        fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
-        log("strip show frame=\(currentStripFrame) visible=\(fakeStrip.isVisible)")
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let fullImage, let animator = delegate.slideAnimator, !reduceMotion {
+            let plan = SlideAnimationPlan.dock(windowFrame: geometry.toAppKit(currentFrame),
+                                               stripFrame: currentStripFrame, edge: edge)
+            let started = animator.play(image: NSImage(cgImage: fullImage, size: currentFrame.size), plan: plan) { [weak self] _ in
+                guard let self, generation == self.animationGeneration else { return }
+                fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
+                self.log("strip show frame=\(currentStripFrame) visible=\(fakeStrip.isVisible)")
+            }
+            if !started { fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge) }
+        } else {
+            fakeStrip.show(image: fresh ?? cached, frame: currentStripFrame, edge: edge)
+            log("strip show frame=\(currentStripFrame) visible=\(fakeStrip.isVisible)")
+        }
     }
 
     package func peek() {
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
         guard let screen = dockScreen(in: delegate.geometry) else { return }
-        transition?.cancel()
+        cancelTransition()
         transition = nil
         window.unminimize()
         phase = .peeked
@@ -241,7 +263,26 @@ package final class ManagedWindow {
         fakeStrip?.hide()
         window.raise()
         delegate.activate(window: window)
-        moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
+        let targetPosition = delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let targetPosition,
+           let image = windowID.flatMap({ delegate.capturer.cachedImage(for: $0) }),
+           let animator = delegate.slideAnimator, !reduceMotion {
+            let stripFrame = delegate.geometry.toAppKit(
+                delegate.geometry.sliverRect(edge: edge, size: frame.size, perp: perp,
+                                             screen: screen, thickness: delegate.config.sliverPx)
+            )
+            let targetFrame = CGRect(origin: targetPosition, size: frame.size)
+            let plan = SlideAnimationPlan.peek(stripFrame: stripFrame, windowFrame: targetFrame, edge: edge)
+            let generation = animationGeneration
+            let started = animator.play(image: image, plan: plan) { [weak self] _ in
+                guard let self, generation == self.animationGeneration else { return }
+                self.moveTo(targetPosition)
+            }
+            if !started { moveTo(targetPosition) }
+        } else {
+            moveTo(targetPosition)
+        }
         log("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
         delegate.dockStateDidChange()
     }
@@ -254,7 +295,7 @@ package final class ManagedWindow {
 
     package func terminate(exit: ExitPosition) {
         guard valid, let delegate else { return }
-        transition?.cancel()
+        cancelTransition()
         OrbPeekCore.placeUndockedWindow(window: window,
                                         preferredFrame: exit == .restore || exit == .offline ? restoreFrame : nil,
                                         fallbackFrame: restoreFrame, centered: exit == .offline,
@@ -410,7 +451,7 @@ package final class ManagedWindow {
 
     package func restore() {
         guard valid else { return }
-        transition?.cancel()
+        cancelTransition()
         let before = window.frame
         placeUndockedWindow(preferredFrame: restoreFrame)
         detachStrip()
