@@ -1,10 +1,12 @@
+<p align="right"><a href="README.md">中</a> | <b>EN</b></p>
+
 <p align="center"><img src="site/assets/icon.png" width="128" height="128" alt=""></p>
 
 <h1 align="center">OrbPeek</h1>
 
 <p align="center">Dock any Mac window to the screen edge. Move the pointer there and it slides back out.</p>
 
-<p align="center"><a href="#install"><b>Install</b></a> · <a href="https://zhiyozhao.github.io/OrbPeek/en/">Website</a> · <a href="README.md">中文</a></p>
+<p align="center"><a href="#install"><b>Install</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/en/">Website</a></p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-en-dark.gif">
@@ -32,9 +34,7 @@ To update later: `brew upgrade --cask orbpeek`.
 ### Download the DMG
 
 1. Download `OrbPeek-<version>.dmg` from [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) and drag OrbPeek into Applications.
-2. Double-click it. OrbPeek is not notarized by Apple, so macOS blocks it:
-   - macOS 15: go to System Settings → Privacy & Security, click "Open Anyway" at the bottom, and enter your password.
-   - macOS 14: Control-click OrbPeek in Finder and choose Open.
+2. Double-click it. OrbPeek is not notarized by Apple, so macOS blocks the first launch. On macOS 15, go to System Settings → Privacy & Security, click "Open Anyway" at the bottom and enter your password. On macOS 14, Control-click OrbPeek in Finder and choose Open.
 3. Continue with steps 3 and 4 above.
 
 ## Usage
@@ -60,9 +60,13 @@ Click the menu bar icon and choose Settings…:
 
 ## FAQ
 
-**A window is gone.** If OrbPeek quits unexpectedly, docked windows stay off screen. Open OrbPeek again and it brings them back on screen.
+### A window is gone
 
-**Does OrbPeek connect to the internet?** No. There is no account, analytics or upload. Screen Recording is used only to take a picture of the window you dock, and the picture stays in memory.
+If OrbPeek quits unexpectedly, docked windows stay off screen. Open OrbPeek again and it brings them back on screen.
+
+### Does OrbPeek connect to the internet?
+
+No. There is no account, analytics or upload. Screen Recording is used only to take a picture of the window you dock, and the picture stays in memory.
 
 ## Uninstall
 

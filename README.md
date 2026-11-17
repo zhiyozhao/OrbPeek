@@ -1,10 +1,12 @@
+<p align="right"><b>中</b> | <a href="README.en.md">EN</a></p>
+
 <p align="center"><img src="site/assets/icon.png" width="128" height="128" alt=""></p>
 
 <h1 align="center">OrbPeek</h1>
 
 <p align="center">把 Mac 上的窗口贴到屏幕边上，鼠标移过去，它就滑出来。</p>
 
-<p align="center"><a href="#安装"><b>安装</b></a> · <a href="https://zhiyozhao.github.io/OrbPeek/">官网</a> · <a href="README.en.md">English</a></p>
+<p align="center"><a href="#安装"><b>安装</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/">官网</a></p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-zh-dark.gif">
@@ -32,9 +34,7 @@
 ### 下载 DMG
 
 1. 从 [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) 下载 `OrbPeek-<版本>.dmg`，把 OrbPeek 拖进「应用程序」。
-2. 双击打开。OrbPeek 没有经过 Apple 公证，系统会拦下它：
-   - macOS 15：到「系统设置 → 隐私与安全性」，在页面底部点「仍要打开」，输入密码确认。
-   - macOS 14：在「访达」里按住 Control 点 OrbPeek，选「打开」。
+2. 双击打开。OrbPeek 没有经过 Apple 公证，第一次会被系统拦下。macOS 15 上，到「系统设置 → 隐私与安全性」，在页面底部点「仍要打开」并输入密码；macOS 14 上，在「访达」里按住 Control 点 OrbPeek，选「打开」。
 3. 接着做上面的第 3、4 步。
 
 ## 用法
@@ -60,9 +60,13 @@
 
 ## 常见问题
 
-**窗口不见了。** OrbPeek 意外退出时，贴边的窗口会留在屏幕外。重新打开 OrbPeek，它会把这些窗口放回屏幕上。
+### 窗口不见了
 
-**OrbPeek 会联网吗？** 不会。没有账号、统计或上传。屏幕录制只用来给贴边的窗口截图，图片只留在内存里。
+OrbPeek 意外退出时，贴边的窗口会留在屏幕外。重新打开 OrbPeek，它会把这些窗口放回屏幕上。
+
+### OrbPeek 会联网吗？
+
+不会。没有账号、统计或上传。屏幕录制只用来给贴边的窗口截图，图片只留在内存里。
 
 ## 卸载
 

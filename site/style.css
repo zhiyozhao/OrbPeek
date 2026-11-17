@@ -45,6 +45,9 @@ kbd {
   color: var(--muted); font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
 }
 .top a:hover { color: var(--fg); background: var(--panel); text-decoration: none; }
+.top .lang { display: flex; align-items: center; gap: 2px; padding-left: 4px; font-size: 15px; color: var(--muted); }
+.top .lang a { width: auto; min-width: 32px; padding: 0 6px; border-radius: 18px; }
+.top .lang b { min-width: 28px; text-align: center; color: var(--fg); font-weight: 600; }
 
 /* ---------- first screen: name, one sentence, the demo ---------- */
 .hero {
