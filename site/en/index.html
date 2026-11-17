@@ -1,82 +1,143 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="OrbPeek docks windows to any screen edge and slides them back when you touch the preview strip. A free, open-source macOS menu-bar utility.">
-  <meta name="theme-color" content="#f5f7f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#151a1d" media="(prefers-color-scheme: dark)">
-  <title>OrbPeek — Put windows aside, keep your desktop</title>
-  <link rel="icon" href="../assets/orbpeek.png" type="image/png">
-  <link rel="stylesheet" href="../style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrbPeek: dock a window to the screen edge</title>
+<meta name="description" content="A macOS menu bar app. Press ⌃⇧ and an arrow key to move the front window off screen, leaving a thin preview strip. Point at the strip and the window appears.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../assets/icon.png">
+<link rel="alternate" hreflang="zh-CN" href="../">
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="../" aria-label="OrbPeek home"><img src="../assets/orbpeek.png" alt="" width="30" height="30"><span>OrbPeek</span></a>
-    <nav aria-label="Page navigation">
-      <a href="#usage">Usage</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
-      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a><a class="lang" href="../">中文</a>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="../assets/icon.png" alt="">OrbPeek</a>
+    <nav class="links">
+      <a href="#how" class="hide-s">How it works</a>
+      <a href="#permissions" class="hide-s">Permissions</a>
+      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
+      <a href="../" lang="zh-CN">中文</a>
+      <a href="./" aria-current="page">English</a>
     </nav>
-  </header>
+  </div>
+</header>
 
-  <main id="main">
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="kicker">A small macOS menu-bar utility</p>
-        <h1>Put windows aside.<br>Keep your desktop.</h1>
-        <p class="lede">Dock a window to any screen edge with a shortcut. Touch the preview strip and it slides right back.</p>
-        <div class="actions"><a class="button primary" href="#install">Get OrbPeek</a><a class="button secondary" href="https://github.com/zhiyozhao/OrbPeek/releases/latest">Download DMG</a></div>
-        <p class="meta">macOS 14+ · Open source (MIT) · No tracking or ads</p>
+<main>
+  <div class="hero wrap">
+    <h1>Dock a window to the screen edge. Touch the edge to see it.</h1>
+    <p class="lead">OrbPeek is a macOS menu bar app. Press <kbd>⌃</kbd><kbd>⇧</kbd> and an arrow key to move the front window off screen, leaving a thin preview strip at that edge. Point at the strip and the window appears against the edge; move away and it goes back.</p>
+    <div class="install">
+      <div class="cmd"><code>brew install --cask zhiyozhao/tap/orbpeek</code><button class="copy" type="button" data-copy="brew install --cask zhiyozhao/tap/orbpeek" data-done="Copied">Copy</button></div>
+      <p class="meta">macOS 14 or later · Free and open source · Version 1.1.1 · <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">Download DMG</a></p>
+    </div>
+  </div>
+
+  <figure class="demo">
+    <video id="demo" data-base="../assets/demo-en-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="../assets/poster-en-light.jpg" aria-label="Demo: after ⌃⇧→ the Notes window moves off screen and a preview strip stays at the right edge. Pointing at the strip brings the window back against the right edge; moving away hides it again.">
+      <source src="../assets/demo-en-light.webm" type="video/webm">
+      <source src="../assets/demo-en-light.mp4" type="video/mp4">
+    </video>
+    <figcaption class="caption">Press ⌃⇧→ and the window docks to the right edge. Point at the strip and it appears; move away and it goes back.</figcaption>
+  </figure>
+
+  <section class="wrap">
+    <h2>Your main window keeps its space</h2>
+    <p class="intro">Notes, chat, a terminal: windows you glance at all day get in the way when they sit next to your work. OrbPeek moves only the window you pick and leaves every other window where it is.</p>
+    <div class="compare">
+      <div>
+        <h3>Minimize</h3>
+        <p class="them">The window goes to the Dock, and you have to find it and click it.</p>
+        <p>With OrbPeek the window stays at the edge you put it on. Point there and it comes out; move away and it goes back.</p>
       </div>
-      <div class="demo-placeholder demo-video">
-        <video class="theme-light" autoplay muted loop playsinline poster="../assets/orbpeek-poster-light.png" aria-label="A Git cheatsheet docks right, slides out on pointer contact, and hides when the pointer leaves">
-          <source src="../assets/orbpeek-demo-light.mp4" type="video/mp4">
-        </video>
-        <video class="theme-dark" autoplay muted loop playsinline poster="../assets/orbpeek-poster-dark.png" aria-label="Dark appearance demo of docking and revealing the Git cheatsheet">
-          <source src="../assets/orbpeek-demo-dark.mp4" type="video/mp4">
-        </video>
+      <div>
+        <h3>Split View</h3>
+        <p class="them">Two windows share the screen, so your main window is always narrower.</p>
+        <p>OrbPeek leaves your main window's size alone. The other window covers it only while you look at it.</p>
       </div>
-    </section>
-
-    <section class="benefits" aria-label="Highlights">
-      <article><span class="number">01</span><h2>Put it aside</h2><p>References, chats and temporary documents do not have to occupy your desktop or be closed.</p></article>
-      <article><span class="number">02</span><h2>Touch to return</h2><p>A preview strip stays at the edge. Touch it to reveal the window, then use it as normal.</p></article>
-    </section>
-
-    <section id="usage" class="section usage">
-      <div class="section-heading"><p class="kicker">How it works</p><h2>Three gestures, more room</h2></div>
-      <ol class="steps">
-        <li><span>1</span><div><h3>Press to dock</h3><p>Focus a window, then press <span class="shortcut"><kbd>Control</kbd> + <kbd>Shift</kbd> + <kbd>an arrow key</kbd></span>.</p></div></li>
-        <li><span>2</span><div><h3>Touch to peek</h3><p>Move your pointer onto the preview strip. The window comes to the front.</p></div></li>
-        <li><span>3</span><div><h3>Leave to hide</h3><p>Moving away docks it again. Drag farther into the screen to undock.</p></div></li>
-      </ol>
-    </section>
-
-    <section id="privacy" class="section privacy">
-      <div class="section-heading"><p class="kicker">Permissions & privacy</p><h2>Two permissions, clear purposes</h2></div>
-      <div class="permission-list">
-        <article><h3>Accessibility</h3><p>Reads and moves the windows you dock, and restores them when you undock or after an unexpected exit. It never logs what you type.</p></article>
-        <article><h3>Screen Recording</h3><p>Only creates preview strips. No continuous recording or audio. Without it, docking still works with placeholder strips.</p></article>
+      <div>
+        <h3>Stage Manager</h3>
+        <p class="them">Rearranges all your windows and keeps thumbnails along one side.</p>
+        <p>OrbPeek handles only the window you pressed the shortcut on. Your layout stays the same.</p>
       </div>
-      <p class="privacy-note">Window images stay in memory. No networking, uploads, analytics or third-party scripts — including on this page.</p>
-    </section>
+    </div>
+  </section>
 
-    <section id="install" class="section install">
-      <div class="section-heading"><p class="kicker">Install</p><h2>Homebrew is easiest</h2><p>Simple upgrades and no Gatekeeper prompt.</p></div>
-      <div class="install-panel"><code>brew install --cask zhiyozhao/tap/orbpeek</code><button class="copy-button" type="button" aria-label="Copy install command" onclick="navigator.clipboard.writeText('brew install --cask zhiyozhao/tap/orbpeek'); this.textContent='Copied';">Copy</button></div>
-      <p class="install-alt">Prefer a <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">DMG</a>? On macOS 15, try opening it once, then click Open Anyway in System Settings → Privacy & Security.</p>
-    </section>
+  <section class="wrap">
+    <div class="strip">
+      <figure>
+        <picture>
+          <source srcset="../assets/strip-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="../assets/strip-light.png" width="140" height="420" alt="Close-up of the preview strip at the right edge of the screen: a thin translucent slice of the window's left edge.">
+        </picture>
+        <figcaption>Top right of the screen, 2× zoom</figcaption>
+      </figure>
+      <div>
+        <h2>The preview strip</h2>
+        <p>What stays at the edge is a picture of the window's own edge: dock it right and you see its left edge, dock it to the top and you see its bottom edge. The strip lines up with where the window was, so you can tell which window it is and where.</p>
+        <p>By default the strip is 15 px wide and half transparent, and clicks pass through it. You can change its width and opacity in Settings. It is a still picture, not a live view; it is taken again when the window goes back while its app is in front.</p>
+      </div>
+    </div>
+  </section>
 
-    <section id="faq" class="section faq">
-      <div class="section-heading"><p class="kicker">FAQ</p><h2>A few useful details</h2></div>
-      <details><summary>What happens to windows after an unexpected quit?</summary><p>A normal quit restores every docked window. After a crash, the next launch finds eligible off-screen windows and places them inside a visible display, without docking them again.</p></details>
-      <details><summary>Can I change shortcuts and the preview strip?</summary><p>Yes. Open Settings from the menu-bar icon to change all four shortcuts, strip width, opacity and Launch at Login. If another window utility uses the same shortcut, choose a different one.</p></details>
-      <details><summary>How do I uninstall?</summary><p>Run <code>brew uninstall --cask --zap orbpeek</code> to remove the app, logs, preferences and recovery data.</p></details>
-      <details><summary>Is it free?</summary><p>Yes. OrbPeek is MIT-licensed open source, with no ads, accounts, subscriptions or networking features.</p></details>
-    </section>
-  </main>
+  <section class="wrap" id="how">
+    <h2>How it works</h2>
+    <p class="intro">Everything starts with a shortcut.</p>
+    <table class="keys">
+      <tr><th>Dock</th><td><kbd>⌃</kbd><kbd>⇧</kbd> plus <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> docks the front window to the left, right, top or bottom edge. Press another direction on a docked window to move it to that edge.</td></tr>
+      <tr><th>See it</th><td>Rest the pointer on the strip for a moment (0.15 s). Fling the pointer at the screen edge and the window appears at once.</td></tr>
+      <tr><th>Hide it again</th><td>Move the pointer out after using the window, or switch to another app.</td></tr>
+      <tr><th>Move or resize</th><td>While the window is out, drag it along the edge and the strip follows to the new spot. Resizing keeps it docked.</td></tr>
+      <tr><th>Undock</th><td>Click the window's name in the menu bar icon and it goes back to where it was. Or drag it toward the middle of the screen while it is out, and it stays where you drop it.</td></tr>
+    </table>
+    <p class="note">You can change the shortcuts in Settings. Quitting OrbPeek puts every docked window back where it was.</p>
+  </section>
 
-  <footer><span>OrbPeek · Put windows aside, keep your desktop.</span><nav aria-label="Footer"><a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a><a href="https://github.com/zhiyozhao/OrbPeek/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/zhiyozhao/OrbPeek/blob/main/LICENSE">MIT</a><a href="../">中文</a></nav></footer>
+  <section class="wrap" id="permissions">
+    <h2>Permissions</h2>
+    <p class="intro">The menu bar icon shows both permissions. Click one that is missing to grant it.</p>
+    <div class="two">
+      <div>
+        <h3>Accessibility<span>Required</span></h3>
+        <p>To read and move windows. It works as soon as you grant it; no restart needed.</p>
+      </div>
+      <div>
+        <h3>Screen Recording<span>Optional</span></h3>
+        <p>Only for the preview strip: one capture of the window's area each time you dock it, kept in memory. No video, no audio. Without it OrbPeek still works and the strip is a dark translucent placeholder.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>What it doesn't do</h2>
+    <ul class="nots">
+      <li><b>No automatic docking</b><span>Only the shortcut docks a window. Dragging it to the edge does not.</span></li>
+      <li><b>No live preview</b><span>The strip is a still picture. OrbPeek never keeps recording the screen.</span></li>
+      <li><b>No window layout</b><span>No tiling, no splitting. It leaves your other windows alone.</span></li>
+      <li><b>No network</b><span>No account, no analytics, nothing uploaded.</span></li>
+    </ul>
+  </section>
+
+  <div class="end wrap">
+    <h2>Install with Homebrew</h2>
+    <div class="cmd" style="display:inline-flex"><code>brew install --cask zhiyozhao/tap/orbpeek</code></div>
+    <p class="meta" style="margin-top:14px">Update: <code>brew upgrade --cask orbpeek</code> · Uninstalling and more in the <a href="https://github.com/zhiyozhao/OrbPeek/blob/main/README.en.md">README</a></p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OrbPeek · MIT License</span>
+    <span class="right">
+      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
+      <a href="https://github.com/zhiyozhao/OrbPeek/releases">Releases</a>
+      <a href="../" lang="zh-CN">中文</a>
+    </span>
+  </div>
+</footer>
+<script src="../main.js"></script>
 </body>
 </html>

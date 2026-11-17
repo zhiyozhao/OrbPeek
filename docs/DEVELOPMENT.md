@@ -57,14 +57,16 @@ Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段
 
 不要对 `/Applications/OrbPeek.app` 或用户正在管理的窗口做自动化操作。开发日志写入 `~/Library/Logs/orbpeek.log`，不要提交日志和构建产物。
 
-## 真实素材与合成演示
+## 演示素材
 
-演示采用真实 Peekaboo 窗口截图 + Pillow/ffmpeg 合成，不再整段录屏。`Scripts/capture-demo.sh --trial` 只打开专用 AppKit Git 速查窗口（无工具栏、标尺或拼写标记，固定两列）并按 window ID 截 Retina 图，不按快捷键、不动鼠标；正式采集必须约定桌面操作时间，再运行 `--capture`。预览条也作为独立窗口按 ID 截取，不截任何桌面区域或其他 app。
+演示画面全部由代码生成，不截取或录制真实桌面。`Scripts/demo/scene.html` 是一个 HTML/CSS 画的 macOS 15 场景，`Scripts/demo/render.mjs` 用 Playwright 在无头 Chromium 里按 2x 逐帧截图，再用 ffmpeg 编码。
 
-真实来源图位于 `docs/assets/demo-source/<appearance>/`。`Scripts/render-demo.py` 用代码绘制渐变背景、简化菜单栏和鼠标，仅把 OrbPeek 自身菜单图标取自资源，再合成 30Hz MP4、960px GIF 与高清首图。OrbPeek 源码直接写 AX 位置、没有 easing，因此合成只采用线性插帧，不虚构原生缓动。
+场景里的 OrbPeek 行为按源码默认值：预览条 15 px、50% 不透明、窗口一侧 10pt 圆角、无阴影，内容是窗口对应边缘的静态截图；停 0.15 秒后出现（30Hz 轮询）；在窗口里停 0.3 秒后离开窗口外 12pt 才收回；贴边和收回前各等一次约 50ms 的抓图。源码直接写 AX 位置，没有滑动动画，所以画面里窗口是瞬间移动的；改了 app 行为要同步改 `scene.html` 里的常量。
 
 ```sh
-python3 Scripts/render-demo.py
+node Scripts/demo/render.mjs              # 全部：zh/en × light/dark，约 15 分钟
+node Scripts/demo/render.mjs dark en      # 单个变体
+node Scripts/demo/shot.mjs light zh 1.5 4 # 查看某几个时间点的静帧
 ```
 
-输出包括 `docs/assets/orbpeek-demo-{light,dark}.mp4`、`demo-{light,dark}.gif` 和 `orbpeek-poster-{light,dark}.png`。未采集真实来源时脚本会失败，不生成替代画面。
+输出：`site/assets/demo-<lang>-<theme>.{mp4,webm}`、`poster-*.jpg`、`strip-<theme>.png`，`docs/assets/demo-<lang>-<theme>.gif`、`hero-<lang>-<theme>.png`。中间帧在 `Artifacts/demo-frames/`（已忽略）。

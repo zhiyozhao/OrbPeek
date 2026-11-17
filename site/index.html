@@ -1,88 +1,143 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="OrbPeek 用快捷键把窗口贴到屏幕边缘，鼠标碰到预览条就滑回来。免费、开源的 macOS 菜单栏工具。">
-  <meta name="theme-color" content="#f5f7f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#151a1d" media="(prefers-color-scheme: dark)">
-  <title>OrbPeek — 窗口先靠边，桌面留给你</title>
-  <link rel="icon" href="assets/orbpeek.png" type="image/png">
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrbPeek：把窗口贴到屏幕边上</title>
+<meta name="description" content="macOS 菜单栏工具。按 ⌃⇧ 加方向键，把当前窗口移出屏幕，只在边上留一条预览；鼠标碰到预览条，窗口就出现。">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/icon.png">
+<link rel="alternate" hreflang="en" href="en/">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">跳到正文</a>
-  <header class="site-header">
-    <a class="brand" href="./" aria-label="OrbPeek 首页"><img src="assets/orbpeek.png" alt="" width="30" height="30"><span>OrbPeek</span></a>
-    <nav aria-label="页面导航">
-      <a href="#usage">怎么用</a><a href="#privacy">权限与隐私</a><a href="#faq">常见问题</a>
-      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a><a class="lang" href="en/">EN</a>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="assets/icon.png" alt="">OrbPeek</a>
+    <nav class="links">
+      <a href="#how" class="hide-s">用法</a>
+      <a href="#permissions" class="hide-s">权限</a>
+      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
+      <a href="./" aria-current="page" lang="zh-CN">中文</a>
+      <a href="en/" lang="en">English</a>
     </nav>
-  </header>
+  </div>
+</header>
 
-  <main id="main">
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="kicker">一款 macOS 菜单栏小工具</p>
-        <h1>窗口先靠边，<br>桌面留给你。</h1>
-        <p class="lede">用快捷键把窗口贴到屏幕边缘。要看时，鼠标碰一下预览条，它就滑回来。</p>
-        <div class="actions">
-          <a class="button primary" href="#install">免费安装</a>
-          <a class="button secondary" href="https://github.com/zhiyozhao/OrbPeek/releases/latest">下载 DMG</a>
-        </div>
-        <p class="meta">macOS 14+ · 开源 MIT · 无跟踪、无广告</p>
+<main>
+  <div class="hero wrap">
+    <h1>把窗口贴到屏幕边上，<br>要看时碰一下。</h1>
+    <p class="lead">OrbPeek 是 macOS 菜单栏工具。按 <kbd>⌃</kbd><kbd>⇧</kbd> 加方向键，当前窗口移出屏幕，边上只留一条预览。鼠标移到预览条上，窗口贴着这条边出现；移开，它就收回去。</p>
+    <div class="install">
+      <div class="cmd"><code>brew install --cask zhiyozhao/tap/orbpeek</code><button class="copy" type="button" data-copy="brew install --cask zhiyozhao/tap/orbpeek" data-done="已复制">复制</button></div>
+      <p class="meta">macOS 14 或更高版本 · 免费开源 · 版本 1.1.1 · <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">下载 DMG</a></p>
+    </div>
+  </div>
+
+  <figure class="demo">
+    <video id="demo" data-base="assets/demo-zh-" autoplay muted loop playsinline preload="auto" width="2880" height="1800" poster="assets/poster-zh-light.jpg" aria-label="演示：按 ⌃⇧→ 后备忘录窗口移出屏幕，右边留下预览条；鼠标移到预览条上，窗口贴着右边出现；鼠标移开，窗口收回。">
+      <source src="assets/demo-zh-light.webm" type="video/webm">
+      <source src="assets/demo-zh-light.mp4" type="video/mp4">
+    </video>
+    <figcaption class="caption">按 ⌃⇧→，窗口贴到右边。鼠标碰到预览条，窗口出现；移开，窗口收回。</figcaption>
+  </figure>
+
+  <section class="wrap">
+    <h2>主窗口不用让位</h2>
+    <p class="intro">笔记、聊天、终端这类窗口，要时不时看一眼，放在旁边又挡着手头的事。OrbPeek 只动你选中的那个窗口，其他窗口原样不动。</p>
+    <div class="compare">
+      <div>
+        <h3>最小化</h3>
+        <p class="them">窗口进了 Dock，要回去找它、点它。</p>
+        <p>OrbPeek 的窗口就在你放它的那条边上，鼠标过去就出来，离开就收回。</p>
       </div>
-      <div class="demo-placeholder demo-video">
-        <video class="theme-light" autoplay muted loop playsinline poster="assets/orbpeek-poster-light.png" aria-label="Git 速查窗口贴到右边，鼠标碰边后滑出，离开后收回">
-          <source src="assets/orbpeek-demo-light.mp4" type="video/mp4">
-        </video>
-        <video class="theme-dark" autoplay muted loop playsinline poster="assets/orbpeek-poster-dark.png" aria-label="深色外观下，Git 速查窗口贴边、滑出并收回">
-          <source src="assets/orbpeek-demo-dark.mp4" type="video/mp4">
-        </video>
+      <div>
+        <h3>分屏</h3>
+        <p class="them">两个窗口平分屏幕，主窗口一直变窄。</p>
+        <p>OrbPeek 不改主窗口的大小，另一个窗口只在你看它时盖在上面。</p>
       </div>
-    </section>
-
-    <section class="benefits" aria-label="产品特点">
-      <article><span class="number">01</span><h2>先收起来</h2><p>参考资料、聊天窗口、临时文档，不必一直占着桌面，也不用关掉。</p></article>
-      <article><span class="number">02</span><h2>碰一下就回来</h2><p>预览条留在边缘。鼠标碰到就滑出，可以查看，也可以直接操作。</p></article>
-    </section>
-
-    <section id="usage" class="section usage">
-      <div class="section-heading"><p class="kicker">怎么用</p><h2>三次动作，给桌面腾地方</h2></div>
-      <ol class="steps">
-        <li><span>1</span><div><h3>按一下，贴边</h3><p>切到要收起的窗口，按 <span class="shortcut"><kbd>Control</kbd> + <kbd>Shift</kbd> + <kbd>方向键</kbd></span>。</p></div></li>
-        <li><span>2</span><div><h3>碰一下，滑出</h3><p>把鼠标移到边缘的预览条上，窗口回到最前面。</p></div></li>
-        <li><span>3</span><div><h3>移开，收回</h3><p>鼠标离开后自动贴回。向屏幕内拖远，则取消贴边。</p></div></li>
-      </ol>
-    </section>
-
-    <section id="privacy" class="section privacy">
-      <div class="section-heading"><p class="kicker">权限与隐私</p><h2>两项权限，都有明确用途</h2></div>
-      <div class="permission-list">
-        <article><h3>辅助功能</h3><p>用于读取和移动你贴边的窗口，并在取消贴边或异常恢复时放回可见区域。不会记录你输入的文字。</p></article>
-        <article><h3>屏幕录制</h3><p>只用于生成窗口预览条，不持续录像，不录音。不授权也能用，只是预览条显示为占位条。</p></article>
+      <div>
+        <h3>台前调度</h3>
+        <p class="them">重排所有窗口，屏幕一侧常驻缩略图。</p>
+        <p>OrbPeek 只管你按了快捷键的窗口，桌面布局不变。</p>
       </div>
-      <p class="privacy-note">窗口画面只保存在内存。没有联网功能，不上传窗口画面、标题或设置，也没有统计和第三方脚本。</p>
-    </section>
+    </div>
+  </section>
 
-    <section id="install" class="section install">
-      <div class="section-heading"><p class="kicker">安装</p><h2>推荐用 Homebrew</h2><p>升级方便，也会自动处理下载隔离。</p></div>
-      <div class="install-panel">
-        <code>brew install --cask zhiyozhao/tap/orbpeek</code>
-        <button class="copy-button" type="button" aria-label="复制安装命令" onclick="navigator.clipboard.writeText('brew install --cask zhiyozhao/tap/orbpeek'); this.textContent='已复制';">复制</button>
+  <section class="wrap">
+    <div class="strip">
+      <figure>
+        <picture>
+          <source srcset="assets/strip-dark.png" media="(prefers-color-scheme: dark)">
+          <img src="assets/strip-light.png" width="140" height="420" alt="屏幕右边缘的预览条特写：一条半透明的窄条，是窗口左边缘的截图。">
+        </picture>
+        <figcaption>屏幕右上角，放大 2 倍</figcaption>
+      </figure>
+      <div>
+        <h2>预览条</h2>
+        <p>窗口贴边后，屏幕边上留下的是它边缘的一张截图：贴到右边就显示窗口的左边缘，贴到上边就显示窗口的下边缘。预览条和窗口原来的位置对齐，一眼就知道是哪个窗口、在哪里。</p>
+        <p>预览条默认宽 15 px、半透明，不挡鼠标点击。宽度和不透明度可以在设置里调。截图不会实时刷新；窗口收回时如果它的 app 在前台，会重新截一次。</p>
       </div>
-      <p class="install-alt">也可以 <a href="https://github.com/zhiyozhao/OrbPeek/releases/latest">下载 DMG</a>。macOS 15 首次打开后，到“系统设置 → 隐私与安全性”点“仍要打开”。</p>
-    </section>
+    </div>
+  </section>
 
-    <section id="faq" class="section faq">
-      <div class="section-heading"><p class="kicker">常见问题</p><h2>还有一点说明</h2></div>
-      <details><summary>窗口消失或 OrbPeek 意外退出怎么办？</summary><p>正常退出会把所有贴边窗口放回来。意外退出后，下次启动会寻找仍存在的屏外窗口并放回可见区域，不会重新贴边。</p></details>
-      <details><summary>可以调整快捷键和预览条吗？</summary><p>可以。菜单栏图标 →“设置…”里能修改四个快捷键、预览条宽度、不透明度和开机启动。与其他窗口工具冲突时，换一组快捷键即可。</p></details>
-      <details><summary>如何卸载？</summary><p>执行 <code>brew uninstall --cask --zap orbpeek</code>，会同时清理日志、偏好设置和恢复数据。</p></details>
-      <details><summary>它是免费的吗？</summary><p>是。OrbPeek 以 MIT 许可证开源，没有广告、账号、订阅或联网功能。</p></details>
-    </section>
-  </main>
+  <section class="wrap" id="how">
+    <h2>用法</h2>
+    <p class="intro">所有操作都从快捷键开始。</p>
+    <table class="keys">
+      <tr><th>贴边</th><td><kbd>⌃</kbd><kbd>⇧</kbd> 加 <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd>，把当前窗口贴到左、右、上、下边。对已贴边的窗口按另一个方向，就换一条边。</td></tr>
+      <tr><th>查看</th><td>鼠标在预览条上停一下（0.15 秒）。快速把鼠标甩向屏幕边，窗口会立刻出现。</td></tr>
+      <tr><th>收回</th><td>在窗口里停留过再移开，或者切到别的 app，窗口就收回边上。</td></tr>
+      <tr><th>挪位置、改大小</th><td>窗口出现时，沿着这条边拖动，松手后预览条跟到新位置；改窗口大小也不会取消。</td></tr>
+      <tr><th>取消贴边</th><td>在菜单栏图标里点这个窗口的名字，它回到贴边前的位置。也可以在它出现时把它往屏幕中间拖开，它会留在你松手的地方。</td></tr>
+    </table>
+    <p class="note">快捷键可以在设置里改。退出 OrbPeek 时，所有贴边的窗口都会回到原来的位置。</p>
+  </section>
 
-  <footer><span>OrbPeek · 窗口先靠边，桌面留给你。</span><nav aria-label="页脚"><a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a><a href="https://github.com/zhiyozhao/OrbPeek/blob/main/CHANGELOG.md">更新记录</a><a href="https://github.com/zhiyozhao/OrbPeek/blob/main/LICENSE">MIT</a><a href="en/">English</a></nav></footer>
+  <section class="wrap" id="permissions">
+    <h2>权限</h2>
+    <p class="intro">菜单栏图标里能看到两项权限的状态，点没有授权的那一项就能去授权。</p>
+    <div class="two">
+      <div>
+        <h3>辅助功能<span>必需</span></h3>
+        <p>用来读取和移动窗口。授权后马上可用，不需要重启 OrbPeek。</p>
+      </div>
+      <div>
+        <h3>屏幕录制<span>可选</span></h3>
+        <p>只用来截预览条：每次贴边时截一次窗口所在的区域，图片只留在内存里。不录像，不录音。不授权也能用，预览条会变成一条半透明的深色占位条。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>刻意不做的事</h2>
+    <ul class="nots">
+      <li><b>不自动贴边</b><span>只有按快捷键才会贴边，把窗口拖到屏幕边上不会。</span></li>
+      <li><b>不实时预览</b><span>预览条是一张截图，OrbPeek 不会持续录屏。</span></li>
+      <li><b>不管窗口布局</b><span>不平铺、不分屏，其他窗口它不碰。</span></li>
+      <li><b>不联网</b><span>没有账号、统计或自动上传。</span></li>
+    </ul>
+  </section>
+
+  <div class="end wrap">
+    <h2>用 Homebrew 安装</h2>
+    <div class="cmd" style="display:inline-flex"><code>brew install --cask zhiyozhao/tap/orbpeek</code></div>
+    <p class="meta" style="margin-top:14px">更新：<code>brew upgrade --cask orbpeek</code> · 卸载和其他说明见 <a href="https://github.com/zhiyozhao/OrbPeek#readme">README</a></p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>OrbPeek · MIT 许可</span>
+    <span class="right">
+      <a href="https://github.com/zhiyozhao/OrbPeek">GitHub</a>
+      <a href="https://github.com/zhiyozhao/OrbPeek/releases">更新记录</a>
+      <a href="en/" lang="en">English</a>
+    </span>
+  </div>
+</footer>
+<script src="main.js"></script>
 </body>
 </html>

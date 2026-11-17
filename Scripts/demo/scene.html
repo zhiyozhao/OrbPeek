@@ -1,0 +1,468 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Synthetic macOS 15 scene for the OrbPeek demo. Rendered frame by frame by
+  render.mjs in headless Chromium; nothing here touches a real desktop.
+  Query: ?theme=light|dark&lang=zh|en&t=<seconds>
+
+  Behaviour mirrors the app source (main):
+  - Strip: sliverPx 15, stripOpacity 0.5 (Config.swift registered defaults),
+    10pt radius on the window-side corners, no shadow (SnapshotStrip.swift),
+    a still crop of the window's left edge when docking right
+    (SliceCapturer.slice), placed at the visible frame's right edge at the
+    window's own y (Geometry.sliverRect).
+  - Moves are single AX position writes (ManagedWindow.moveTo): no slide, no
+    easing. The window is parked with 1pt left on the desktop's outer edge
+    (Geometry.hiddenPosition) and peeks flush to the edge (peekPosition).
+  - Peek after 0.15s on the strip (peekDwell), sampled by a 30Hz poll.
+    Dock/hide waits for one display capture (~50ms) before moving.
+  - A peeked window hides once the pointer has been inside it for 0.3s
+    (touchDwell) and then leaves the window + 12pt buffer (edgeBuffer).
+  - Peek raises and activates the window's app; hiding does not change focus.
+-->
+<style>
+  :root {
+    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1440px; height: 900px; overflow: hidden; background: #000; }
+  body { font-family: var(--font); -webkit-font-smoothing: antialiased; }
+  #screen { position: absolute; inset: 0; overflow: hidden; }
+
+  /* ---------- wallpaper ---------- */
+  .wallpaper { position: absolute; inset: 0; }
+  .light .wallpaper {
+    background:
+      radial-gradient(1200px 820px at 0% 0%, #5f9fc6 0%, rgba(95,159,198,0) 72%),
+      radial-gradient(1100px 820px at 100% 100%, #e3b48c 0%, rgba(227,180,140,0) 66%),
+      radial-gradient(900px 640px at 78% 12%, #8fbfd8 0%, rgba(143,191,216,0) 70%),
+      linear-gradient(165deg, #6fa6c8 0%, #a9c4d3 52%, #dcc0a4 100%);
+  }
+  .dark .wallpaper {
+    background:
+      radial-gradient(1200px 820px at 0% 0%, #1f5a7a 0%, rgba(31,90,122,0) 72%),
+      radial-gradient(1100px 820px at 100% 100%, #6a4630 0%, rgba(106,70,48,0) 64%),
+      radial-gradient(900px 640px at 78% 12%, #2a5675 0%, rgba(42,86,117,0) 70%),
+      linear-gradient(165deg, #1a4864 0%, #213b52 52%, #3d3028 100%);
+  }
+
+  /* ---------- menu bar (24pt, non-notch display) ---------- */
+  .menubar {
+    position: absolute; left: 0; top: 0; right: 0; height: 24px;
+    display: flex; align-items: center; padding: 0 10px 0 18px;
+    font-size: 13px; letter-spacing: -0.08px;
+    -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+    z-index: 50;
+  }
+  .light .menubar { background: rgba(246,246,246,0.48); color: #000; }
+  .dark .menubar { background: rgba(30,30,30,0.40); color: #fff; }
+  .menubar .apple { font-size: 15px; margin-right: 19px; position: relative; top: -1px; }
+  .menubar .item { margin-right: 18px; font-weight: 400; }
+  .menubar .item.app { font-weight: 700; }
+  .menubar .right { margin-left: auto; display: flex; align-items: center; gap: 0; }
+  .menubar .glyph { height: 24px; display: flex; align-items: center; padding: 0 9px; }
+  .menubar svg { display: block; }
+  /* OrbPeek's own template menu icon, tinted like the other items */
+  .menubar .orb { width: 18px; height: 18px; display: block; }
+  .dark .menubar .orb { filter: invert(1); }
+  .menubar .clock { padding: 0 6px 0 9px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- windows ---------- */
+  .win { position: absolute; border-radius: 10px; overflow: hidden; }
+  .light .win { background: #fff; }
+  .dark .win { background: #1e1e1e; }
+  .light .win.active { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.20), 0 24px 70px rgba(0,0,0,0.28), 0 8px 22px rgba(0,0,0,0.12); }
+  .light .win.inactive { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 14px 38px rgba(0,0,0,0.16), 0 3px 10px rgba(0,0,0,0.06); }
+  .dark .win.active { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.85), 0 24px 70px rgba(0,0,0,0.55), 0 8px 22px rgba(0,0,0,0.35); }
+  .dark .win.inactive { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.75), 0 14px 38px rgba(0,0,0,0.42), 0 3px 10px rgba(0,0,0,0.25); }
+  /* dark windows carry a faint inner highlight */
+  .dark .win::after, .dark .slice::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.16);
+  }
+
+  .lights { position: absolute; left: 14px; display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .active .lights i:nth-child(1), .slice .lights i:nth-child(1) { background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12); }
+  .active .lights i:nth-child(2), .slice .lights i:nth-child(2) { background: #febc2e; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12); }
+  .active .lights i:nth-child(3), .slice .lights i:nth-child(3) { background: #28c840; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12); }
+  .light .inactive .lights i { background: #dcdcdc; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.10); }
+  .dark .inactive .lights i { background: #4a4a4a; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.06); }
+
+  /* ---------- editor ---------- */
+  #editor { left: 72px; top: 58px; width: 1060px; height: 790px; display: flex; }
+  #editor .sidebar { width: 230px; height: 100%; position: relative; padding-top: 52px; }
+  .light #editor .sidebar { background: #ededf0; border-right: 0.5px solid rgba(0,0,0,0.10); }
+  .dark #editor .sidebar { background: #262628; border-right: 0.5px solid rgba(0,0,0,0.6); }
+  #editor .sidebar .lights { top: 20px; }
+  .side-head { font-size: 11px; font-weight: 600; padding: 6px 18px 6px; }
+  .light .side-head { color: rgba(0,0,0,0.42); }
+  .dark .side-head { color: rgba(255,255,255,0.40); }
+  .row { height: 26px; margin: 0 10px; padding: 0 8px; border-radius: 6px; display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .light .row { color: #1d1d1f; }
+  .dark .row { color: #e8e8ea; }
+  .row.indent { padding-left: 26px; }
+  .light .row.sel { background: rgba(0,0,0,0.075); }
+  .dark .row.sel { background: rgba(255,255,255,0.10); }
+  .light .active .row.sel { background: #0a64d8; color: #fff; }
+  .dark .active .row.sel { background: #0a5bc4; color: #fff; }
+  .ico { width: 14px; height: 16px; flex: none; display: block; }
+  .chev { width: 8px; flex: none; opacity: 0.55; font-size: 9px; margin-left: -12px; margin-right: -2px; }
+
+  #editor .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #editor .toolbar { height: 52px; display: flex; align-items: center; padding: 0 16px 0 20px; flex: none; }
+  .light #editor .toolbar { border-bottom: 0.5px solid rgba(0,0,0,0.10); }
+  .dark #editor .toolbar { border-bottom: 0.5px solid rgba(0,0,0,0.6); }
+  .tb-title { font-size: 13px; font-weight: 700; }
+  .tb-sub { font-size: 11px; margin-top: 1px; }
+  .light .tb-title { color: #1d1d1f; } .light .tb-sub { color: rgba(0,0,0,0.5); }
+  .dark .tb-title { color: #ececee; } .dark .tb-sub { color: rgba(255,255,255,0.45); }
+  .inactive .tb-title { opacity: 0.55; }
+  .tb-tools { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+  .tb-tools svg { display: block; }
+  .light .tb-tools { color: rgba(0,0,0,0.55); } .dark .tb-tools { color: rgba(255,255,255,0.55); }
+  .inactive .tb-tools { opacity: 0.55; }
+
+  .tabs { height: 30px; display: flex; flex: none; font-size: 12px; }
+  .light .tabs { background: #f5f5f7; border-bottom: 0.5px solid rgba(0,0,0,0.10); color: rgba(0,0,0,0.55); }
+  .dark .tabs { background: #252527; border-bottom: 0.5px solid rgba(0,0,0,0.6); color: rgba(255,255,255,0.5); }
+  .tab { padding: 0 16px; display: flex; align-items: center; gap: 6px; }
+  .light .tab { border-right: 0.5px solid rgba(0,0,0,0.08); }
+  .dark .tab { border-right: 0.5px solid rgba(0,0,0,0.5); }
+  .light .tab.on { background: #fff; color: #1d1d1f; }
+  .dark .tab.on { background: #1e1e1e; color: #e8e8ea; }
+
+  .code { flex: 1; font-family: var(--mono); font-size: 12.5px; line-height: 20px; padding: 14px 0; overflow: hidden; white-space: pre; }
+  .ln { display: flex; }
+  .ln b { font-weight: 400; width: 52px; text-align: right; padding-right: 18px; flex: none; }
+  .light .ln b { color: #a3a3a8; } .dark .ln b { color: #5c5c62; }
+  .light .ln.cur { background: #eef3fb; } .dark .ln.cur { background: #262a31; }
+  .inactive .ln.cur { background: transparent !important; }
+  .light .code { color: #1f1f24; }
+  .dark .code { color: #dfdfe0; }
+  .light .k { color: #9b2393; font-weight: 600; } .dark .k { color: #fc5fa3; font-weight: 600; }
+  .light .s { color: #c41a16; } .dark .s { color: #fc6a5d; }
+  .light .n { color: #1c00cf; } .dark .n { color: #d0bf69; }
+  .light .ty { color: #0b4f79; } .dark .ty { color: #5dd8ff; }
+  .light .f { color: #326d74; } .dark .f { color: #67b7a4; }
+  .light .c { color: #5d6c79; } .dark .c { color: #7f8c98; }
+
+  /* ---------- notes ---------- */
+  .notes { width: 400px; height: 560px; }
+  .notes .toolbar { height: 52px; position: relative; display: flex; align-items: center; padding: 0 14px 0 86px; }
+  .notes .lights { top: 20px; }
+  .notes .ntools { margin-left: auto; display: flex; gap: 18px; align-items: center; }
+  .light .notes .ntools { color: rgba(0,0,0,0.55); } .dark .notes .ntools { color: rgba(255,255,255,0.55); }
+  .notes.inactive .ntools { opacity: 0.5; }
+  .notes .body { padding: 6px 28px 0 28px; }
+  .notes .date { text-align: center; font-size: 11px; margin: 4px 0 18px; }
+  .light .notes .date { color: rgba(0,0,0,0.42); } .dark .notes .date { color: rgba(255,255,255,0.38); }
+  .notes h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 12px; }
+  .light .notes h1, .light .notes li, .light .notes p { color: #1d1d1f; }
+  .dark .notes h1, .dark .notes li, .dark .notes p { color: #ececee; }
+  .notes p { font-size: 14px; line-height: 21px; margin: 16px 0 8px; }
+  .notes ul { list-style: none; }
+  .notes li { font-size: 14px; line-height: 20px; display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; }
+  .box { width: 18px; height: 18px; border-radius: 50%; flex: none; margin-top: 1px; position: relative; }
+  .light .box { box-shadow: inset 0 0 0 1.25px #b9b9be; } .dark .box { box-shadow: inset 0 0 0 1.25px #6a6a70; }
+  .box.done { background: #e6a700; box-shadow: none !important; }
+  .box.done::after { content: ""; position: absolute; left: 6.2px; top: 3.2px; width: 4px; height: 8px; border: solid #fff; border-width: 0 1.8px 1.8px 0; transform: rotate(42deg); }
+  .caret { display: inline-block; width: 2px; height: 17px; vertical-align: -3px; margin-left: 1px; background: #e6a700; }
+
+  /* ---------- strip: a still crop of the window, not a live view ---------- */
+  #strip { position: absolute; overflow: hidden; border-radius: 10px 0 0 10px; z-index: 40; }
+  #strip .slice { position: absolute; left: 0; top: 0; border-radius: 10px 0 0 10px; box-shadow: none !important; }
+
+  /* ---------- demo overlay: keystroke ---------- */
+  #hud {
+    position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%);
+    display: flex; gap: 8px; padding: 12px; border-radius: 16px; z-index: 60;
+    -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+  }
+  .light #hud { background: rgba(255,255,255,0.55); box-shadow: 0 0 0 0.5px rgba(0,0,0,0.12), 0 10px 30px rgba(0,0,0,0.14); }
+  .dark #hud { background: rgba(40,40,42,0.55); box-shadow: 0 0 0 0.5px rgba(0,0,0,0.6), inset 0 0 0 0.5px rgba(255,255,255,0.12), 0 10px 30px rgba(0,0,0,0.4); }
+  .key {
+    min-width: 50px; height: 50px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 500;
+  }
+  .light .key { background: #fff; color: #1d1d1f; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 1.5px 0 rgba(0,0,0,0.12); }
+  .dark .key { background: #3a3a3c; color: #f2f2f4; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.6), inset 0 0.5px 0 rgba(255,255,255,0.12), 0 1.5px 0 rgba(0,0,0,0.4); }
+
+  #cursor { position: absolute; left: 0; top: 0; width: 26px; height: 36px; z-index: 100; filter: drop-shadow(0 1.2px 1.6px rgba(0,0,0,0.38)); }
+  #fade { position: absolute; inset: 0; z-index: 200; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="screen">
+  <div class="wallpaper"></div>
+  <div class="menubar">
+    <span class="apple">&#xF8FF;</span>
+    <span class="item app" id="appname"></span>
+    <span id="menus"></span>
+    <span class="right">
+      <span class="glyph"><img class="orb" src="../../Resources/Assets.xcassets/MenuIcon.imageset/menuicon@3x.png" alt=""></span>
+      <span class="glyph">
+        <svg width="17" height="13" viewBox="0 0 17 13" fill="currentColor"><path d="M8.5 2.6c2.4 0 4.6.9 6.3 2.5l1.1-1.2C13.9 2 11.3 1 8.5 1S3.1 2 1.1 3.9l1.1 1.2C3.9 3.5 6.1 2.6 8.5 2.6zm0 3.3c1.5 0 2.9.6 4 1.5l1.1-1.2C12.2 5 10.4 4.3 8.5 4.3S4.8 5 3.4 6.2l1.1 1.2c1.1-.9 2.5-1.5 4-1.5zm0 3.3c.7 0 1.3.2 1.8.6L8.5 11.9 6.7 9.8c.5-.4 1.1-.6 1.8-.6z"/></svg>
+      </span>
+      <span class="glyph">
+        <svg width="27" height="13" viewBox="0 0 27 13"><rect x="0.6" y="0.6" width="22.8" height="11.8" rx="3.6" fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.1"/><rect x="2.3" y="2.3" width="16.2" height="8.4" rx="2" fill="currentColor"/><path d="M25 4.4v4.2c.8-.3 1.3-1.2 1.3-2.1s-.5-1.8-1.3-2.1z" fill="currentColor" fill-opacity="0.45"/></svg>
+      </span>
+      <span class="glyph">
+        <svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="0.9" y="0.9" width="14.2" height="5" rx="2.5"/><circle cx="12.6" cy="3.4" r="1.4" fill="currentColor" stroke="none"/><rect x="0.9" y="8.1" width="14.2" height="5" rx="2.5"/><circle cx="3.4" cy="10.6" r="1.4" fill="currentColor" stroke="none"/></svg>
+      </span>
+      <span class="clock" id="clock"></span>
+    </span>
+  </div>
+
+  <div class="win" id="editor">
+    <div class="sidebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="side-head">Weather</div>
+      <div id="tree"></div>
+    </div>
+    <div class="main">
+      <div class="toolbar">
+        <div>
+          <div class="tb-title">Forecast.swift</div>
+          <div class="tb-sub">Weather</div>
+        </div>
+        <div class="tb-tools">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.8"/><path d="M10.6 10.6 14 14" stroke-linecap="round"/></svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9.5-5.5z"/></svg>
+          <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1" y="1.5" width="16" height="13" rx="2.6"/><path d="M11.5 1.5v13"/></svg>
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab on" id="tab1">Forecast.swift</div>
+        <div class="tab">Location.swift</div>
+        <div class="tab">Units.swift</div>
+      </div>
+      <div class="code" id="code"></div>
+    </div>
+  </div>
+
+  <div class="win notes" id="notes"></div>
+  <div id="strip"></div>
+
+  <div id="hud"><span class="key">⌃</span><span class="key">⇧</span><span class="key">→</span></div>
+  <svg id="cursor" viewBox="0 0 26 36">
+    <path d="M3 2.2v25.4l6.1-5.9 3.9 9.1c.3.7 1.1 1 1.8.7l2.9-1.2c.7-.3 1-1.1.7-1.8l-3.8-8.9h8.6z" fill="#fff"/>
+    <path d="M4.8 6.4v16.9l4.6-4.4 4.4 10.2 2.3-1 -4.4-10.1h6.4z" fill="#000"/>
+  </svg>
+  <div id="fade"></div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const theme = params.get('theme') || 'light';
+const lang = params.get('lang') || 'zh';
+document.body.className = theme;
+
+const T = {
+  zh: {
+    notes: '备忘录', editor: 'Editor',
+    notesMenus: ['文件', '编辑', '格式', '显示', '窗口', '帮助'],
+    editorMenus: ['文件', '编辑', '显示', '查找', '运行', '窗口', '帮助'],
+    clock: '11月17日 周二  09:41',
+    date: '2026年11月17日 09:38',
+    title: '周四发布',
+    items: [[true, '跑完全部测试'], [true, '更新更新记录'], [false, '打标签 v2.4'], [false, '检查 Homebrew 安装'], [false, '回复设计稿评论']],
+    para: '发布后',
+    after: [[false, '在论坛发更新说明'], [false, '整理下个版本的问题']],
+  },
+  en: {
+    notes: 'Notes', editor: 'Editor',
+    notesMenus: ['File', 'Edit', 'Format', 'View', 'Window', 'Help'],
+    editorMenus: ['File', 'Edit', 'View', 'Find', 'Run', 'Window', 'Help'],
+    clock: 'Tue Nov 17  9:41 AM',
+    date: 'November 17, 2026 at 9:38 AM',
+    title: 'Thursday release',
+    items: [[true, 'Run the full test suite'], [true, 'Update the changelog'], [false, 'Tag v2.4'], [false, 'Check the Homebrew install'], [false, 'Reply to design review']],
+    para: 'After release',
+    after: [[false, 'Post release notes to the forum'], [false, 'Triage issues for next version']],
+  },
+}[lang];
+
+document.getElementById('clock').textContent = T.clock;
+
+// ---- editor content ----
+const doc = '<svg class="ico" viewBox="0 0 14 16"><path d="M2 1h7l3.5 3.5V15H2z" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1"/><path d="M9 1v3.5h3.5" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1"/></svg>';
+const folder = '<svg class="ico" viewBox="0 0 16 14" style="width:16px"><path d="M1 3.2c0-.9.7-1.6 1.6-1.6h3.3l1.5 1.6h6c.9 0 1.6.7 1.6 1.6v6.8c0 .9-.7 1.6-1.6 1.6H2.6c-.9 0-1.6-.7-1.6-1.6z" fill="#4ba3f0"/></svg>';
+const tree = [
+  ['f', 'Sources', false], ['d', 'App.swift', true], ['d', 'Forecast.swift', true, 'sel'], ['d', 'ForecastView.swift', true],
+  ['d', 'Location.swift', true], ['d', 'Units.swift', true], ['f', 'Resources', false], ['d', 'Localizable.strings', true],
+  ['f', 'Tests', false], ['d', 'ForecastTests.swift', true], ['d', 'UnitsTests.swift', true],
+];
+document.getElementById('tree').innerHTML = tree.map(([k, name, indent, sel]) =>
+  `<div class="row ${indent ? 'indent' : ''} ${sel || ''}">${k === 'f' ? '<span class="chev">▾</span>' + folder : doc}<span>${name}</span></div>`).join('');
+
+const src = [
+  ['c', '//  Forecast.swift'],
+  [''],
+  ['', '<span class="k">import</span> Foundation'],
+  [''],
+  ['', '<span class="k">struct</span> <span class="ty">Forecast</span>: <span class="ty">Codable</span>, <span class="ty">Sendable</span> {'],
+  ['', '    <span class="k">let</span> date: <span class="ty">Date</span>'],
+  ['', '    <span class="k">let</span> high: <span class="ty">Double</span>'],
+  ['', '    <span class="k">let</span> low: <span class="ty">Double</span>'],
+  ['', '    <span class="k">let</span> chanceOfRain: <span class="ty">Double</span>'],
+  ['', '}'],
+  [''],
+  ['', '<span class="k">extension</span> <span class="ty">Forecast</span> {'],
+  ['c', '    /// The day\'s range, rounded to whole degrees.'],
+  ['', '    <span class="k">func</span> <span class="f">range</span>(in unit: <span class="ty">UnitTemperature</span>) -> <span class="ty">String</span> {'],
+  ['', '        <span class="k">let</span> hi = <span class="ty">Measurement</span>(value: high, unit: .<span class="f">celsius</span>)'],
+  ['', '            .<span class="f">converted</span>(to: unit).value.<span class="f">rounded</span>()'],
+  ['', '        <span class="k">let</span> lo = <span class="ty">Measurement</span>(value: low, unit: .<span class="f">celsius</span>)'],
+  ['', '            .<span class="f">converted</span>(to: unit).value.<span class="f">rounded</span>()'],
+  ['', '        <span class="k">return</span> <span class="s">"\\(<span style="color:inherit">Int</span>(lo))° – \\(<span style="color:inherit">Int</span>(hi))°"</span>'],
+  ['', '    }'],
+  [''],
+  ['', '    <span class="k">var</span> needsUmbrella: <span class="ty">Bool</span> {'],
+  ['cur', '        chanceOfRain >= <span class="n">0.4</span>'],
+  ['', '    }'],
+  ['', '}'],
+  [''],
+  ['', '<span class="k">struct</span> <span class="ty">ForecastLoader</span> {'],
+  ['', '    <span class="k">let</span> session: <span class="ty">URLSession</span>'],
+  ['', '    <span class="k">let</span> endpoint: <span class="ty">URL</span>'],
+  [''],
+  ['', '    <span class="k">func</span> <span class="f">week</span>() <span class="k">async throws</span> -> [<span class="ty">Forecast</span>] {'],
+  ['', '        <span class="k">let</span> (data, _) = <span class="k">try await</span> session.<span class="f">data</span>(from: endpoint)'],
+  ['', '        <span class="k">let</span> decoder = <span class="ty">JSONDecoder</span>()'],
+  ['', '        decoder.dateDecodingStrategy = .<span class="f">iso8601</span>'],
+  ['', '        <span class="k">return try</span> decoder.<span class="f">decode</span>([<span class="ty">Forecast</span>].<span class="k">self</span>, from: data)'],
+  ['', '    }'],
+  ['', '}'],
+];
+document.getElementById('code').innerHTML = src.map(([cls, html = ''], i) =>
+  `<div class="ln ${cls === 'cur' ? 'cur' : ''}"><b>${i + 1}</b><span class="${cls === 'c' ? 'c' : ''}">${html}</span></div>`).join('');
+
+// ---- notes content (rendered twice: live window + still slice) ----
+function notesInner(withCaret) {
+  const li = ([done, text]) => `<li><span class="box ${done ? 'done' : ''}"></span><span>${text}</span></li>`;
+  return `
+    <div class="toolbar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="ntools">
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor" stroke-width="1.4"><text x="1" y="13" font-size="13" font-family="-apple-system" fill="currentColor" stroke="none">Aa</text></svg>
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="3.5" cy="4" r="1.9"/><circle cx="3.5" cy="12" r="1.9"/><path d="M8 4h9M8 12h9" stroke-linecap="round"/></svg>
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1" y="1.5" width="16" height="13" rx="2.4"/><path d="M1 6h16M7 6v8.5"/></svg>
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11.5 2.5l3 3-8 8H3.5v-3z" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+    <div class="body">
+      <div class="date">${T.date}</div>
+      <h1>${T.title}</h1>
+      <ul>${T.items.map(li).join('')}</ul>
+      <p>${T.para}</p>
+      <ul>${T.after.map((it, i) => i === T.after.length - 1
+        ? `<li><span class="box"></span><span>${it[1]}${withCaret ? '<span class="caret" id="caret"></span>' : ''}</span></li>`
+        : li(it)).join('')}</ul>
+    </div>`;
+}
+const notes = document.getElementById('notes');
+notes.innerHTML = notesInner(true);
+const strip = document.getElementById('strip');
+strip.innerHTML = `<div class="win notes slice">${notesInner(false)}</div>`;
+
+// ---- geometry (points) ----
+const SCREEN_W = 1440;
+const SLIVER = 15, OPACITY = 0.5, EDGE_BUFFER = 12;
+const NOTES = { w: 400, h: 560, x: 986, y: 150 };   // user's free-floating position
+const PEEK_X = SCREEN_W - NOTES.w;                  // peekPosition(.right): visible.maxX - width
+const PARK_X = SCREEN_W - 1;                        // hiddenPosition: desktop maxX - 1
+strip.style.cssText += `left:${SCREEN_W - SLIVER}px;top:${NOTES.y}px;width:${SLIVER}px;height:${NOTES.h}px;opacity:${OPACITY}`;
+
+// ---- timeline (seconds) ----
+const POLL = 1 / 30, CAPTURE = 0.05, PEEK_DWELL = 0.15, TOUCH_DWELL = 0.3;
+const easeInOut = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+const easeOut = u => 1 - Math.pow(1 - u, 3);
+const STRIP_X = SCREEN_W - 6;
+const path = [
+  // [start, end, from, to, ease]
+  [1.75, 2.30, [1000, 520], [700, 540], easeInOut],    // over to the editor
+  [2.95, 3.70, [700, 540], [STRIP_X, 452], easeOut],   // to the strip, slowing down (no slam)
+  [4.15, 4.55, [STRIP_X, 452], [1252, 404], easeInOut],// into the peeked window
+  [5.55, 6.15, [1252, 404], [1000, 520], easeInOut],   // away, ending where the loop starts
+];
+const KEY_AT = 1.00;
+const DOCK_AT = KEY_AT + CAPTURE;
+const CLICK_EDITOR_1 = 2.42;
+const ARRIVE = path[1][1];
+// first poll tick after the dwell elapses
+const PEEK_AT = ARRIVE + PEEK_DWELL + POLL;
+// the pointer leaves window + buffer while moving away; find that time
+function cursorAt(t) {
+  let p = [1000, 520];
+  for (const [a, b, from, to, ease] of path) {
+    if (t >= b) { p = to; continue; }
+    if (t > a) { const u = ease((t - a) / (b - a)); p = [from[0] + (to[0] - from[0]) * u, from[1] + (to[1] - from[1]) * u]; }
+    break;
+  }
+  return p;
+}
+let LEAVE_AT = 0;
+for (let t = path[3][0]; t < path[3][1]; t += 0.001) {
+  if (cursorAt(t)[0] < PEEK_X - EDGE_BUFFER) { LEAVE_AT = t; break; }
+}
+const HIDE_AT = LEAVE_AT + POLL + CAPTURE;
+const FADE_START = 7.60, DURATION = 8.20;
+
+function state(t) {
+  const s = {};
+  s.cursor = cursorAt(t);
+  if (t < DOCK_AT) { s.notesX = NOTES.x; s.strip = false; }
+  else if (t < PEEK_AT) { s.notesX = PARK_X; s.strip = true; }
+  else if (t < HIDE_AT) { s.notesX = PEEK_X; s.strip = false; }
+  else { s.notesX = PARK_X; s.strip = true; }
+  // focus: dock keeps the parked app frontmost; clicking the editor activates it;
+  // peek activates Notes; hiding does not change focus, so the loop ends
+  // with Notes frontmost exactly as it starts.
+  if (t < CLICK_EDITOR_1) s.front = 'notes';
+  else if (t < PEEK_AT) s.front = 'editor';
+  else s.front = 'notes';
+  s.hud = t < KEY_AT - 0.12 ? 0 : t < KEY_AT ? (t - KEY_AT + 0.12) / 0.12 : t < 2.05 ? 1 : t < 2.3 ? 1 - (t - 2.05) / 0.25 : 0;
+  s.hudScale = t < KEY_AT ? 0.96 + 0.04 * s.hud : 1;
+  s.caret = t < DOCK_AT && (Math.floor(t / 0.53) % 2 === 0);
+  s.fade = t < FADE_START ? 0 : Math.min(1, (t - FADE_START) / (DURATION - FADE_START));
+  return s;
+}
+
+const el = id => document.getElementById(id);
+function apply(s) {
+  const editor = el('editor');
+  notes.style.left = s.notesX + 'px';
+  notes.style.top = NOTES.y + 'px';
+  editor.style.zIndex = 10;
+  notes.style.zIndex = s.front === 'notes' ? 20 : 5;
+  notes.className = 'win notes ' + (s.front === 'notes' ? 'active' : 'inactive');
+  editor.className = 'win ' + (s.front === 'editor' ? 'active' : 'inactive');
+  strip.style.display = s.strip ? 'block' : 'none';
+  el('appname').textContent = s.front === 'notes' ? T.notes : T.editor;
+  el('menus').innerHTML = (s.front === 'notes' ? T.notesMenus : T.editorMenus).map(m => `<span class="item">${m}</span>`).join('');
+  const hud = el('hud');
+  hud.style.opacity = s.hud;
+  hud.style.transform = `translateX(-50%) scale(${s.hudScale})`;
+  const caret = el('caret');
+  if (caret) caret.style.visibility = s.caret ? 'visible' : 'hidden';
+  // arrow hotspot is at (3, 2.2) in the cursor's viewBox
+  el('cursor').style.transform = `translate(${s.cursor[0] - 3}px, ${s.cursor[1] - 2.2}px)`;
+}
+
+const START = state(0);
+window.DURATION = DURATION;
+window.setTime = t => {
+  const s = state(t);
+  apply(s);
+  // loop: cross-fade back to the opening frame (rendered into #fade as a still)
+  el('fade').style.opacity = s.fade;
+};
+window.timeline = { DOCK_AT, PEEK_AT, LEAVE_AT, HIDE_AT, FADE_START, DURATION };
+setTime(Number(params.get('t') || 0));
+</script>
+</body>
+</html>
