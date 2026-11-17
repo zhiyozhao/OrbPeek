@@ -65,14 +65,15 @@ for (const lang of ['zh', 'en']) {
       const src = await page.evaluate(() => document.getElementById('demo').currentSrc.split('/').pop());
       const install = await page.evaluate(() => {
         const r = document.getElementById('install').getBoundingClientRect();
-        return { top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: window.innerHeight };
+        const v = document.getElementById('demo').getBoundingClientRect();
+        return { top: Math.round(r.top), viewport: window.innerHeight, video: [Math.round(v.width), Math.round(v.height), Math.round(v.bottom)] };
       });
       const file = path.join(out, `site-${lang}-${scheme}-${device}.png`);
       await page.screenshot({ path: path.join(out, `site-${lang}-${scheme}-${device}-first-screen.png`) });
       await page.screenshot({ path: file, fullPage: true });
       // The nav button must land on the install section.
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.click('.nav .btn');
+      await page.click('.hero .next');
       await page.waitForTimeout(900);
       const afterClick = await page.evaluate(() => Math.round(document.getElementById('install').getBoundingClientRect().top));
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -86,8 +87,9 @@ for (const lang of ['zh', 'en']) {
     const file = path.join(out, `readme-${lang}-${scheme}.png`);
     const install = await page.evaluate(() => {
       const h = [...document.querySelectorAll('h2')].find(e => /^(安装|Install)$/.test(e.textContent.trim()));
-      const pre = h.nextElementSibling.getBoundingClientRect();
-      return { headingTop: Math.round(h.getBoundingClientRect().top), commandBottom: Math.round(pre.bottom), viewport: window.innerHeight };
+      const pre = document.querySelector('pre').getBoundingClientRect();
+      const link = [...document.querySelectorAll('a')].find(a => /^#(安装|install)$/.test(decodeURI(a.getAttribute('href') || '')));
+      return { installLinkTop: Math.round(link.getBoundingClientRect().top), headingTop: Math.round(h.getBoundingClientRect().top), commandBottom: Math.round(pre.bottom), viewport: window.innerHeight };
     });
     await page.screenshot({ path: path.join(out, `readme-${lang}-${scheme}-first-screen.png`) });
     await page.screenshot({ path: file, fullPage: true });

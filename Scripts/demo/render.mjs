@@ -4,12 +4,10 @@
 //   node Scripts/demo/render.mjs            # all variants
 //   node Scripts/demo/render.mjs light zh   # one variant
 //   node Scripts/demo/render.mjs --encode-only  # re-encode existing frames
-//   node Scripts/demo/render.mjs --strip-only   # only the strip close-ups
 //
 // Outputs (per <lang>-<theme>):
 //   site/assets/demo-<lang>-<theme>.mp4 / .webm   2880x1800, 60 fps
 //   site/assets/poster-<lang>-<theme>.jpg         first frame, video poster
-//   site/assets/strip-<theme>.png                 preview strip close-up, 4x
 //   docs/assets/demo-<lang>-<theme>.gif           README animation, 1600 wide, 30 fps
 //   docs/assets/hero-<lang>-<theme>.png           2880x1800 still, window peeked
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -27,25 +25,12 @@ mkdirSync(site, { recursive: true });
 mkdirSync(docs, { recursive: true });
 
 const encodeOnly = process.argv.includes('--encode-only');
-const stripOnly = process.argv.includes('--strip-only');
 const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const themes = args[0] ? [args[0]] : ['light', 'dark'];
 const langs = args[1] ? [args[1]] : ['zh', 'en'];
 const variants = themes.flatMap(theme => langs.map(lang => ({ theme, lang })));
 
 const ff = (...a) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a], { stdio: 'inherit' });
-
-// Top of the docked strip, drawn at 4x so it can be shown magnified 2x on
-// the site at full Retina density.
-async function stripCloseUp(browser, theme) {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 4 });
-  await page.goto(sceneURL({ theme, lang: 'zh' }));
-  await page.evaluate(() => document.fonts.ready);
-  const tl = await page.evaluate(() => window.timeline);
-  await page.evaluate(t => window.setTime(t), tl.HIDE_AT + 0.8); // docked, no demo overlays
-  await page.screenshot({ path: path.join(site, `strip-${theme}.png`), clip: { x: 1370, y: 120, width: 70, height: 210 } });
-  await page.close();
-}
 
 async function renderVariant(browser, { theme, lang }) {
   const name = `${lang}-${theme}`;
@@ -72,11 +57,10 @@ async function renderVariant(browser, { theme, lang }) {
     await page.screenshot({ path: path.join(dir, `${String(i).padStart(4, '0')}.png`) });
   }
 
-  // Stills: peeked window (hero) and docked strip (close-up).
+  // Still: the window peeked out (hero image).
   await page.evaluate(t => window.setTime(t), tl.PEEK_AT + 0.75);
   await page.screenshot({ path: path.join(docs, `hero-${name}.png`) });
   await page.close();
-  if (lang === 'zh') await stripCloseUp(browser, theme);
   return { name, dir, frames };
 }
 
@@ -85,11 +69,6 @@ if (encodeOnly) {
   done = variants.map(({ theme, lang }) => ({ name: `${lang}-${theme}`, dir: path.join(work, `${lang}-${theme}`) }));
 } else {
   const browser = await launch();
-  if (stripOnly) {
-    for (const theme of themes) await stripCloseUp(browser, theme);
-    await browser.close();
-    process.exit(0);
-  }
   done = await Promise.all(variants.map(v => renderVariant(browser, v)));
   await browser.close();
 }

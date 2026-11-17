@@ -13,8 +13,13 @@
     a still crop of the window's left edge when docking right
     (SliceCapturer.slice), placed at the visible frame's right edge at the
     window's own y (Geometry.sliverRect).
-  - Moves are single AX position writes (ManagedWindow.moveTo): no slide, no
-    easing. The window is parked with 1pt left on the desktop's outer edge
+  - Slide (devs/slide-anim, SlideAnimator.swift): a screenshot overlay panel
+    with a shadow animates its frame between the window frame and the strip
+    frame in 150ms, CA easeOut, image scaled to the frame (so it narrows into
+    the strip). Opacity 1 -> 0.25 when docking, 0.65 -> 1 when peeking. The
+    real window still moves in one AX write: at the start of a dock, at the
+    end of a peek. The strip appears when the dock overlay finishes.
+    The window is parked with 1pt left on the desktop's outer edge
     (Geometry.hiddenPosition) and peeks flush to the edge (peekPosition).
   - Peek after 0.15s on the strip (peekDwell), sampled by a 30Hz poll.
     Dock/hide waits for one display capture (~50ms) before moving.
@@ -192,6 +197,12 @@
   .light .key { background: #fff; color: #1d1d1f; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.14), 0 1.5px 0 rgba(0,0,0,0.12); }
   .dark .key { background: #3a3a3c; color: #f2f2f4; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.6), inset 0 0.5px 0 rgba(255,255,255,0.12), 0 1.5px 0 rgba(0,0,0,0.4); }
 
+  /* ---------- slide overlay: a scaled screenshot, above normal windows ---------- */
+  #overlay { position: absolute; z-index: 35; overflow: hidden; display: none; }
+  .light #overlay { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.20), 0 24px 70px rgba(0,0,0,0.28), 0 8px 22px rgba(0,0,0,0.12); }
+  .dark #overlay { box-shadow: 0 0 0 0.5px rgba(0,0,0,0.85), 0 24px 70px rgba(0,0,0,0.55), 0 8px 22px rgba(0,0,0,0.35); }
+  #overlay .win { left: 0; top: 0; transform-origin: 0 0; box-shadow: none !important; }
+
   /* ---------- demo overlay: magnified view of the strip ---------- */
   #loupe { position: absolute; z-index: 70; transform-origin: 100% 0; }
   #loupe .lens { position: relative; overflow: hidden; border-radius: 18px; }
@@ -261,6 +272,7 @@
 
   <div class="win notes" id="notes"></div>
   <div id="strip" class="strip"></div>
+  <div id="overlay"><div class="win notes active"></div></div>
   <div id="mark"></div>
   <div id="loupe"><div class="lens"><div class="world"></div></div><div class="label"></div></div>
 
@@ -385,6 +397,7 @@ function notesInner(withCaret) {
 }
 const notes = document.getElementById('notes');
 notes.innerHTML = notesInner(true);
+document.querySelector('#overlay .win').innerHTML = notesInner(false);
 const strip = document.getElementById('strip');
 strip.innerHTML = `<div class="win notes slice">${notesInner(false)}</div>`;
 
@@ -461,16 +474,41 @@ for (let t = path[3][0]; t < path[3][1]; t += 0.001) {
   if (cursorAt(t)[0] < PEEK_X - EDGE_BUFFER) { LEAVE_AT = t; break; }
 }
 const HIDE_AT = LEAVE_AT + POLL + CAPTURE;
+const SLIDE = 0.15;
+// CAMediaTimingFunction(name: .easeOut) = cubic-bezier(0, 0, 0.58, 1)
+function caEaseOut(x) {
+  const bx = u => 3 * (1 - u) * (1 - u) * u * 0 + 3 * (1 - u) * u * u * 0.58 + u * u * u;
+  const by = u => 3 * (1 - u) * u * u + u * u * u;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (bx(m) < x) lo = m; else hi = m; }
+  return by((lo + hi) / 2);
+}
+const WIN_FRAME = x => ({ x, w: NOTES.w });
+const STRIP_FRAME = { x: SCREEN_W - SLIVER, w: SLIVER };
+const slides = [
+  { at: DOCK_AT, from: WIN_FRAME(NOTES.x), to: STRIP_FRAME, o: [1, 0.25] },
+  { at: PEEK_AT, from: STRIP_FRAME, to: WIN_FRAME(PEEK_X), o: [0.65, 1] },
+  { at: HIDE_AT, from: WIN_FRAME(PEEK_X), to: STRIP_FRAME, o: [1, 0.25] },
+];
 const FADE_START = 8.00, DURATION = 8.60;
 const LOUPE_IN = 1.40, LOUPE_OUT = 3.05, LOUPE_FADE = 0.25;
 
 function state(t) {
   const s = {};
   s.cursor = cursorAt(t);
+  // dock: window parks at once, strip after the overlay; peek: window lands
+  // when the overlay finishes.
   if (t < DOCK_AT) { s.notesX = NOTES.x; s.strip = false; }
-  else if (t < PEEK_AT) { s.notesX = PARK_X; s.strip = true; }
-  else if (t < HIDE_AT) { s.notesX = PEEK_X; s.strip = false; }
-  else { s.notesX = PARK_X; s.strip = true; }
+  else if (t < PEEK_AT) { s.notesX = PARK_X; s.strip = t >= DOCK_AT + SLIDE; }
+  else if (t < HIDE_AT) { s.notesX = t < PEEK_AT + SLIDE ? PARK_X : PEEK_X; s.strip = false; }
+  else { s.notesX = PARK_X; s.strip = t >= HIDE_AT + SLIDE; }
+  s.overlay = null;
+  for (const sl of slides) {
+    if (t >= sl.at && t < sl.at + SLIDE) {
+      const e = caEaseOut((t - sl.at) / SLIDE);
+      s.overlay = { x: sl.from.x + (sl.to.x - sl.from.x) * e, w: sl.from.w + (sl.to.w - sl.from.w) * e, o: sl.o[0] + (sl.o[1] - sl.o[0]) * e };
+    }
+  }
   // focus: dock keeps the parked app frontmost; clicking the editor activates it;
   // peek activates Notes; hiding does not change focus, so the loop ends
   // with Notes frontmost exactly as it starts.
@@ -496,6 +534,14 @@ function apply(s) {
   notes.className = 'win notes ' + (s.front === 'notes' ? 'active' : 'inactive');
   editor.className = 'win ' + (s.front === 'editor' ? 'active' : 'inactive');
   strip.style.display = s.strip ? 'block' : 'none';
+  const ov = el('overlay');
+  if (s.overlay) {
+    const sx = s.overlay.w / NOTES.w;
+    ov.style.cssText = `display:block;left:${s.overlay.x}px;top:${NOTES.y}px;width:${s.overlay.w}px;height:${NOTES.h}px;opacity:${s.overlay.o};border-radius:${10 * sx}px / 10px`;
+    ov.firstElementChild.style.transform = `scaleX(${sx})`;
+  } else {
+    ov.style.display = 'none';
+  }
   el('appname').textContent = s.front === 'notes' ? T.notes : T.editor;
   el('menus').innerHTML = (s.front === 'notes' ? T.notesMenus : T.editorMenus).map(m => `<span class="item">${m}</span>`).join('');
   const loupe = el('loupe');
@@ -521,7 +567,7 @@ window.setTime = t => {
   // loop: cross-fade back to the opening frame (rendered into #fade as a still)
   el('fade').style.opacity = s.fade;
 };
-window.timeline = { LOUPE_IN, LOUPE_OUT, DOCK_AT, PEEK_AT, LEAVE_AT, HIDE_AT, FADE_START, DURATION };
+window.timeline = { SLIDE, LOUPE_IN, LOUPE_OUT, DOCK_AT, PEEK_AT, LEAVE_AT, HIDE_AT, FADE_START, DURATION };
 setTime(Number(params.get('t') || 0));
 </script>
 </body>
