@@ -272,7 +272,7 @@ package final class ManagedWindow {
                 delegate.geometry.sliverRect(edge: edge, size: frame.size, perp: perp,
                                              screen: screen, thickness: delegate.config.sliverPx)
             )
-            let targetFrame = CGRect(origin: targetPosition, size: frame.size)
+            let targetFrame = delegate.geometry.toAppKit(CGRect(origin: targetPosition, size: frame.size))
             let plan = SlideAnimationPlan.peek(stripFrame: stripFrame, windowFrame: targetFrame, edge: edge)
             let generation = animationGeneration
             let started = animator.play(image: image, plan: plan) { [weak self] _ in

@@ -63,6 +63,8 @@ struct SlideIntegrationTests {
         fixture.delegate.fakeCapturer.cachedImage = NSImage(cgImage: testImage(), size: .zero)
         fixture.managed.peek()
         #expect(animator.plans.count == 2)
+        let expectedTarget = fixture.delegate.geometry.toAppKit(CGRect(x: 300, y: 580, width: 700, height: 500))
+        #expect(animator.plans[1].endFrame == expectedTarget)
         #expect(fixture.window.storedFrame?.origin.x != 300)
         animator.finish()
         #expect(fixture.window.storedFrame?.origin == CGPoint(x: 300, y: 580))
