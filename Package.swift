@@ -34,5 +34,13 @@ let package = Package(
             dependencies: ["OrbPeekCore"],
             path: "Tests/OrbPeekCoreTests"
         ),
+        .testTarget(
+            name: "OrbPeekAppTests",
+            dependencies: [
+                "OrbPeek",
+                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+            ],
+            path: "Tests/OrbPeekAppTests"
+        ),
     ]
 )

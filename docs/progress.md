@@ -97,3 +97,11 @@
 - Info.plist 版本设为 1.1.2 / 112，统一版本读取并增加 tag 不匹配保护；release 在中性临时目录编译，保留 SPM bundle 组装和 DEV X 签名。中英 CHANGELOG/release notes 明确 1.1.0 多显示器修复不完整及本版补齐场景。
 - `make check` 73 项测试、24 个套件通过；DEV X release 签名、版本、全部 25 个 bundle 文件字符串检查通过，无个人 home 路径或已知公司身份。中英 × 浅深色 × 390/1440 八组网站无头检查通过，无动画媒体、缺图、横向溢出或控制台错误。
 - 仅只读确认两项远端签名 secret 名称存在；逐步核对 workflow 并验证 shell 语法、版本/tag 保护。导入、解锁和 secret 解码没有在用户机器执行；实际远端签名需等发布阶段验证。未打 tag、未 push，未替换或重启当前试用版。
+
+## 2026-11-23 — 默认快捷键改为 Control+Command
+
+- 从改写后的 main（根 aa90b5b，共 137 个提交）建立 devs/default-shortcuts；四个方向的默认修饰键改为 control + command，保留 dockLeft/dockRight/dockUp/dockDown 的持久化名称，不做重置或迁移。
+- KeyboardShortcuts 固定依赖的 Name 初始化只在对应 defaults key 不存在时写入默认值；自定义值、主动清空的 false 标记和已保存的旧默认值均保留。设置页 Recorder 显示当前有效配置；菜单和首次引导没有写死的方向快捷键提示，无需修改文案。产品文档由产品负责。
+- 新增 app 测试 target，直接验证四个生产 Name 的新默认值及自定义值、旧默认值、清空值在首次初始化和重新构造时不被覆盖。测试使用进程内 volatile defaults 覆盖，覆盖前先保存、结束时还原，不写持久化设置、不注册全局热键、不创建 app 或窗口。
+- 红绿验证：新测试在旧代码上因四个方向修饰键不符失败，修改默认值后通过；完整 make check 通过：74 项测试、25 个套件，静态检查与 debug 构建全绿，原有 73 项测试均保留。
+- 未推送、未发版，未启动或替换 app，不操作用户运行中的正式版。
