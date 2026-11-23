@@ -48,12 +48,6 @@ Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段
 
 发布清单：更新 CHANGELOG → `make check` → 提交并推送 main → 打 annotated `vX.Y.Z` tag 并推送 → 等 Release 和 tap 同步完成。版本无需手改 Info.plist。
 
-## 滑动动画
-
-`SlideAnimator` 用独立 `NSPanel` 显示最近截图，真实窗口只做一次 AX 位置写入。收起时先隐藏真实窗口，再播放浮层到预览条位置；滑出时浮层先播放，完成回调再写真实窗口位置并移除浮层。CALayer 使用 150ms ease-out，不逐帧调用 AX。
-
-`SlideAnimationPlan` 负责浮层起止 frame 和 ease-out 几何，`SlideAnimationStateMachine` 管理开始/取消/完成。没有截图、系统减少动态效果、动画被新操作取代时走直接移动；`animationGeneration` 丢弃旧回调。预览条和可见区域保底不变。
-
 ## 调试入口
 
 - `OrbPeek.app/Contents/MacOS/OrbPeek --self-test`：需要辅助功能权限，会移动再恢复当前前台窗口；自动检查不运行它。

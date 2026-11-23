@@ -32,7 +32,6 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停贴边条时�
 - 所有取消、释放、退出、信号和启动崩溃恢复必须共用全局 `placeUndockedWindow`：最近屏可见区域内完整放置，过大则缩小。拔屏先 settling 观察，原屏稳定离线后取消贴边、居中置前；正常退出记录最多保留 2 分钟供启动按原边贴回，过期丢弃。
 - 停靠状态每次变化原子写入 Application Support 的 `docked-windows.json`；正常取消/退出清除。启动恢复仍存在的屏外窗口后清除；无 AX 权限时保留记录等待恢复。找不到窗口不得误动其他窗口。
 - 隐藏位仍在桌面左右外缘留 1px；隐藏 re-dock 不移动回屏内抓图，使用缓存或占位条。只抓 frontmost 窗口的 display-region，禁止改成 window-filter。
-- 滑动动画只移动截图浮层，不逐帧写 AX。`SlideAnimationPlan` / `SlideAnimationStateMachine` 在 Core 可测；无图或减少动态效果时直接移动，取消时只接受最新 generation 的状态。
 - `replayd` 是共享系统录屏进程：仅连续 3 次真实抓图超时后重启，冷却 5 分钟并写日志；普通失败不得触发 `killall`。
 - 锁屏冻结 poll，避免 AX blackout 被误判为窗口关闭；退出/信号恢复所有窗口。
 

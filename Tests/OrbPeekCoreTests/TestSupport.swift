@@ -61,17 +61,14 @@ final class FakeWindow: WindowHandle {
 final class FakeCapturer: SliceCapturing {
     var onCapture: (() -> Void)?
     var captureCount = 0
-    var captureImage: CGImage?
-    var cachedImage: NSImage?
     var windowIsInWindowList = true
     func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID? { 7 }
     func windowExists(_ id: CGWindowID) -> Bool { windowIsInWindowList }
     func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize, thickness: CGFloat) -> NSImage? { nil }
-    func cachedImage(for windowID: CGWindowID) -> NSImage? { cachedImage }
     func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
         captureCount += 1
         onCapture?()
-        return captureImage
+        return nil
     }
     func slice(from image: CGImage, edge: DockEdge, windowSize: CGSize, thickness: CGFloat) -> NSImage? { nil }
 }
@@ -108,8 +105,6 @@ final class FakeDelegate: WindowDockDelegate {
     let fakeCapturer = FakeCapturer()
     var capturer: any SliceCapturing { fakeCapturer }
     var offlinePolicy: DockSessionOptions.OfflinePolicy = .migrate
-    var slideAnimator: (any SlideAnimating)?
-    var reduceMotion = false
     var strips: [FakeStrip] = []
     var strip: FakeStrip { strips[0] }
     var frontmost = true
