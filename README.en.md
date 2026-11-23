@@ -1,83 +1,71 @@
-<p align="right"><a href="README.md">中</a> | <b>EN</b></p>
+<p align="right"><a href="README.md">中</a> / <b>EN</b></p>
 
-<p align="center"><img src="site/assets/icon.png" width="128" height="128" alt=""></p>
-
+<p align="center"><img src="site/assets/icon.png" width="112" height="112" alt="OrbPeek icon"></p>
 <h1 align="center">OrbPeek</h1>
+<p align="center">Windows within reach. Room to focus.</p>
+<p align="center"><a href="#install">Install</a> · <a href="https://zhiyozhao.github.io/OrbPeek/en/">Website</a> · macOS 14+ · Free and open source</p>
 
-<p align="center">Tuck windows into the edge of your screen and hover to see them again.</p>
+<p align="center"><img src="site/assets/demo-en.gif" width="960" alt="An illustrated macOS desktop: chat at the left, notes at the right, music at the top, terminal at the bottom. Each window appears instantly on hover and hides when the pointer leaves."></p>
 
-<p align="center"><a href="#install"><b>Install</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/en/">Website</a></p>
+A different way to manage macOS windows. Park what you don't need right now at a screen edge, leaving just a narrow preview. Your chat, notes and music stay close, with the center free for your work.
+
+- Use all four edges. Give useful windows a place without keeping them on your desk.
+- Hover when you need them. Check a message or look something up in the actual window, ready to use.
+- Make room on every display. Keep useful windows at the edges of each screen.
 
 ## Install
 
-Requires macOS 14 or later.
+Requires macOS 14 or later. Choose an installation method, then set up permissions.
 
-### With Homebrew
+### Homebrew (recommended)
 
-1. Run this in Terminal:
+1. Open Terminal and run:
 
    ```sh
    brew install --cask zhiyozhao/tap/orbpeek
    ```
 
-2. Open OrbPeek from Applications or Spotlight. It shows only an icon in the menu bar, with no Dock icon.
-3. Follow the prompt to System Settings → Privacy & Security → Accessibility and turn on OrbPeek. It works right away.
-4. Optional: click the OrbPeek icon in the menu bar and choose "Screen Recording — Click to Grant". The picture in the preview strip uses it. Without it, docking still works and the strip is a plain dark bar.
+2. Open OrbPeek from Applications or Spotlight. Its icon appears in the menu bar, with no Dock icon. Homebrew installations open directly, without developer verification steps.
+3. Complete “First launch: permissions” below.
 
-To update later: `brew upgrade --cask orbpeek`.
+To update: `brew upgrade --cask orbpeek`, then reopen OrbPeek.
 
-### Download the DMG
+### Manual DMG installation
 
-1. Download `OrbPeek-<version>.dmg` from [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) and drag OrbPeek into Applications.
-2. Double-click it. OrbPeek is not notarized by Apple, so macOS blocks the first launch. On macOS 15, go to System Settings → Privacy & Security, click "Open Anyway" at the bottom and enter your password. On macOS 14, Control-click OrbPeek in Finder and choose Open.
-3. Continue with steps 3 and 4 above.
+1. Download the latest `OrbPeek-version.dmg` from [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest).
+2. Open the DMG, drag OrbPeek to Applications, then open it from there.
+3. If macOS can't verify the developer, allow it to open. OrbPeek is not yet notarized by Apple. After trying to open it once, go to System Settings → Privacy & Security, find the OrbPeek notice near the bottom, click Open Anyway, authenticate and confirm. On macOS 14 you can also Control-click OrbPeek in Finder, choose Open, then confirm again.
+4. Set up permissions below.
 
-## Usage
+### First launch: permissions
 
-| Do this | What happens |
-|---|---|
-| <kbd>⌃</kbd><kbd>⇧</kbd> plus <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | Docks the front window to the left, right, top or bottom edge. Press another arrow on a docked window to switch edges. |
-| Move the pointer onto the strip | The window appears, ready to use. Fling the pointer onto the strip and it comes out at once. |
-| Move away, or switch to another app | The window hides. |
-| Drag the window along the edge while it is out | When you let go, the strip stays at the new spot. Resizing keeps it docked. |
-| Click the window's name in the menu bar icon | Undocks it and puts it back where it was. |
-| Drag the window toward the middle (more than 40 px) while it is out | Undocks it and leaves it where you drop it. |
+Both installation methods use these permissions, for different purposes:
 
-Minimizing the window or hiding its app with <kbd>⌘</kbd><kbd>H</kbd> also undocks it. Quitting OrbPeek puts every window back where it was.
+| Permission | Purpose | Without it |
+|---|---|---|
+| Accessibility (required) | Move and reveal windows | Docking and hover won't work |
+| Screen Recording (optional) | Generate window preview images | Docking and hover still work, with dark placeholder strips |
 
-When a window’s display disappears, OrbPeek undocks it and centers it on a remaining display. After locking or sleeping, windows keep their original display, edge and position when the same display returns. If a display wakes slowly, windows may be centered temporarily; they dock back when the display returns within 2 minutes, provided you have not moved or resized them.
+1. **Accessibility:** On first launch, click Open Settings. Go to System Settings → Privacy & Security → Accessibility and enable OrbPeek. If it isn't listed, click “+” to add it from Applications. It works immediately, with no restart.
+2. **Screen Recording:** Click the OrbPeek menu bar icon → Screen Recording — Click to Grant. Read the explanation, click Continue, then allow access when prompted. You can also enable it later under System Settings → Privacy & Security → Screen Recording, called “Screen & System Audio Recording” on some versions. If macOS asks you to quit and reopen, follow that prompt.
 
-Reopen OrbPeek within 2 minutes of a normal quit to dock unchanged windows again. Homebrew updates do not reopen the app automatically.
+Screen Recording is only used for preview images, held in memory. No video or audio is recorded.
 
-## Settings
+## Start using OrbPeek
 
-Click the menu bar icon and choose Settings…:
+1. Focus a window and press <kbd>⌃⌘</kbd> (Control + Command) + <kbd>←</kbd> / <kbd>→</kbd> / <kbd>↑</kbd> / <kbd>↓</kbd> to park it at that edge.
+2. Hover over its preview strip to reveal the window. Move away to hide it.
+3. Open the menu bar icon → Settings… to change the four shortcuts, strip width and opacity, or enable launch at login.
 
-- Launch at login
-- A shortcut for each direction
-- Preview strip width (5–50 px, 15 px by default) and opacity (20%–100%, 50% by default). If the strip is hard to see, make it wider or more opaque.
+To keep a window on your desktop, reveal it and drag it away from the edge, or click its name in the menu bar list.
 
-## FAQ
+## Questions
 
-### A window is gone
+**Can't find a window?** Reopen OrbPeek. It will try to bring back windows left off screen after an unexpected exit. Quitting normally also puts docked windows back on the desktop.
 
-If OrbPeek quits unexpectedly, docked windows stay off screen. Open OrbPeek again and it brings them back on screen.
+**Do I need an account or connection?** No. OrbPeek stays offline, with no account, analytics or uploads.
 
-### Does OrbPeek connect to the internet?
-
-No. There is no account, analytics or upload. Screen Recording is used only to take a picture of the window you dock, and the picture stays in memory.
-
-## Uninstall
-
-```sh
-brew uninstall --cask --zap orbpeek
-```
-
-This also removes the files OrbPeek writes. If you drag the app to the Trash instead, delete these yourself:
-
-- `~/Library/Preferences/com.orbpeek.OrbPeek.plist`
-- `~/Library/Application Support/OrbPeek/`
-- `~/Library/Logs/orbpeek.log`
+**How do I uninstall?** Quit OrbPeek first, then run `brew uninstall --cask --zap orbpeek`. For a manual installation, quit and move OrbPeek from Applications to the Trash. To remove settings and runtime data, delete `~/Library/Preferences/com.orbpeek.OrbPeek.plist`, `~/Library/Application Support/OrbPeek/`, `~/Library/Logs/orbpeek.log`, and `~/.config/orbpeek/` if left by an older version.
 
 ## License
 
