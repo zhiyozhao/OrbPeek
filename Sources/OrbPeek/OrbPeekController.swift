@@ -8,6 +8,12 @@ import SwiftUI
 @main
 final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, WindowDockDelegate {
     static func main() {
+        if LoginItemDiagnostic.runIfRequested(
+            arguments: CommandLine.arguments,
+            status: { SMAppService.mainApp.status },
+            appPath: { Bundle.main.bundleURL.path }, write: { print($0) }) {
+            return
+        }
         if CommandLine.arguments.contains("--self-test") {
             runSelfTest()
         }

@@ -40,31 +40,24 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 ## 构建、签名与产物
 
-`Scripts/build-app.sh` 是唯一的 app 组装入口：release 构建、复制可执行文件和 SPM resource bundles、编译 asset catalog、用 `DEV X` 签名。`Scripts/version.sh` 用最近 git tag 作为唯一版本来源，本地 app/DMG 和 CI 都从它取值；Info.plist 里的静态值只是模板，不再是产品版本来源。`KeyboardShortcuts` fork 的 resource-bundle 修复不能丢失，否则手工打包的设置页可能崩溃。
+`Scripts/build-app.sh` 是唯一的 app 组装入口：release 构建、复制可执行文件和 SPM resource bundles、编译 asset catalog、用 `DEV X` 签名。`Info.plist` 的 `CFBundleShortVersionString` 是版本来源，`Scripts/version.sh` 校验并读取它，本地 app/DMG 和 CI 共用；tag 发布时还必须与 `GITHUB_REF_NAME` 一致。`KeyboardShortcuts` fork 的 resource-bundle 修复不能丢失，否则手工打包的设置页可能崩溃。
 
 `make package` 和 release workflow 使用相同的 DMG 结构：app、`/Applications` 符号链接、UDZO。不要改变 `Info.plist` 中的 `com.orbpeek.OrbPeek`、`OrbPeek.app`、`OrbPeek-VERSION.dmg` 命名约定或 release secrets。
 
 Release 说明由 `Scripts/release-notes.sh` 截取 CHANGELOG 的对应版本段，缺段或空段会失败。这个改动只替换 `gh release create` 的 notes 来源；tag 触发、DEV X 签名、DMG 资产名和 cask URL 格式均不变，因此不影响发布与 Homebrew 兼容。
 
-发布清单：更新 CHANGELOG → `make check` → 提交并推送 main → 打 annotated `vX.Y.Z` tag 并推送 → 等 Release 和 tap 同步完成。版本无需手改 Info.plist。
+发布清单：更新 CHANGELOG → `make check` → 提交并推送 main → 打 annotated `vX.Y.Z` tag 并推送 → 等 Release 和 tap 同步完成。准备发布时先更新 Info.plist；tag 与版本不一致会停止构建。
 
 ## 调试入口
 
 - `OrbPeek.app/Contents/MacOS/OrbPeek --self-test`：需要辅助功能权限，会移动再恢复当前前台窗口；自动检查不运行它。
 - `--debug-mouse "t:x,y ..."`：注入确定的 top-left 鼠标位置。
 - `--show-settings`：启动时打开设置。
+- `OrbPeek.app/Contents/MacOS/OrbPeek --login-item-status`：仅打印 `SMAppService.mainApp.status` 和当前 app 路径后退出，不创建 app、读取用户设置、注册登录项、恢复窗口或请求权限。可用于确认运行的是哪一份安装；旧版本不支持此参数时，直接在“系统设置 → 通用 → 登录项”检查。
 - `Scripts/test-window.swift`：手动创建测试窗口。
 
 不要对 `/Applications/OrbPeek.app` 或用户正在管理的窗口做自动化操作。开发日志写入 `~/Library/Logs/orbpeek.log`，不要提交日志和构建产物。
 
-## 真实素材与合成演示
+## 文档素材
 
-演示采用真实 Peekaboo 窗口截图 + Pillow/ffmpeg 合成，不再整段录屏。`Scripts/capture-demo.sh --trial` 只打开专用 AppKit Git 速查窗口（无工具栏、标尺或拼写标记，固定两列）并按 window ID 截 Retina 图，不按快捷键、不动鼠标；正式采集必须约定桌面操作时间，再运行 `--capture`。预览条也作为独立窗口按 ID 截取，不截任何桌面区域或其他 app。
-
-真实来源图位于 `docs/assets/demo-source/<appearance>/`。`Scripts/render-demo.py` 用代码绘制渐变背景、简化菜单栏和鼠标，仅把 OrbPeek 自身菜单图标取自资源，再合成 30Hz MP4、960px GIF 与高清首图。OrbPeek 源码直接写 AX 位置、没有 easing，因此合成只采用线性插帧，不虚构原生缓动。
-
-```sh
-python3 Scripts/render-demo.py
-```
-
-输出包括 `docs/assets/orbpeek-demo-{light,dark}.mp4`、`demo-{light,dark}.gif` 和 `orbpeek-poster-{light,dark}.png`。未采集真实来源时脚本会失败，不生成替代画面。
+README 和官网不再包含滑动动画演示；移除旧的 GIF、视频及其生成脚本，避免演示和实际的直接显示/收起行为不一致。网站保留中英正文、语言切换和安装命令复制。

@@ -12,8 +12,9 @@ lint:
 	bash -n Scripts/build-app.sh
 	bash -n Scripts/version.sh
 	bash -n Scripts/release-notes.sh
-	bash -n Scripts/capture-demo.sh
+	Scripts/version.sh >/dev/null
 	Scripts/release-notes.sh 1.1.0 | grep -q '修复'
+	Scripts/release-notes.sh "$$(Scripts/version.sh)" | grep -q -- '--login-item-status'
 
 build:
 	swift build

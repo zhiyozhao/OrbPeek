@@ -1,76 +1,84 @@
-# OrbPeek
+<p align="right"><b>中</b> | <a href="README.en.md">EN</a></p>
 
-中文 | [English](README.en.md) · [官网](https://zhiyozhao.github.io/OrbPeek/)
+<p align="center"><img src="site/assets/icon.png" width="128" height="128" alt=""></p>
 
-用快捷键把窗口贴边到屏幕边缘，只留下一条预览条；鼠标碰到边缘，窗口就滑出来。
+<h1 align="center">OrbPeek</h1>
 
-[![最新版本](https://img.shields.io/github/v/release/zhiyozhao/OrbPeek?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/zhiyozhao/OrbPeek/releases/latest)
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)
+<p align="center">把窗口藏到屏幕边上，鼠标移过去就能查看。</p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-dark.gif">
-  <img alt="窗口贴边到屏幕右边缘，只留下一条预览条；鼠标碰到预览条时窗口滑出，鼠标离开后窗口收回" src="docs/assets/demo-light.gif" width="960">
-</picture>
+<p align="center"><a href="#安装"><b>安装</b></a>&emsp;&emsp;<a href="https://zhiyozhao.github.io/OrbPeek/">官网</a></p>
 
-```bash
-brew install --cask zhiyozhao/tap/orbpeek
-```
+## 安装
 
-不用 Homebrew 的话，到 [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) 下载 DMG，把 OrbPeek 拖进“应用程序”。
+需要 macOS 14 或更高版本。
 
-## 亮点
+### 用 Homebrew
 
-- `Control + Shift + 方向键` 把当前窗口贴到对应边缘，上下左右都可以。
-- 边缘留下窗口预览条，不用切换 app，鼠标一碰就能查看和操作。
-- 鼠标离开后窗口自动收回；把窗口往屏幕内拖远，就取消贴边。
-- 同一边可以放下多个贴边窗口，多块显示器可以分别贴边。
-- 拔掉显示器后，窗口会回到剩下屏幕的中央；正常重启或升级后 2 分钟内会按原边自动贴回。
-- 快捷键、预览条宽度和不透明度都可以调整，也能设为开机启动。
-- 中文、英文界面跟随系统语言。
+1. 在「终端」里运行：
 
-## 首次使用
+   ```sh
+   brew install --cask zhiyozhao/tap/orbpeek
+   ```
 
-1. 打开 OrbPeek，菜单栏会出现图标。
-2. 按弹窗提示打开“系统设置 → 隐私与安全性 → 辅助功能”，打开 OrbPeek 的开关。授权后即可使用，不需要重启 OrbPeek。
-3. 点击菜单栏图标，在“屏幕录制”一项中完成授权。
+2. 在「应用程序」或聚焦搜索里打开 OrbPeek。它只在菜单栏显示一个图标，没有 Dock 图标。
+3. 按提示进入「系统设置 → 隐私与安全性 → 辅助功能」，打开 OrbPeek 的开关。打开后马上可以用。
+4. 可选：点菜单栏里的 OrbPeek 图标，选「屏幕录制 — 点击授权」。预览条里的窗口画面要用到它；不允许也能贴边，只是预览条是一条深色的空条。
 
-**为什么要“辅助功能”？** OrbPeek 需要读取并移动你贴边的窗口，在取消贴边或异常恢复时把窗口放回可见区域。没有这项权限，它无法替你移动窗口。这项权限不会用来记录你输入的文字。
+以后更新：`brew upgrade --cask orbpeek`。
 
-**为什么还要“屏幕录制”？** 它只用于给贴边的窗口生成预览条，不会持续录像，也不会录音。不授权仍能贴边和滑出窗口，只是边缘会显示半透明占位条，看不到窗口画面。
+### 下载 DMG
 
-两项权限都可以随时在“系统设置 → 隐私与安全性”里关闭。关闭辅助功能后，OrbPeek 不能再移动窗口；关闭屏幕录制后，不会再生成新的窗口预览条。
+1. 从 [Releases](https://github.com/zhiyozhao/OrbPeek/releases/latest) 下载 `OrbPeek-<版本>.dmg`，把 OrbPeek 拖进「应用程序」。
+2. 双击打开。OrbPeek 没有经过 Apple 公证，第一次会被系统拦下。macOS 15 上，到「系统设置 → 隐私与安全性」，在页面底部点「仍要打开」并输入密码；macOS 14 上，在「访达」里按住 Control 点 OrbPeek，选「打开」。
+3. 接着做上面的第 3、4 步。
 
-## 怎么用
+## 用法
 
-- **贴边**：切换到要收的窗口，按 `Control + Shift + ← / → / ↑ / ↓`。
-- **查看**：把鼠标移到边缘的预览条上，窗口会滑到最前面；鼠标离开后，窗口收回去。
-- **取消贴边**：把滑出的窗口向屏幕内拖远，或者点击菜单栏图标，再点对应窗口的名称。
-- **调整**：在菜单栏图标的“设置…”里修改四个快捷键、预览条宽度、不透明度和开机启动。
+| 操作 | 效果 |
+|---|---|
+| <kbd>⌃</kbd><kbd>⇧</kbd> 加 <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> | 把最前面的窗口贴到左、右、上、下边。对已经贴边的窗口按另一个方向键，就换一条边。 |
+| 鼠标移到预览条上 | 窗口出现，可以直接用。把鼠标快速甩到预览条上，它会马上出来。 |
+| 鼠标移开，或切到别的 app | 窗口收起。 |
+| 窗口显示时沿着边拖动 | 松手后预览条停在新位置。改窗口大小不影响贴边。 |
+| 在菜单栏图标里点窗口的名字 | 取消贴边，窗口回到原来的位置。 |
+| 窗口显示时往屏幕中间拖远（超过 40 px） | 取消贴边，窗口留在你松手的地方。 |
 
-## 隐私
+最小化窗口、或者用 <kbd>⌘</kbd><kbd>H</kbd> 隐藏它的 app，也会取消贴边。退出 OrbPeek 时，所有窗口都会放回原处。
 
-- 不持续录屏，不录音，不记录你输入的文字。
-- 窗口预览条只保存在内存里；取消贴边后，对应的截图缓存会被删除。
-- 没有联网功能，不上传窗口画面、窗口标题或设置。
-- 偏好设置、快捷键和运行日志只保存在本机。为了在异常退出后找回窗口，OrbPeek 会暂存贴边窗口所属的 app、标题和位置等恢复信息；正常取消贴边会清除；正常退出后记录最多保留 2 分钟用于自动贴回。
+所在的显示器没了，窗口会取消贴边，回到剩余屏幕中间。锁屏或睡眠后，同一块显示器恢复连接，窗口会保持原来的屏幕、边和位置。屏幕醒得慢时，窗口可能先回到屏幕中间；原屏在 2 分钟内回来且你没移动或调整窗口大小，就会自动贴回。
+
+正常退出后 2 分钟内重新打开 OrbPeek，未被移动或调整大小的窗口会按原边重新贴回；Homebrew 更新不会自动重新打开 app。
+
+## 设置
+
+点菜单栏图标，选「设置…」：
+
+- 开机自启动
+- 四个方向的快捷键
+- 预览条宽度（5–50 px，默认 15 px）和不透明度（20%–100%，默认 50%）。预览条看不清，就调宽一点、调不透明一点。
 
 ## 常见问题
 
-**打开 DMG 里的 app 时，提示“无法验证开发者”？**
-这个 app 没有经过 Apple 公证。macOS 15 上先双击打开一次，再到“系统设置 → 隐私与安全性”页面底部点“仍要打开”，输入密码确认；macOS 14 也可以在 Finder 中右键选择“打开”。Homebrew 安装会自动处理下载隔离，不会遇到这个提示。
+### 窗口不见了
 
-**OrbPeek 意外退出后，窗口去哪了？**
-正常退出时，OrbPeek 会先把所有贴边窗口放回来；2 分钟内重新打开会按原边自动贴回，超过 2 分钟则只恢复窗口位置。意外退出或被强制结束后，下次启动会自动寻找仍然存在的屏外窗口，把它们放回最近显示器的可见区域。请保持辅助功能权限开启；如果所属 app 或窗口也已经关闭，就无法恢复。
+OrbPeek 意外退出时，贴边的窗口会留在屏幕外。重新打开 OrbPeek，它会把这些窗口放回屏幕上。
 
-**怎么卸载？**
-执行 `brew uninstall --cask --zap orbpeek` 会同时清理日志、偏好设置、崩溃恢复数据和旧配置。直接把“应用程序”里的 OrbPeek 拖到废纸篓会留下 `~/Library/Logs/orbpeek.log`、`~/Library/Preferences/com.orbpeek.OrbPeek.plist`、`~/Library/Application Support/OrbPeek` 和 `~/.config/orbpeek`。
+### OrbPeek 会联网吗？
 
-## 已知限制
+不会。没有账号、统计或上传。屏幕录制只用来给贴边的窗口截图，图片只留在内存里。
 
-如果系统的 ScreenCaptureKit 连续超时，OrbPeek 会重启系统录屏进程 `replayd` 来恢复预览条；这可能短暂影响其他 app 的屏幕共享或录制。只有连续 3 次超时才会触发，且重启后有 5 分钟冷却。
+## 卸载
 
-## 许可证
+```sh
+brew uninstall --cask --zap orbpeek
+```
+
+这会连同 OrbPeek 写下的文件一起删除。如果是直接把 app 拖进废纸篓，还需要手动删除：
+
+- `~/Library/Preferences/com.orbpeek.OrbPeek.plist`
+- `~/Library/Application Support/OrbPeek/`
+- `~/Library/Logs/orbpeek.log`
+
+## 许可
 
 [MIT](LICENSE)
-
-[更新记录](CHANGELOG.md) · [开发文档](docs/DEVELOPMENT.md)

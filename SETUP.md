@@ -24,6 +24,8 @@ make clean       # 清理构建产物
 - `.github/workflows/check.yml` 在分支 push 和 PR 的 `macos-15` runner 上执行 `make check`。
 - `.github/workflows/release.yml` 仍由 `v*` tag 触发；secrets 为 `SIGNING_P12_BASE64`、`SIGNING_P12_PASSWORD`。
 - 发布产物的 app 名、bundle id、DMG 命名和 Homebrew cask 接口不变。
+- 版本来源是 Info.plist；tag 必须与该版本一致。`Scripts/build-app.sh` 在 `/tmp` 的独立目录编译，避免 SwiftPM 将用户路径写入发布二进制。
+- 只读诊断：`OrbPeek.app/Contents/MacOS/OrbPeek --login-item-status` 打印登录项状态和当前安装路径后立即退出，不启动窗口管理或请求授权。
 
 ## 重建与排障
 
@@ -36,7 +38,7 @@ make package
 
 - 找不到 `Testing`：确认 `xcode-select -p` 指向完整 Xcode，而非仅 Command Line Tools。
 - 签名失败：`security find-certificate -c "DEV X"` 应能找到证书；缺失时停止，不要改用 ad-hoc。
-- 钥匙串弹窗长时间等待：不要反复重试打包。
+- 如出现系统密码或授权弹窗，立即停止并回报，不重试、不代替用户授权。
 - 运行日志在 `~/Library/Logs/orbpeek.log`。
 - 崩溃恢复日志在 `~/Library/Application Support/OrbPeek/docked-windows.json`，由 app 原子写入；正常取消/退出及启动恢复后自动清除，不需要手工维护。
 

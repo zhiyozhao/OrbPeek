@@ -20,29 +20,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select Xcode with Swift Testing
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Validate release version and notes
+        run: |
+          set -euo pipefail
+          VERSION="$(Scripts/version.sh)"
+          Scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Check
+        run: make check
+
       - name: Import signing identity
         env:
           P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
         run: |
           set -euo pipefail
-          KEYCHAIN=signing.keychain-db
+          : "${P12_BASE64:?SIGNING_P12_BASE64 is missing}"
+          : "${P12_PASSWORD:?SIGNING_P12_PASSWORD is missing}"
+          KEYCHAIN="$RUNNER_TEMP/orbpeek-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          P12_FILE="$RUNNER_TEMP/orbpeek-signing.p12"
+          trap 'rm -f "$P12_FILE"' EXIT
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          echo "$P12_BASE64" | base64 --decode > /tmp/dev-x.p12
-          security import /tmp/dev-x.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          rm /tmp/dev-x.p12
+          printf '%s' "$P12_BASE64" | base64 --decode > "$P12_FILE"
+          security import "$P12_FILE" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
 
-      - name: Set version from tag
+      - name: Set build number
         if: env.INFO_PLIST != ''
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
+          Scripts/version.sh >/dev/null
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$INFO_PLIST"
 
       - name: Build
@@ -54,15 +70,19 @@ jobs:
           codesign --verify --deep --strict "$APP_BUNDLE"
           codesign -dvv "$APP_BUNDLE" 2>&1 | grep "Authority=DEV X"
 
-      - name: Smoke test (launch)
+      - name: Smoke test (read-only diagnostic)
         run: |
           set -euo pipefail
           BINARY="$APP_BUNDLE/Contents/MacOS/$(basename "$APP_BUNDLE" .app)"
-          "$BINARY" &
-          PID=$!
-          sleep 5
-          kill -0 "$PID"
-          kill "$PID" || true
+          "$BINARY" --login-item-status | tee "$RUNNER_TEMP/login-item-status.txt"
+          grep -q 'SMAppService.mainApp.status=' "$RUNNER_TEMP/login-item-status.txt"
+          while IFS= read -r -d '' FILE; do
+            strings "$FILE" > "$RUNNER_TEMP/artifact-strings.txt"
+            if grep -Fq '/Users/' "$RUNNER_TEMP/artifact-strings.txt"; then
+              echo "error: user path in $FILE" >&2
+              exit 1
+            fi
+          done < <(find "$APP_BUNDLE" -type f -print0)
 
       - name: Package DMG
         run: |
@@ -84,3 +104,11 @@ jobs:
           Scripts/release-notes.sh "$VERSION" > release-notes.md
           gh release create "$GITHUB_REF_NAME" "$DMG_NAME" \
             --title "$DISPLAY_NAME $VERSION" --notes-file release-notes.md
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/orbpeek-signing.keychain-db"
+          if [ -f "$KEYCHAIN" ]; then
+            security delete-keychain "$KEYCHAIN"
+          fi
