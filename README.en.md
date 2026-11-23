@@ -53,7 +53,7 @@ Screen Recording is only used for preview images, held in memory. No video or au
 
 ## Start using OrbPeek
 
-1. Focus a window and press <kbd>{{DEFAULT_MODIFIERS}}</kbd> + <kbd>←</kbd> / <kbd>→</kbd> / <kbd>↑</kbd> / <kbd>↓</kbd> to park it at that edge.
+1. Focus a window and press <kbd>⌃⌘</kbd> (Control + Command) + <kbd>←</kbd> / <kbd>→</kbd> / <kbd>↑</kbd> / <kbd>↓</kbd> to park it at that edge.
 2. Hover over its preview strip to reveal the window. Move away to hide it.
 3. Open the menu bar icon → Settings… to change the four shortcuts, strip width and opacity, or enable launch at login.
 

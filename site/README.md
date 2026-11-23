@@ -27,6 +27,8 @@ node Scripts/demo/preview.mjs /absolute/path/to/preview
 
 ## 发布前置条件
 
-四个用户页面中的 `{{DEFAULT_MODIFIERS}}` 等待用户确认新默认值后统一替换；本轮不改变 app 默认快捷键，不把用户本机自定义设置写成默认。替换并与 app 默认保持一致后才可发布。
+用户已确认新默认快捷键为 **⌃⌘ + 方向键（Control + Command）**，四个用户页面已统一。演示源文件没有快捷键文字或按键叠层，MP4 / GIF / 海报无需因本次改键重新渲染；页面截图已重新生成。
+
+本轮仅更新文档，不改变 app 代码，也不覆盖用户自定义快捷键。发布时须与开发侧的 app 默认快捷键变更一起交付。
 
 权限说明由 `OrbPeekController`、中英 `Localizable.strings`、`SliceCapturer` / `SnapshotStrip` 和当前 Homebrew cask 的 postflight 核对。没有启动测试副本，以免弹出规则禁止的权限框；没有操作真实 OrbPeek 或窗口。
