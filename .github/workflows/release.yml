@@ -54,12 +54,13 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
 
-      - name: Set build number
+      - name: Validate declared build number
         if: env.INFO_PLIST != ''
         run: |
           set -euo pipefail
           Scripts/version.sh >/dev/null
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$INFO_PLIST"
+          BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")"
+          [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]
 
       - name: Build
         run: Scripts/build-app.sh

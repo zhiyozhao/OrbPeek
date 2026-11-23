@@ -1,5 +1,12 @@
 # 交接日志
 
+## 2026-11-23 — 1.1.3 发布准备
+
+- 在 main 01ea570 上依次合入 devs/default-shortcuts 与 devs/site-v3，合并提交 aa46d97，无冲突。用户确认仅改变新安装默认值，所有已保存快捷键保持不变，不添加迁移逻辑。
+- 补充全新安装测试：在独立子进程中将 UserDefaults.standard 替换为随机临时 suite，先确认四个 key 均不存在，再验证四个生产 Name.shortcut 等于 Control + Command 加对应方向键。子进程退出且临时 suite 清除，不触碰用户 app 设置。
+- `make check` 通过：75 项测试、25 个套件；Info.plist 为 1.1.3 / 113，CHANGELOG 增加中英文说明，修正 release notes lint 的历史版本检查。CI 保留声明的 build 113，避免流水线序号覆盖。
+- `/tmp/orbpeek-build.*` 中性路径 release 构建、DEV X 严格签名核验通过；全部 25 个 app 文件 strings 无用户路径或公司标识，证书指纹与当前安装相同。
+
 ## 2026-11-23 — 已确认默认快捷键同步（devs/site-v3）
 
 - 已 fetch 并确认历史改写后的分支基点为 `d871ffc`，将中英 README / 官网统一为用户确认的 ⌃⌘ + 方向键（Control + Command）。同步调研结论、发布说明和预览索引，移除待确认占位。

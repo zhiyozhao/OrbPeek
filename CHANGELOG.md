@@ -1,5 +1,17 @@
 # 更新记录
 
+## 1.1.3 - 2026-11-23
+
+### 改进 / Improved
+
+- 新安装的默认快捷键改为 ⌃⌘ + 方向键（Control + Command）；已经保存过的快捷键保持不变。
+- New installations use ⌃⌘ + arrow keys (Control + Command) by default. Previously saved shortcuts stay unchanged.
+
+### 文档 / Documentation
+
+- 重做中英 README 和官网，新增四边贴窗演示视频。
+- Redesigned the Chinese and English README and website, with new demos of windows docked to all four edges.
+
 ## 1.1.2 - 2026-11-23
 
 ### 修复 / Fixed

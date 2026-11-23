@@ -1,11 +1,61 @@
 import AppKit
 import Foundation
 import KeyboardShortcuts
+import ObjectiveC
 import Testing
 @testable import OrbPeek
 
 @Suite("shortcut defaults", .serialized)
 struct ShortcutDefaultsTests {
+    @Test("fresh installations use Control-Command and the corresponding arrow")
+    func freshInstallDefaults() throws {
+        let marker = "ORBPEEK_FRESH_INSTALL_TEST"
+        if ProcessInfo.processInfo.environment[marker] != "1" {
+            // A fresh process also resets the app's lazy static Names.
+            let child = Process()
+            child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+            var arguments = Array(CommandLine.arguments.dropFirst())
+            if let filter = arguments.firstIndex(of: "--filter") {
+                arguments.removeSubrange(filter...min(filter + 1, arguments.count - 1))
+            }
+            child.arguments = arguments + ["--filter", "freshInstallDefaults"]
+            var environment = ProcessInfo.processInfo.environment
+            environment[marker] = "1"
+            child.environment = environment
+            try child.run()
+            child.waitUntilExit()
+            #expect(child.terminationReason == .exit)
+            #expect(child.terminationStatus == 0)
+            return
+        }
+
+        // Replace +standardUserDefaults only in this child, so both the app
+        // and the real dependency use an empty, disposable suite. CF's home
+        // override alone does not isolate preferences served by cfprefsd.
+        let suite = "com.orbpeek.tests.\(UUID().uuidString)"
+        let isolated = try #require(UserDefaults(suiteName: suite))
+        let getter = try #require(class_getClassMethod(UserDefaults.self, #selector(getter: UserDefaults.standard)))
+        let replacement = imp_implementationWithBlock({ isolated } as @convention(block) () -> UserDefaults)
+        let original = method_setImplementation(getter, replacement)
+        defer {
+            method_setImplementation(getter, original)
+            imp_removeBlock(replacement)
+            isolated.removePersistentDomain(forName: suite)
+        }
+        let rawNames = ["dockLeft", "dockRight", "dockUp", "dockDown"]
+        for rawName in rawNames {
+            #expect(UserDefaults.standard.object(forKey: "KeyboardShortcuts_\(rawName)") == nil)
+        }
+        // No app, controller or shortcut handlers are started in this process.
+        let bindings: [(KeyboardShortcuts.Name, KeyboardShortcuts.Key)] = [
+            (.dockLeft, .leftArrow), (.dockRight, .rightArrow),
+            (.dockUp, .upArrow), (.dockDown, .downArrow),
+        ]
+        for (name, key) in bindings {
+            #expect(name.shortcut == .init(key, modifiers: [.control, .command]))
+        }
+    }
+
     @Test("new defaults preserve saved shortcuts, legacy defaults and disabled bindings")
     func defaultsPreserveSavedChoices() throws {
         // Overlay reads in this test process only. Preseed every binding before

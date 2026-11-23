@@ -2,7 +2,7 @@
 
 用户已确认新的默认值为 **⌃⌘ + 方向键（Control + Command）**，README 和官网已统一采用。下文保留调研时的其他方案及其冲突，作为选择依据，不代表当前默认值。用户自己的 Control + 方向键仍属于个人设置。
 
-本轮不修改 app。当前分支的 app 代码仍使用旧默认值 Control + Shift，开发侧需在发布时同步修改；本次文档提交不包含代码变更。
+文档与 `devs/default-shortcuts` 已一并合入 1.1.3：新安装使用 Control + Command，已经保存过的快捷键（包括旧默认和主动禁用）保持不变，不做迁移。
 
 ## 推荐和取舍
 
@@ -36,9 +36,9 @@
 
 ## 代码位置和修改能力
 
-- `Sources/OrbPeek/SettingsView.swift:7–10` 四个 `KeyboardShortcuts.Name` 默认 `.control, .shift`。
+- `Sources/OrbPeek/SettingsView.swift` 四个 `KeyboardShortcuts.Name` 默认 `.control, .command`。
 - 同文件设置页四个 `KeyboardShortcuts.Recorder` 可分别改键，`OrbPeekController` 绑定四个 name；快捷键库保存用户设置。
-- 日后变更默认需要验证只影响尚未自定义的值，不覆盖用户已经录入的 ⌃箭头。本轮未实现也未承诺迁移行为。
+- 仅四个设置键不存在时使用新默认；不覆盖任何已保存值，包括用户录入的 ⌃箭头、旧默认或禁用状态。
 
 ## 证据
 
