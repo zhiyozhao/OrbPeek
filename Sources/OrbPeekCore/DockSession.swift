@@ -95,6 +95,7 @@ package final class DockSession {
         screenLocked = false
         settling.screenUnlocked(at: clock())
         pause()
+        resumeUnchangedDesktop()
     }
     package func sleep() { pause(); sleeping = true }
     package func wake() {
@@ -102,16 +103,33 @@ package final class DockSession {
         sleeping = false
         settling.didWake(at: clock())
         pause()
+        resumeUnchangedDesktop()
     }
     package func setSessionActive(_ active: Bool) {
         delegate.invalidateDisplayLayout()
         pause(); sessionActive = active
         if active { settling.screenUnlocked(at: clock()) }
+        if active { resumeUnchangedDesktop() }
     }
     package func setScreenSaverActive(_ active: Bool) {
         delegate.invalidateDisplayLayout()
         pause(); screenSaverActive = active
         if !active { settling.screenUnlocked(at: clock()) }
+        if !active { resumeUnchangedDesktop() }
+    }
+    private func resumeUnchangedDesktop() {
+        guard !isSuspended else { return }
+        let snapshot = delegate.geometry.layout // Resume invalidated the cache first.
+        guard snapshot.isValid, snapshot == (suspensionBaseline ?? stableLayout),
+              windows.allSatisfy({ $0.ownedScreen(in: WindowGeometry(layout: snapshot)) != nil }),
+              settling.resumeUnchangedDesktop(at: clock()) else { return }
+        observedLayout = snapshot
+        // Reconcile before exposing direct hotkey/peek entries: macOS may have
+        // moved a window while the geometry itself stayed unchanged.
+        for window in windows where decisions.contains(window.id) {
+            if window.reconcileLayout(snapshot, mayReleaseMissing: false) { decisions.remove(window.id) }
+        }
+        if decisions.isEmpty { stableLayout = snapshot; suspensionBaseline = nil }
     }
     package func screenChanged() {
         delegate.invalidateDisplayLayout()
@@ -157,7 +175,9 @@ package final class DockSession {
         if decisions.isEmpty { stableLayout = snapshot; suspensionBaseline = nil }
         if rescueRequested, !performRescueAll() { return }
         let current = windows
-        for window in current where !pendingDecisions.contains(window.id) && !decisions.contains(window.id) {
+        // Evaluate successful decisions on this very poll. Hover is based on
+        // pointer occupancy, so a stationary pointer starts normal dwell now.
+        for window in current where !decisions.contains(window.id) {
             window.evaluate(mouseQ: mouseQ, mouseVelocity: mouseVelocity,
                             frontmost: delegate.isFrontmost(window.window),
                             blockedByPeeked: windows.contains { $0 !== window && $0.phase.isPeeked },

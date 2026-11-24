@@ -46,6 +46,14 @@ package struct DisplaySettling {
         !isSettling(at: now) && now.timeIntervalSince(lastEventAt) >= 10
     }
 
+    // Only a freshly read, unchanged stable desktop can skip the session
+    // delay. A CG begin without its end must still freeze every write.
+    package mutating func resumeUnchangedDesktop(at now: Date) -> Bool {
+        guard !reconfiguring else { return false }
+        until = now
+        return true
+    }
+
     package func isSettling(at now: Date) -> Bool {
         // A lost end callback must not permanently suppress drift release or
         // keep re-anchoring peeked windows. Ten seconds bounds a display cascade.

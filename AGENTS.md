@@ -25,7 +25,7 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停预览条时�
 - AX/CG 是 top-left，原点是**主屏**左上角；AppKit 是 bottom-left。所有换算只在 `WindowGeometry`，桌面并集仅用于选择隐藏停放的左右外缘。
 - 生产布局从 `NSScreen.screens` 构造不可变值快照，按显示器/会话恢复事件失效后惰性重建；每2秒读完整布局指纹防漏通知，变动后走原稳定决策。「找回所有窗口」每次执行/排队重试都强制刷新。稳态 poll/写入门禁复用，不逐次查询 CG UUID/镜像关系；首项主屏，镜像接收屏不单独算桌面。屏幕身份用唯一 display UUID，CGDirectDisplayID 仅用于运行期寻屏；无可靠 UUID 时保守按 ID，不用尺寸/名称猜同屏。不长期保存 NSScreen，不用随焦点变化的 NSScreen.main。
 - `perp` 和 restore origin 存为相对停靠屏 quartz visibleFrame 的偏移；原屏掉线时保留 ID，不用 fallback 屏覆盖。
-- CG display reconfiguration 的 begin callback 暂停窗口自动写入，结束后等 3 秒稳定；归属屏缺失的最终决定等最后相关事件后 10 秒。锁屏/睡眠/会话 inactive 独立冻结所有自动写入，基线取最后稳定快照；原屏离线期间禁止 fallback re-anchor。零屏/无效几何不作最终决定。
+- CG display reconfiguration 的 begin callback 暂停窗口自动写入，结束后等 3 秒稳定；归属屏缺失的最终决定等最后相关事件后 10 秒。锁屏/睡眠/会话 inactive 独立冻结所有自动写入，基线取最后稳定快照；恢复时强制读取布局，完全一致且原屏在线、无未完成重配置就立即恢复交互，否则继续稳定等待。暂停清除 hover 计时，恢复首轮按鼠标当前位置重新计时。原屏离线期间禁止 fallback re-anchor。零屏/无效几何不作最终决定。
 - 外部漂移释放在 AX 读取后用注入时钟计时，docked 和 peeked 都有 0.5 秒宽限；宽限中不改写 `perp`。
 - 实体左键状态是拖动兜底，防止漏事件导致拖动中隐藏或 gesture 卡死。抓图后如窗口已移动或左键按下，放弃停放并留在原处。
 - 拖动松手：同轴保留新位置；短拖/屏外拖立即贴回；沿边到另一屏用源屏距离识别并转移同侧停靠；向内超过 40px 取消。同轴热键 re-dock 不得用旧 restoreFrame 重置当前位置。贴边侧 resize 不是 drag-out，更新大小后保持贴边。

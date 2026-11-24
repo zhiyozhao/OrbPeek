@@ -126,6 +126,8 @@ package final class ManagedWindow {
 
     package func pauseForLayoutDecision() {
         layoutDecisionPending = true
+        dwell.sliverSince = nil
+        dwell.slammed = false
         if phase == .docking { interruptedDock = true }
         transition?.cancel()
         transition = nil

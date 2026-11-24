@@ -66,7 +66,10 @@ struct DisplayRulesV2Tests {
         h.change([Harness.a, Harness.b])
         h.session.reconfigurationEnded()
         h.session.unlock()
-        h.poll(3.1)
+        // The original stable layout is already back: reconciliation is now
+        // synchronous, before the first post-unlock interaction poll.
+        #expect(h.session.canWriteAutomatically)
+        h.poll()
         #expect(h.session.windows.count == 1)
         #expect(h.window.frame == original)
         #expect(h.window.positionWrites.count == writes + 1)
