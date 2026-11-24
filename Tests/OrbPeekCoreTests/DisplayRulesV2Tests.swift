@@ -133,15 +133,66 @@ struct DisplayRulesV2Tests {
         }
     }
 
-    @Test("new adjacent screen cancels interior edge and hidden parking entering its desktop", arguments: [DockEdge.right, .down])
-    func adjacentDisplay(edge: DockEdge) async {
+    @Test("adjacent screen plug and unplug retain all four edges and relocate hidden parking", arguments: [DockEdge.left, .right, .up, .down], [false, true])
+    func adjacentDisplay(edge: DockEdge, peeked: Bool) async {
         let h = await Harness(single: true, edge: edge)
         #expect(h.window.frame?.minX == 1919)
+        if peeked { h.managed.peek() }
+        let perp = h.managed.perp
+        let activations = h.delegate.activationCount
         h.change([Harness.a, Harness.b])
         h.poll(3.1)
-        #expect(h.session.windows.isEmpty)
-        #expect(h.session.released.count == 1)
-        #expect(h.delegate.geometry.visibleFraction(of: h.window.frame!) == 1)
+        #expect(h.session.windows.count == 1)
+        #expect(h.session.released.isEmpty)
+        #expect(h.managed.phase == (peeked ? .peeked : .docked))
+        #expect(h.managed.perp == perp)
+        let target = peeked
+            ? h.delegate.geometry.peekPosition(for: edge, size: h.window.frame!.size, perp: perp, screen: Harness.a)
+            : h.delegate.geometry.hiddenPosition(for: edge, size: h.window.frame!.size, perp: perp, screen: Harness.a)
+        #expect(h.window.frame?.origin == target)
+        if !peeked {
+            #expect(h.window.frame?.minX == -307)
+            #expect(h.managed.hasReachableStrip(in: h.delegate.geometry))
+            let strip = h.delegate.geometry.toAppKit(h.delegate.geometry.sliverRect(edge: edge, size: h.window.frame!.size,
+                perp: perp, screen: Harness.a, thickness: h.delegate.config.sliverPx))
+            #expect(h.delegate.strips.last?.frame == strip)
+        }
+        h.change([Harness.a]); h.poll(3.1)
+        #expect(h.session.windows.count == 1)
+        #expect(h.session.released.isEmpty)
+        #expect(h.managed.phase == (peeked ? .peeked : .docked))
+        #expect(h.delegate.activationCount == activations)
+        if !peeked { #expect(h.window.frame?.minX == 1919) }
+    }
+
+    @Test("a middle display and a vertically adjacent display keep every docked edge", arguments: [DockEdge.left, .right, .up, .down])
+    func middleAndStackedScreens(edge: DockEdge) async {
+        let clock = FakeClock()
+        let third = ScreenInfo(id: 4, frame: CGRect(x: 3840, y: 0, width: 1920, height: 1080),
+                               visibleFrame: CGRect(x: 3840, y: 0, width: 1920, height: 1055), displayUUID: "third")
+        let delegate = FakeDelegate(layout: ScreenLayout(screens: [Harness.a, Harness.b, third]))
+        let session = DockSession(delegate: delegate, clock: { clock.now })
+        let window = FakeWindow(frame: CGRect(x: 2200, y: 200, width: 500, height: 400))
+        let managed = session.add(window: window, edge: edge) { $0.isLeftMousePressed = { false } }
+        await drainTasks()
+        #expect(window.frame?.minX == 5759) // Middle-screen parking goes beyond the whole desktop.
+        #expect(managed.hasReachableStrip(in: delegate.geometry))
+        delegate.layoutBox.layout = ScreenLayout(screens: [Harness.a, Harness.b])
+        session.screenChanged(); clock.advance(3.1); session.poll(mouseQ: CGPoint(x: -9999, y: -9999))
+        #expect(window.frame?.minX == 3839)
+        #expect(session.windows.count == 1 && session.released.isEmpty)
+        managed.peek()
+        #expect(window.frame?.origin == delegate.geometry.peekPosition(for: edge, size: window.frame!.size,
+                                                                       perp: managed.perp, screen: Harness.b))
+        let h = await Harness(single: true, edge: edge)
+        let below = ScreenInfo(id: 8, frame: CGRect(x: 0, y: -1080, width: 1920, height: 1080),
+                               visibleFrame: CGRect(x: 0, y: -1080, width: 1920, height: 1055), displayUUID: "below")
+        h.change([Harness.a, below]); h.poll(3.1)
+        #expect(h.session.windows.count == 1 && h.session.released.isEmpty)
+        #expect(h.managed.phase == .docked && h.managed.edge == edge)
+        #expect(h.managed.hasReachableStrip(in: h.delegate.geometry))
+        h.change([Harness.a]); h.poll(3.1)
+        #expect(h.session.windows.count == 1 && h.session.released.isEmpty)
     }
 
     @Test("ten-second grace resets after last related event; slow screens never redock", arguments: [9.9, 10.1, 66.847])
@@ -299,8 +350,8 @@ struct DisplayRulesV2Tests {
                                        displayUUID: "Mi", mirrorSourceID: 2)])
         h.poll(3.1)
         #expect(h.session.windows.count == 1)
-        // Returning to extension can make A's old parking enter B. That is
-        // independently covered by adjacentDisplay; start a fresh extension here.
+        // Restoring extension relocates parking while retaining the source;
+        // adjacentDisplay independently covers that behavior on every edge.
         let extended = await Harness()
         let lost = FakeWindow(frame: CGRect(x: 2100, y: 300, width: 500, height: 400))
         let dock = extended.session.add(window: lost, edge: .down) { $0.isLeftMousePressed = { false } }

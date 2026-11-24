@@ -202,20 +202,6 @@ package struct WindowGeometry {
         return area / (frame.width * frame.height)
     }
 
-    package func isOuterEdge(_ edge: DockEdge, of screen: ScreenInfo) -> Bool {
-        let frame = quartzFrame(of: screen)
-        return !layout.screens.contains { other in
-            guard other.id != screen.id else { return false }
-            let adjacent = quartzFrame(of: other)
-            switch edge {
-            case .left: return adjacent.minX < frame.minX && adjacent.maxX >= frame.minX - 0.5 && min(adjacent.maxY, frame.maxY) - max(adjacent.minY, frame.minY) > 0.5
-            case .right: return adjacent.maxX > frame.maxX && adjacent.minX <= frame.maxX + 0.5 && min(adjacent.maxY, frame.maxY) - max(adjacent.minY, frame.minY) > 0.5
-            case .up: return adjacent.minY < frame.minY && adjacent.maxY >= frame.minY - 0.5 && min(adjacent.maxX, frame.maxX) - max(adjacent.minX, frame.minX) > 0.5
-            case .down: return adjacent.maxY > frame.maxY && adjacent.minY <= frame.maxY + 0.5 && min(adjacent.maxX, frame.maxX) - max(adjacent.minX, frame.minX) > 0.5
-            }
-        }
-    }
-
     package func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {
         switch edge {
         case .up: return CGRect(x: frame.minX, y: frame.maxY - thickness, width: frame.width, height: thickness)

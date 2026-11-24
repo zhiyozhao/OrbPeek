@@ -150,7 +150,7 @@ package struct DockRecovery {
                 } ?? false
                 let originalScreen = geometry.layout.matchingScreen(id: record.dockScreenID, uuid: record.dockScreenUUID)
                 if redockAfterUpgrade, age >= 0 && age <= 120, identityMatches, positionMatches,
-                   let originalScreen, geometry.isOuterEdge(record.edge, of: originalScreen),
+                   originalScreen != nil,
                    let matched, !alreadyRecovered(matched), let onRedock {
                     log("re-dock recovered window edge=\(record.edge) age=\(Int(age))s wid=\(matched.windowID as Any)")
                     onRedock(record, matched)

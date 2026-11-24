@@ -171,17 +171,8 @@ package final class ManagedWindow {
             return releaseForDisplayChange()
         }
         dockScreenID = screen.id
-        let newHidden = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
         if let pendingExit { return terminate(exit: pendingExit) }
-        let oldParkingEnteredDesktop = hiddenFingerprints.last.map {
-            old in
-            max(abs(old.minX - newHidden.x), abs(old.minY - newHidden.y)) > 2 && geometry.layout.screens.contains { other in
-                guard other.id != screen.id else { return false }
-                let intersection = geometry.quartzVisibleFrame(of: other).intersection(old)
-                return !intersection.isNull && intersection.width * intersection.height / (old.width * old.height) >= 0.1
-            }
-        } ?? false
-        if releaseRequested || !geometry.isOuterEdge(edge, of: screen) || oldParkingEnteredDesktop {
+        if releaseRequested {
             return releaseForDisplayChange()
         }
         if interruptedDock {

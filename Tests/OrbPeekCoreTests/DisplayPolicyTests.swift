@@ -34,12 +34,6 @@ struct DisplayPolicyTests {
         server.session.screenChanged()
         server.session.unlock()
         poll(server, seconds: 5)
-        if edge == .right {
-            // V2 disallows retaining a strip on an interior desktop boundary.
-            #expect(server.windows.isEmpty)
-            #expect(server.session.unreachableWindows().isEmpty)
-            return
-        }
         #expect(server.windows.count == 2)
         #expect(server.delegate.removed.isEmpty)
         #expect(originals.allSatisfy { $0.phase == .docked && $0.edge == edge })

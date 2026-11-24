@@ -13,7 +13,7 @@ A different way to manage macOS windows. Park what you don't need right now at a
 - Hover when you need them. Check a message or look something up in the actual window, ready to use.
 - Make room on every display. Keep useful windows at the edges of each screen.
 
-After lock or sleep, docks stay when their display returns promptly. If a display disconnects or a new screen blocks the docked edge, affected windows return to a visible position and stay undocked when the display returns.
+All four edges of every display work, including edges between adjacent screens. Docks stay after lock or sleep when their display returns promptly; only losing a window's own display undocks it and returns it to view, without docking it again when the display returns.
 
 ## Install
 

@@ -26,9 +26,9 @@ struct DisplayRecoveryV2Tests {
         #expect(try store.load().isEmpty)
     }
 
-    @Test("upgrade recovery keeps original edge and screen after runtime IDs are reassigned")
-    func upgradeWithNewID() async throws {
-        let h = await DisplayRulesV2Tests.Harness()
+    @Test("upgrade recovery keeps all four edges including inner edges after runtime IDs are reassigned", arguments: [DockEdge.left, .right, .up, .down])
+    func upgradeWithNewID(edge: DockEdge) async throws {
+        let h = await DisplayRulesV2Tests.Harness(edge: edge)
         h.window.windowID = 7
         let expected = h.window.frame
         h.managed.restore()
