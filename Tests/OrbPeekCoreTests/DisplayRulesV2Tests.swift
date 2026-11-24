@@ -22,8 +22,8 @@ struct DisplayRulesV2Tests {
         init(single: Bool = false, edge: DockEdge = .down) async {
             delegate = FakeDelegate(layout: ScreenLayout(screens: single ? [Self.a] : [Self.a, Self.b]))
             let layoutSource = delegate.layoutBox
-            delegate.layoutCache = DisplayLayoutCache(load: { layoutSource.read() })
             let timer = clock
+            delegate.layoutCache = DisplayLayoutCache(load: { layoutSource.read() }, clock: { timer.now })
             session = DockSession(delegate: delegate, clock: { timer.now })
             delegate.onOfflineRelease = session.deferPending
             window = FakeWindow(frame: CGRect(x: 851, y: 412, width: 308, height: 668))

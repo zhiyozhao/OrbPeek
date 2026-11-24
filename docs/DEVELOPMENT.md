@@ -14,7 +14,9 @@
 
 AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 bottom-left 坐标。所有换算集中在 `WindowGeometry`。每轮使用同一份不可变 `ScreenLayout`，首项为主屏；唯一 UUID 匹配同一物理屏，运行期 ID 可更新。无 UUID/UUID 重复时不按型号或尺寸猜匹配。镜像接收屏不构成独立桌面。
 
-生产 controller 的 `DisplayLayoutCache` 保存值快照，不保存 NSScreen 对象。`DockSession` 的 screenChanged/reconfiguration begin/end、wake/unlock、会话/屏保事件通过 delegate 使缓存失效，下一次读取才重建（包括无效/零屏布局，不回退旧有效屏）；稳定基线仍由原 reconcile 流程维护。门禁一次只取一份快照，稳态 30Hz 不重复查询 CG UUID/镜像关系。原显示器规则测试也使用同一缓存；LayoutSnapshotTests 覆盖事件失效、无效快照与双窗口30Hz计数。
+生产 controller 的 `DisplayLayoutCache` 保存值快照，不保存 NSScreen 对象。`DockSession` 的 screenChanged/reconfiguration begin/end、wake/unlock、会话/屏保事件通过 delegate 使缓存失效，下一次读取才重建（包括无效/零屏布局，不回退旧有效屏）；稳定基线仍由原 reconcile 流程维护。另有每2秒一次的完整布局指纹读取，比较所有字段（包括 UUID、frame、visibleFrame）防漏通知；变化后复用本次读取结果，进入原稳定等待/决策，不重复加载。门禁一次只取一份快照，稳态30Hz复用；双窗口双屏20秒600次poll实测10次采样，即0.5次布局构造/秒。原显示器规则测试也使用同一缓存；LayoutSnapshotTests 覆盖事件失效、全漏通知（含只改visibleFrame）、无效快照与计数。
+
+「找回所有窗口」首次执行和每次排队重试都先强制刷新布局，不等待两秒守卫；新布局未稳定/会话未恢复则保留请求，允许显示条时把等待条放到在线屏，稳定后使用最新可见区域放回 managed+名单。`rescueFreshLayout` 的4组参数覆盖新请求/排队重试、managed/名单窗口。
 
 ## 取消贴边与可见区域保底
 

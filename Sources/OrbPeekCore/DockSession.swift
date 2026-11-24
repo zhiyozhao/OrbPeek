@@ -115,7 +115,10 @@ package final class DockSession {
     }
     package func screenChanged() {
         delegate.invalidateDisplayLayout()
-        observedLayout = delegate.geometry.layout
+        observeLayout(delegate.geometry.layout)
+    }
+    private func observeLayout(_ snapshot: ScreenLayout) {
+        observedLayout = snapshot
         pause()
         settling.screenParametersChanged(at: clock())
     }
@@ -134,8 +137,7 @@ package final class DockSession {
                       blockedBySmaller: ((ManagedWindow) -> Bool)? = nil) {
         let snapshot = delegate.geometry.layout
         if observedLayout != snapshot {
-            observedLayout = snapshot
-            screenChanged()
+            observeLayout(snapshot)
         }
         guard !isSuspended else { return }
         guard snapshot.isValid else { return }
@@ -153,7 +155,7 @@ package final class DockSession {
             }
         }
         if decisions.isEmpty { stableLayout = snapshot; suspensionBaseline = nil }
-        if rescueRequested { performRescueAll(geometry: geometry) }
+        if rescueRequested, !performRescueAll() { return }
         let current = windows
         for window in current where !pendingDecisions.contains(window.id) && !decisions.contains(window.id) {
             window.evaluate(mouseQ: mouseQ, mouseVelocity: mouseVelocity,
@@ -177,10 +179,22 @@ package final class DockSession {
 
     package func rescueAllWindows() {
         rescueRequested = true
-        guard canWriteAutomatically else { return }
-        performRescueAll(geometry: WindowGeometry(layout: delegate.geometry.layout))
+        _ = performRescueAll()
     }
-    private func performRescueAll(geometry: WindowGeometry) {
+    private func performRescueAll() -> Bool {
+        // Manual recovery must never rely on an event or the periodic guard.
+        // Refresh on queued retries too; preserve the request if a newly found
+        // layout needs settling or the session is still suspended.
+        delegate.invalidateDisplayLayout()
+        let snapshot = delegate.geometry.layout
+        if observedLayout != snapshot { observeLayout(snapshot) }
+        guard canWriteAutomatically else {
+            if !isSuspended, snapshot.isValid {
+                for window in windows + released.map(\.managed) { window.showWaitingStrip(in: snapshot) }
+            }
+            return false
+        }
+        let geometry = WindowGeometry(layout: snapshot)
         var deferred = false
         for window in windows {
             window.layoutOverride = geometry.layout
@@ -191,6 +205,7 @@ package final class DockSession {
             if !record.rescue(geometry: geometry) { deferred = true }
         }
         rescueRequested = deferred
+        return true
     }
 
     // Suspended/invalid desktops and explicit user-hidden/dragging windows

@@ -1,23 +1,33 @@
 import AppKit
 
-// One value snapshot per display-event generation. Invalidation happens even
-// while suspended; only stable-layout reconciliation may change dock intent.
+// Events invalidate immediately; a two-second full-value fingerprint read also
+// catches missed events (including visibleFrame-only changes). Only stable
+// layout reconciliation may change dock intent.
 // Keep values, never NSScreen objects, and cache invalid layouts too so the
 // write gate cannot fall back to an old valid desktop during reconfiguration.
 @MainActor
 package final class DisplayLayoutCache {
     private let load: () -> ScreenLayout
+    private let clock: () -> Date
     private var snapshot: ScreenLayout?
+    private var checkedAt: Date?
 
-    package init(load: @escaping () -> ScreenLayout = { ScreenLayout(screens: NSScreen.screens) }) {
+    package init(load: @escaping () -> ScreenLayout = { ScreenLayout(screens: NSScreen.screens) },
+                 clock: @escaping () -> Date = Date.init) {
         self.load = load
+        self.clock = clock
     }
 
     package var layout: ScreenLayout {
-        if let snapshot { return snapshot }
+        let now = clock()
+        if let snapshot, let checkedAt,
+           now >= checkedAt, now.timeIntervalSince(checkedAt) < 2 { return snapshot }
+        // Compare all fields, including UUID and mirror relationships. Reuse
+        // this read as the new snapshot when changed, without loading twice.
         let current = load()
-        snapshot = current
-        return current
+        if snapshot != current { snapshot = current }
+        checkedAt = now
+        return snapshot ?? current
     }
 
     package var geometry: WindowGeometry { WindowGeometry(layoutProvider: { self.layout }) }

@@ -1,5 +1,11 @@
 # 交接日志
 
+## 2026-11-24 — 布局缓存漏通知守卫
+
+- DisplayLayoutCache 注入时钟，每2秒完整读取布局指纹，包含 UUID/frame/visibleFrame；相同保留缓存，变化直接复用本次快照进入原稳定决策，原事件失效路径仍保留。找回所有窗口首次/排队重试均强制刷新；新布局未稳定则保留请求并把等待条放到在线屏，不用旧布局写窗口。
+- 新增全漏通知的 visibleFrame/原屏消失2场景；手动找回新请求/排队请求 × managed/名单4场景；每次poll继续验证可达不变式。旧代码先出现13条失败断言；排队请求等待条缺口也先由不变式抓出2处失败，补齐后全绿。
+- 600次poll/20秒、双窗口双屏的模拟计数：10次完整布局采样，稳态0.5次构造/秒，折算每秒UUID+mirror各1次（未跑真实桌面CPU探针）。make check 114项测试、30套件及静态检查/debug构建全绿；命令与证据追加项目外报告。未启动app、不操作用户进程/窗口/defaults，未push/发版。
+
 ## 2026-11-24 — 显示器规则 v2 门禁建议补强
 
 - LegacyIncidentScenarioTests 的两个 ManagedWindow 显式注入未按鼠标，生产仍读 NSEvent.pressedMouseButtons；`swift test --skip-build --filter LegacyIncidentScenarioTests` 连续 50 次全过，日志 `/tmp/orbpeek-legacy-repeat.LtfcWl`。
