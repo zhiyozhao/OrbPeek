@@ -6,14 +6,17 @@ package struct DisplaySettling {
     private var until = Date.distantPast
     private var reconfiguring = false
     private var reconfigurationBeganAt: Date?
+    private var lastEventAt = Date.distantPast
 
     package init() {}
 
     package mutating func screenParametersChanged(at now: Date) {
+        lastEventAt = now
         until = now.addingTimeInterval(3)
     }
 
     package mutating func displayReconfigurationBegan(at now: Date) {
+        lastEventAt = now
         // This callback precedes the frame shuffle, unlike the AppKit
         // notification, which can arrive hundreds of milliseconds later.
         reconfiguring = true
@@ -30,11 +33,17 @@ package struct DisplaySettling {
         // A display change may have happened while polling was frozen. Start
         // settling now; the old notification's three seconds may be long past.
         until = now.addingTimeInterval(3)
+        lastEventAt = now
     }
 
     package mutating func didWake(at now: Date) {
         // Deep sleep can swallow the unlock notification.
         until = now.addingTimeInterval(3)
+        lastEventAt = now
+    }
+
+    package func mayConfirmMissingDisplay(at now: Date) -> Bool {
+        !isSettling(at: now) && now.timeIntervalSince(lastEventAt) >= 10
     }
 
     package func isSettling(at now: Date) -> Bool {

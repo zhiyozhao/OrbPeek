@@ -32,10 +32,15 @@ package final class AXWindow: WindowHandle {
     }
 
     package static func allWindows(ofPID pid: pid_t) -> [AXWindow] {
+        windowsForRecovery(ofPID: pid) ?? []
+    }
+
+    // nil is unavailable AX, distinct from a successful enumeration of zero windows.
+    package static func windowsForRecovery(ofPID pid: pid_t) -> [AXWindow]? {
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-              let elements = value as? [AXUIElement] else { return [] }
+              let elements = value as? [AXUIElement] else { return nil }
         return elements.map(AXWindow.init)
     }
 

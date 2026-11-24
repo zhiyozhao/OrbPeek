@@ -15,6 +15,7 @@
 "menu.grant" = "%@ — Click to Grant";
 "menu.undockHint" = "Click to Undock";
 "menu.settings" = "Settings…";
+"menu.rescueAll" = "Bring Back All Windows";
 "menu.openLog" = "Open Log…";
 "menu.version" = "OrbPeek %@";
 "menu.quit" = "Quit OrbPeek";

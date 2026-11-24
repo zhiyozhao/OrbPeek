@@ -128,7 +128,7 @@ package final class SliceCapturer: SliceCapturing {
     // used to tell "window closed" apart from "app beachballing" before
     // dropping a managed window.
     package func windowExists(_ id: CGWindowID) -> Bool {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        guard let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else { return false }
         return list.contains { ($0[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == id }
     }
 

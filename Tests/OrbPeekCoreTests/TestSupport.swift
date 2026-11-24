@@ -20,6 +20,8 @@ final class FakeWindow: WindowHandle {
     var mouseDown = false
     var raiseCount = 0
     var activateCount = 0
+    var rejectWrites = false
+    var onRead: (() -> Void)?
     var pid: pid_t? = 42
     var windowID: CGWindowID?
     var title: String? = "Fake"
@@ -31,6 +33,7 @@ final class FakeWindow: WindowHandle {
     }
 
     var frame: CGRect? {
+        onRead?()
         clock?.advance(readDelay)
         return storedFrame
     }
@@ -38,6 +41,7 @@ final class FakeWindow: WindowHandle {
         get { storedFrame?.origin }
         set {
             guard let newValue else { return }
+            if rejectWrites { return }
             if storedFrame == nil { storedFrame = CGRect(origin: newValue, size: lastKnownSize) }
             storedFrame?.origin = newValue
             positionWrites.append(newValue)
@@ -49,6 +53,7 @@ final class FakeWindow: WindowHandle {
     func raise() { raiseCount += 1 }
     func activate() { activateCount += 1 }
     func resize(to size: CGSize) {
+        if rejectWrites { return }
         lastKnownSize = size
         if storedFrame == nil { storedFrame = CGRect(origin: .zero, size: size) }
         storedFrame?.size = size

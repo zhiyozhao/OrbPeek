@@ -36,27 +36,28 @@ package final class ManagedWindow {
     package weak var delegate: (any WindowDockDelegate)?
     package private(set) var edge: DockEdge
     private var dockScreenID: CGDirectDisplayID?
+    private var dockScreenUUID: String?
+    package var layoutOverride: ScreenLayout?
+    private var geometry: WindowGeometry { WindowGeometry(layout: layoutOverride ?? delegate?.geometry.layout ?? ScreenLayout(screens: [ScreenInfo]())) }
+    package var automaticWritesAllowed: () -> Bool = { true }
+    package private(set) var hiddenFingerprints: [CGRect] = []
+    private var layoutDecisionPending = false
+    private var interruptedDock = false
+    private var releaseRequested = false
+    private var pendingExit: ExitPosition?
     // Parallel coordinate and restore origin are offsets from the recorded
     // screen's quartz visibleFrame, never absolute desktop coordinates.
     package var perp: CGFloat = 0
     private var restoreOffset: CGPoint = .zero
     private var restoreSize: CGSize = .zero
     package var restoreFrame: CGRect {
-        guard let delegate, let screen = dockScreen(in: delegate.geometry) else {
+        guard let screen = dockScreen(in: geometry) else {
             return CGRect(origin: restoreOffset, size: restoreSize)
         }
-        let visible = delegate.geometry.quartzVisibleFrame(of: screen)
+        let visible = geometry.quartzVisibleFrame(of: screen)
         return CGRect(x: visible.minX + restoreOffset.x, y: visible.minY + restoreOffset.y,
                       width: restoreSize.width, height: restoreSize.height)
     }
-    package struct PendingRedock {
-        package let screenID: CGDirectDisplayID
-        package let placedScreenID: CGDirectDisplayID
-        package let releasedAt: Date
-        package let placedFrame: CGRect
-        package let placedOffset: CGPoint
-    }
-    package private(set) var pendingRedock: PendingRedock?
     private var fakeStrip: (any SnapshotStripHandling)?
     private var lastStripLayout: ScreenLayout?
     private var lastStripRecoveryAt: Date?
@@ -95,36 +96,159 @@ package final class ManagedWindow {
             processID: pid, bundleIdentifier: window.bundleIdentifier, title: window.title,
             windowID: windowID, restoreFrame: restoreFrame,
             parkedFrame: window.frame ?? restoreFrame, dockScreenID: dockScreenID, edge: edge,
-            cleanExit: cleanExit, exitedAt: exitedAt
+            cleanExit: cleanExit && !releaseRequested && automaticWritesAllowed() &&
+                (window.frame.map { geometry.visibleFraction(of: $0) >= 0.99 } ?? false),
+            exitedAt: exitedAt, dockScreenUUID: dockScreenUUID
         )
     }
 
     package func dockScreen(in geometry: WindowGeometry) -> ScreenInfo? {
-        if let id = dockScreenID, let screen = geometry.screen(withDisplayID: id) { return screen }
+        if let screen = ownedScreen(in: geometry) { return screen }
         return geometry.layout.primary
     }
+
+    package func ownedScreen(in geometry: WindowGeometry) -> ScreenInfo? {
+        geometry.layout.matchingScreen(id: dockScreenID, uuid: dockScreenUUID)
+    }
+
+    package func setRecoveredIntent(_ record: DockedWindowRecord) {
+        guard let screen = geometry.layout.matchingScreen(id: record.dockScreenID, uuid: record.dockScreenUUID) else { return }
+        dockScreenID = screen.id
+        dockScreenUUID = screen.displayUUID
+        let frame = record.restoreFrame.rect
+        let visible = geometry.quartzVisibleFrame(of: screen)
+        restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
+        restoreSize = frame.size
+        perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
+    }
+
+    package func pauseForLayoutDecision() {
+        layoutDecisionPending = true
+        if phase == .docking { interruptedDock = true }
+        transition?.cancel()
+        transition = nil
+        stopActivationRetry()
+    }
+
+    // A visible strip remains the way to find a hidden window while we wait.
+    // This touches only OrbPeek's panel, never the user's window.
+    package func showWaitingStrip(in layout: ScreenLayout) {
+        guard layout.isValid, let delegate, let screen = layout.primary else { return }
+        let g = WindowGeometry(layout: layout)
+        let requested = window.frame?.size ?? restoreSize
+        let size = g.fitting(CGRect(origin: .zero, size: requested), in: screen).size
+        if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
+        lastStripRecoveryAt = nil
+        ensureStripVisible(geometry: g, config: delegate.config, capturer: delegate.capturer, screen: screen, size: size)
+    }
+
+    package func hasReachableStrip(in geometry: WindowGeometry) -> Bool {
+        guard let strip = fakeStrip, strip.isVisible else { return false }
+        return geometry.visibleFraction(of: geometry.toAppKit(strip.frame)) >= 0.99
+    }
+
+    // Called once per stable snapshot; retry when AX/drag or a failed write
+    // prevented completing the decision. Never reinterpret a system move as user intent.
+    @discardableResult
+    package func reconcileLayout(_ layout: ScreenLayout, mayReleaseMissing: Bool) -> Bool {
+        layoutOverride = layout
+        guard valid, automaticWritesAllowed(), let delegate, layout.isValid else { return false }
+        if phase == .idle {
+            layoutDecisionPending = false
+            dock()
+            return true
+        }
+        guard !isLeftMousePressed(), !window.isMinimized, !window.isAppHidden, let frame = window.frame else {
+            showWaitingStrip(in: layout)
+            return false
+        }
+        gesture = false
+        guard let screen = ownedScreen(in: geometry) else {
+            showWaitingStrip(in: layout)
+            guard mayReleaseMissing else { return false }
+            return releaseForDisplayChange()
+        }
+        dockScreenID = screen.id
+        let newHidden = geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
+        if let pendingExit { return terminate(exit: pendingExit) }
+        let oldParkingEnteredDesktop = hiddenFingerprints.last.map {
+            old in
+            max(abs(old.minX - newHidden.x), abs(old.minY - newHidden.y)) > 2 && geometry.layout.screens.contains { other in
+                guard other.id != screen.id else { return false }
+                let intersection = geometry.quartzVisibleFrame(of: other).intersection(old)
+                return !intersection.isNull && intersection.width * intersection.height / (old.width * old.height) >= 0.1
+            }
+        } ?? false
+        if releaseRequested || !geometry.isOuterEdge(edge, of: screen) || oldParkingEnteredDesktop {
+            return releaseForDisplayChange()
+        }
+        if interruptedDock {
+            interruptedDock = false
+            layoutDecisionPending = false
+            // Restart with current frame, without activation. The cancelled
+            // capture's stale generation will never park this window.
+            dock(targetScreenID: screen.id)
+            return true
+        }
+        if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
+        let target = phase == .peeked
+            ? geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen)
+            : geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
+        if let target, max(abs(frame.minX - target.x), abs(frame.minY - target.y)) > 2 { moveTo(target) }
+        if phase == .docked {
+            rememberHiddenFrame()
+            ensureStripVisible(geometry: geometry, config: delegate.config, capturer: delegate.capturer, screen: screen, size: frame.size)
+        } else {
+            fakeStrip?.hide()
+            dwell.reset()
+            dwell.shownSince = clock()
+            activationSucceeded = true
+        }
+        bigDriftSince = nil
+        layoutDecisionPending = false
+        let reachable = window.frame.map { geometry.visibleFraction(of: $0) >= 0.1 } ?? false
+        if !reachable && !hasReachableStrip(in: geometry) { return releaseForDisplayChange() }
+        return true
+    }
+
+    @discardableResult
+    package func releaseForDisplayChange() -> Bool {
+        guard valid, automaticWritesAllowed(), !isLeftMousePressed(), delegate != nil, geometry.layout.isValid,
+              !window.isMinimized, !window.isAppHidden, window.frame != nil else { return false }
+        releaseRequested = true
+        return terminate(exit: .offline)
+    }
+
+    private func rememberHiddenFrame() {
+        guard let frame = window.frame, !hiddenFingerprints.contains(where: { $0.approximatelyEquals(frame) }) else { return }
+        hiddenFingerprints.append(frame)
+    }
+
+    package func hideRecoveryStrip() { detachStrip() }
 
     // MARK: Transitions
 
     // Explicit hotkey re-dock. Automatic hide-on-leave calls dock(to:) directly.
     package func redock(to newEdge: DockEdge) {
+        guard automaticWritesAllowed() else { return }
         if newEdge.slideAxis != edge.slideAxis,
-           let delegate, let screen = dockScreen(in: delegate.geometry) {
-            perp = delegate.geometry.dockPerpOffset(for: newEdge, frame: restoreFrame, screen: screen)
+           let screen = dockScreen(in: geometry) {
+            perp = geometry.dockPerpOffset(for: newEdge, frame: restoreFrame, screen: screen)
         }
         dock(to: newEdge)
     }
 
     package func dock(to newEdge: DockEdge? = nil, targetScreenID: CGDirectDisplayID? = nil) {
         let t0 = clock()
-        guard valid, let frame = window.frame, let delegate else { return }
+        guard valid, automaticWritesAllowed(), let frame = window.frame, let delegate else { return }
         transition?.cancel()
         let wasHidden = phase == .docked
         if let newEdge { edge = newEdge }
-        let geometry = delegate.geometry
+        let geometry = geometry
         if phase == .idle && restoreSize == .zero {
             guard let screen = geometry.screen(containing: frame) else { return }
             dockScreenID = screen.id
+            dockScreenUUID = screen.displayUUID
             perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
             let visible = geometry.quartzVisibleFrame(of: screen)
             restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
@@ -140,11 +264,13 @@ package final class ManagedWindow {
             // offline recorded screen must not be replaced by its fallback.
             let oldRestoreFrame = restoreFrame
             dockScreenID = currentScreen.id
+            dockScreenUUID = currentScreen.displayUUID
             let visible = geometry.quartzVisibleFrame(of: currentScreen)
             restoreOffset = CGPoint(x: oldRestoreFrame.minX - visible.minX,
                                     y: oldRestoreFrame.minY - visible.minY)
         }
-        guard let screen = dockScreen(in: geometry) else { return }
+        guard let screen = ownedScreen(in: geometry) ?? ((offlinePolicyOverride ?? delegate.offlinePolicy) == .migrate ? geometry.layout.primary : nil) else { return }
+        guard automaticWritesAllowed() else { return }
         window.unminimize()
         dwell.reset()
         bigDriftSince = nil
@@ -157,9 +283,9 @@ package final class ManagedWindow {
     }
 
     private func finishDock(frame: CGRect, screen: ScreenInfo, wasHidden: Bool) async {
-        if Task.isCancelled { return }
+        if Task.isCancelled || !automaticWritesAllowed() { return }
         guard let delegate else { return }
-        let geometry = delegate.geometry
+        let geometry = geometry
         let config = delegate.config
         let capturer = delegate.capturer
         let edge = edge
@@ -177,6 +303,7 @@ package final class ManagedWindow {
         if wasHidden {
             moveTo(hiddenPos)
             phase = .docked
+            rememberHiddenFrame()
             log("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
             fakeStrip?.show(image: cached, frame: stripFrame, edge: edge)
             delegate.dockStateDidChange()
@@ -195,11 +322,12 @@ package final class ManagedWindow {
         if canCapture && fullImage == nil {
             log("capture FAILED edge=\(edge) — strip shows cache/placeholder")
         }
-        if Task.isCancelled { return }
+        if Task.isCancelled || !automaticWritesAllowed() { return }
         guard let currentFrame = window.frame else {
             terminate(exit: .leave)
             return
         }
+        guard !Task.isCancelled, automaticWritesAllowed() else { return }
         let moved = max(max(abs(currentFrame.minX - frame.minX), abs(currentFrame.minY - frame.minY)),
                         max(abs(currentFrame.width - frame.width), abs(currentFrame.height - frame.height)))
         if isLeftMousePressed() || moved > 2 {
@@ -209,15 +337,21 @@ package final class ManagedWindow {
         }
         // Capture may outlive a screen notification. Recompute against the
         // current layout rather than parking with pre-await geometry.
-        guard let currentScreen = dockScreen(in: geometry) else { return }
-        let currentHiddenPos = geometry.hiddenPosition(for: edge, size: currentFrame.size,
+        let currentGeometry = self.geometry
+        guard let currentScreen = ownedScreen(in: currentGeometry) ?? ((offlinePolicyOverride ?? delegate.offlinePolicy) == .migrate ? currentGeometry.layout.primary : nil) else {
+            interruptedDock = true
+            layoutDecisionPending = true
+            return
+        }
+        let currentHiddenPos = currentGeometry.hiddenPosition(for: edge, size: currentFrame.size,
                                                        perp: perp, screen: currentScreen)
-        let currentStripFrame = geometry.toAppKit(
-            geometry.sliverRect(edge: edge, size: currentFrame.size, perp: perp,
+        let currentStripFrame = currentGeometry.toAppKit(
+            currentGeometry.sliverRect(edge: edge, size: currentFrame.size, perp: perp,
                                 screen: currentScreen, thickness: config.sliverPx)
         )
         moveTo(currentHiddenPos)
         phase = .docked
+        rememberHiddenFrame()
         delegate.dockStateDidChange()
         guard let fakeStrip else { return }
         let fresh = fullImage.flatMap { capturer.slice(from: $0, edge: edge, windowSize: currentFrame.size, thickness: config.sliverPx) }
@@ -226,9 +360,11 @@ package final class ManagedWindow {
     }
 
     package func peek() {
+        guard automaticWritesAllowed(), !layoutDecisionPending else { return }
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
-        guard let screen = dockScreen(in: delegate.geometry) else { return }
+        guard let screen = dockScreen(in: geometry) else { return }
+        guard automaticWritesAllowed(), ownedScreen(in: geometry) != nil || (offlinePolicyOverride ?? delegate.offlinePolicy) == .migrate else { return }
         transition?.cancel()
         transition = nil
         window.unminimize()
@@ -239,9 +375,9 @@ package final class ManagedWindow {
         lastActivationRetry = nil
         activationSucceeded = delegate.isFrontmost(window)
         fakeStrip?.hide()
-        window.raise()
-        delegate.activate(window: window)
-        moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
+        if automaticWritesAllowed() { window.raise() }
+        if automaticWritesAllowed() { delegate.activate(window: window) }
+        moveTo(geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         log("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
         delegate.dockStateDidChange()
     }
@@ -252,29 +388,28 @@ package final class ManagedWindow {
         case offline
     }
 
-    package func terminate(exit: ExitPosition) {
-        guard valid, let delegate else { return }
+    @discardableResult
+    package func terminate(exit: ExitPosition) -> Bool {
+        guard valid, automaticWritesAllowed(), let delegate else { return false }
         transition?.cancel()
+        pendingExit = exit
         OrbPeekCore.placeUndockedWindow(window: window,
                                         preferredFrame: exit == .restore || exit == .offline ? restoreFrame : nil,
                                         fallbackFrame: restoreFrame, centered: exit == .offline,
-                                        geometry: delegate.geometry)
-        if exit == .offline {
-            let placedFrame = window.frame ?? restoreFrame
-            let placedScreen = dockScreen(in: delegate.geometry)
-            let visible = placedScreen.map { delegate.geometry.quartzVisibleFrame(of: $0) } ?? .zero
-            pendingRedock = PendingRedock(screenID: dockScreenID ?? 0,
-                                          placedScreenID: placedScreen?.id ?? 0,
-                                          releasedAt: clock(), placedFrame: placedFrame,
-                                          placedOffset: CGPoint(x: placedFrame.minX - visible.minX,
-                                                                y: placedFrame.minY - visible.minY))
-            window.raise()
-            delegate.offlineWindowReleased(self)
+                                        geometry: geometry, canWrite: automaticWritesAllowed)
+        let placed = window.frame
+        let closed = windowID.map { !delegate.capturer.windowExists($0) } ?? false
+        guard automaticWritesAllowed() else { return false }
+        guard closed || placed.map({ geometry.visibleFraction(of: $0) >= 0.99 }) == true else {
+            showWaitingStrip(in: geometry.layout)
+            return false
         }
+        if exit == .offline { delegate.offlineWindowReleased(self) }
         detachStrip()
         valid = false
         log("terminate edge=\(edge) exit=\(exit) after=\(window.frame as Any)")
         delegate.removeManaged(self)
+        return true
     }
 
     package func stopActivationRetry() {
@@ -282,48 +417,8 @@ package final class ManagedWindow {
         lastActivationRetry = nil
     }
 
-    // A late display must be the same physical display ID. The window remains
-    // eligible for two minutes, even though it was released to the visible area.
-    package func redockIfDisplayReturns() -> Bool {
-        guard let pending = pendingRedock else { return false }
-        guard clock().timeIntervalSince(pending.releasedAt) <= 120,
-              let delegate, let screen = delegate.geometry.screen(withDisplayID: pending.screenID) else {
-            return false
-        }
-        if isLeftMousePressed() {
-            log("defer late re-dock: mouse button is pressed")
-            return false
-        }
-        if let frame = window.frame {
-            let expected = pending.placedFrame
-            var positionMatches = true
-            if let placedScreen = delegate.geometry.screen(withDisplayID: pending.placedScreenID) {
-                let visible = delegate.geometry.quartzVisibleFrame(of: placedScreen)
-                let currentOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
-                positionMatches = abs(currentOffset.x - pending.placedOffset.x) <= 2 &&
-                    abs(currentOffset.y - pending.placedOffset.y) <= 2
-            }
-            let sizeMatches = abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
-            if !positionMatches || !sizeMatches {
-                log("skip late re-dock: user moved/resized window after release")
-                pendingRedock = nil
-                return false
-            }
-        }
-        pendingRedock = nil
-        valid = true
-        phase = .idle
-        log("display \(screen.id) returned; re-docking edge=\(edge)")
-        dock(to: edge, targetScreenID: pending.screenID)
-        return true
-    }
-
-    package var pendingRedockExpired: Bool {
-        guard let pending = pendingRedock else { return false }
-        return clock().timeIntervalSince(pending.releasedAt) > 120
-    }
-
     package func beginGesture(at mouseQ: CGPoint) {
+        guard automaticWritesAllowed(), !layoutDecisionPending else { return }
         guard let frame = window.frame, let delegate else { return }
         gestureStartFrame = frame
         let buffer = delegate.config.edgeBuffer
@@ -337,6 +432,7 @@ package final class ManagedWindow {
     }
 
     package func endGesture() {
+        guard automaticWritesAllowed(), !layoutDecisionPending else { return }
         gesture = false
         defer {
             gestureStartFrame = nil
@@ -358,8 +454,8 @@ package final class ManagedWindow {
 
     private func retainResizedFrame(_ frame: CGRect) {
         guard phase == .peeked, let delegate,
-              let screen = dockScreen(in: delegate.geometry) else { return }
-        let geometry = delegate.geometry
+              let screen = dockScreen(in: geometry) else { return }
+        let geometry = geometry
         perp = geometry.dockPerpOffset(for: edge, frame: frame, screen: screen)
         restoreSize = frame.size
         let visible = geometry.quartzVisibleFrame(of: screen)
@@ -375,8 +471,9 @@ package final class ManagedWindow {
     }
 
     package func checkDragOut() {
+        guard automaticWritesAllowed(), !layoutDecisionPending else { return }
         guard phase == .peeked, let frame = window.frame, let delegate else { return }
-        let geometry = delegate.geometry
+        let geometry = geometry
         guard var screen = dockScreen(in: geometry),
               let droppedScreen = geometry.screen(containing: frame) else { return }
         let sourceDistance = geometry.distanceFromDockEdge(frame, edge: edge, screen: screen)
@@ -388,6 +485,7 @@ package final class ManagedWindow {
                 return
             }
             dockScreenID = droppedScreen.id
+            dockScreenUUID = droppedScreen.displayUUID
             screen = droppedScreen
             let visible = geometry.quartzVisibleFrame(of: screen)
             restoreOffset = CGPoint(x: frame.minX - visible.minX, y: frame.minY - visible.minY)
@@ -409,7 +507,7 @@ package final class ManagedWindow {
     }
 
     package func restore() {
-        guard valid else { return }
+        guard valid, automaticWritesAllowed() else { return }
         transition?.cancel()
         let before = window.frame
         placeUndockedWindow(preferredFrame: restoreFrame)
@@ -422,9 +520,9 @@ package final class ManagedWindow {
     // path. A released window always ends fully inside the nearest visible
     // frame; oversized windows shrink rather than remaining partially off-screen.
     private func placeUndockedWindow(preferredFrame: CGRect?) {
-        guard let delegate else { return }
+        guard delegate != nil else { return }
         OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: preferredFrame, fallbackFrame: restoreFrame,
-                            geometry: delegate.geometry)
+                            geometry: geometry, canWrite: automaticWritesAllowed)
     }
 
     package func detachStrip() {
@@ -475,7 +573,7 @@ package final class ManagedWindow {
     }
 
     private func moveTo(_ pos: CGPoint?) {
-        guard let pos else { return }
+        guard automaticWritesAllowed(), let pos else { return }
         logLimited("AX move to=\(pos)")
         window.position = pos
     }
@@ -484,7 +582,8 @@ package final class ManagedWindow {
 
     package func evaluate(mouseQ: CGPoint, mouseVelocity: CGPoint, frontmost: Bool,
                           blockedByPeeked: Bool, blockedBySmaller: Bool, settling: Bool, now: Date) {
-        guard valid, let delegate else { return }
+        guard valid, automaticWritesAllowed(), !layoutDecisionPending, let delegate else { return }
+        if let pendingExit { terminate(exit: pendingExit); return }
         guard let frame = window.frame else {
             if nilCount == 0 { log("window frame unreadable start edge=\(edge)") }
             nilCount += 1
@@ -500,6 +599,7 @@ package final class ManagedWindow {
         }
         if nilCount > 0 { log("window frame readable again edge=\(edge)") }
         nilCount = 0
+        guard automaticWritesAllowed(), !layoutDecisionPending else { return }
         let mousePressed = isLeftMousePressed()
         if gesture && !mousePressed {
             // The physical button state is authoritative if the global
@@ -520,7 +620,7 @@ package final class ManagedWindow {
         }
 
         let config = delegate.config
-        let geometry = delegate.geometry
+        let geometry = geometry
         let capturer = delegate.capturer
         guard let screen = dockScreen(in: geometry) else { return }
         if settling && !settlingActive {
@@ -528,11 +628,11 @@ package final class ManagedWindow {
         }
         settlingActive = settling
         if !settling, (offlinePolicyOverride ?? delegate.offlinePolicy) == .releaseToVisible,
-           let id = dockScreenID, geometry.screen(withDisplayID: id) == nil {
-            log("dock screen \(id) offline after settling; release centered and raise")
-            terminate(exit: .offline)
+           ownedScreen(in: geometry) == nil {
+            _ = releaseForDisplayChange()
             return
         }
+        if ownedScreen(in: geometry) == nil && (offlinePolicyOverride ?? delegate.offlinePolicy) == .releaseToVisible { return }
 
         switch phase {
         case .peeked:
@@ -568,7 +668,7 @@ package final class ManagedWindow {
                 retryingActivation = true
                 if lastActivationRetry == nil || now.timeIntervalSince(lastActivationRetry!) >= 0.3 {
                     log("retry activating peeked window")
-                    delegate.activate(window: window)
+                    if automaticWritesAllowed() { delegate.activate(window: window) }
                     lastActivationRetry = now
                 }
             }

@@ -12,7 +12,7 @@
 
 ## 坐标与屏幕身份
 
-AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 bottom-left 坐标。所有换算集中在 `WindowGeometry`。生产布局从当前 `NSScreen.screens` 创建，首项为主屏；测试直接提供 `ScreenLayout`。跨通知保留 `CGDirectDisplayID`，不保留 `NSScreen` 对象。
+AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 bottom-left 坐标。所有换算集中在 `WindowGeometry`。每轮使用同一份不可变 `ScreenLayout`，首项为主屏；唯一 UUID 匹配同一物理屏，运行期 ID 可更新。无 UUID/UUID 重复时不按型号或尺寸猜匹配。镜像接收屏不构成独立桌面。
 
 ## 取消贴边与可见区域保底
 
@@ -30,11 +30,13 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 | SIGTERM / SIGINT | `restoreAll` → `restore` | 是 |
 | 正常退出 | `applicationWillTerminate` → `restore` | 是 |
 
-`removeManaged` 只做列表、抓图缓存和贴边条清理，不是独立取消入口。拔屏先 settling 观察；原屏稳定离线后走 `.offline`，居中放到剩余屏并 raise/activate。同屏在解锁前回来则不解除。
+`removeManaged` 只做列表、抓图缓存和贴边条清理。锁屏/睡眠/会话不活跃冻结用户窗口写入，稳定基线不被锁前瞬态覆盖。解锁后等 3 秒稳定；原屏缺失等最后相关事件后 10 秒。原屏稳定消失、停靠边成为桌面内边或旧隐藏位进入新屏时取消贴边并居中，不自动贴回。工作区边距、分辨率或主屏变化只重新定位未受影响窗口。等待期间可见贴边条保留入口，AX 写入失败不清除唯一状态。
+
+`ReleasedWindowRecord` 保存原 handle 和实际隐藏 frame 指纹，直到关闭、手动接管或退出；每次稳定决定及之后低频检查，只有精确指纹±2pt且可见并集不足 10% 才救回，不激活/raise。用户任意其他屏外摆放不自动干预。菜单「找回所有窗口」可无视指纹手动放回 managed+名单，拖动/隐藏/AX 不可读则保留待办。
 
 ## 崩溃 / 强杀恢复
 
-停靠意图、完成停放、peek、拖动/resize 转移和取消都会更新 `~/Library/Application Support/OrbPeek/docked-windows.json`。JSON 包含 app bundle id/pid、窗口标题、CGWindowID、恢复/停放 frame、屏幕 ID 和边；`DockStateStore` 使用 atomic write。崩溃启动恢复处理屏外窗口并调用全局 `placeUndockedWindow`；正常退出额外写入 `cleanExit/exitedAt`，启动在 120 秒内按原边重新 dock，过期丢弃。journal 在动作前清空，避免覆盖新写入。无 AX 权限时保留记录，待权限可用后由 poll 重试。
+停靠意图、停放、peek、拖动/resize 转移和取消原子写入 `docked-windows.json`，记录 UUID/运行期 ID。正常退出成功放回可见位置才写 cleanExit；120 秒内重开且同窗、未移动、原屏在线、原边仍外缘时恢复。显示器释放无 pending 自动贴回意图。启动恢复等会话可用且布局有效稳定后执行；AX 枚举不可用、读帧失败、放置失败时保留 journal 待重试，不把未知当已完成。释放名单仅本进程有效，不跨重启寻找替代 handle。
 
 匹配先按 bundle id 找到仍在运行的 app（支持目标 app 重启后 pid 改变），再按窗口标题和与停放 frame 的距离匹配。标题可变，因此额外把该 app 所有可见面积不足 10% 的窗口都用同一保底函数收回；无标题多窗口也走这个兜底。正常可见窗口不动。以下情况不能保证恢复：目标 app/窗口已关闭、AX 权限或 AX 写入被拒绝、磁盘写入失败。恢复不会主动重建或关闭窗口。
 

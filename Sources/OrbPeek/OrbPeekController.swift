@@ -57,7 +57,6 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("launched, pid=\(ProcessInfo.processInfo.processIdentifier), AX trusted=\(AXWindow.isProcessTrusted)")
-        recoverOrphanedWindowsIfPossible()
 
         KeyboardShortcuts.onKeyDown(for: .dockLeft) { [weak self] in Task { @MainActor in self?.dockFrontmost(.left) } }
         KeyboardShortcuts.onKeyDown(for: .dockRight) { [weak self] in Task { @MainActor in self?.dockFrontmost(.right) } }
@@ -139,6 +138,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func handleGlobalMouseDown() {
+        guard session.canWriteAutomatically else { return }
         let q = geometry.toQuartz(NSEvent.mouseLocation)
         for m in managed where m.phase.isPeeked {
             guard let f = m.window.frame else { continue }
@@ -151,18 +151,15 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func handleGlobalMouseUp() {
+        guard session.canWriteAutomatically else { return }
         for m in managed where m.gesture {
             m.endGesture()
         }
     }
 
-    // Display (un)plug shuffles window frames behind our back — and the parked
-    // position itself moves when the desktop frame changes. (Sleep/lock needs
-    // nothing: macOS preserves frames, and all dock geometry is a pure
-    // function of the current screen set, so nothing moves.) For a few
-    // seconds after a screen change, "settling" suppresses the external-move
-    // release: managed windows are re-anchored to their recomputed positions
-    // instead of being dropped where macOS left them.
+    // Freeze before the desktop shuffle, then reconcile a stable snapshot.
+    // Missing owners get ten seconds after the last event; they are never
+    // re-anchored using a fallback display during that wait.
 
     private func installSettleObservers() {
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -172,10 +169,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let controller = Unmanaged<OrbPeekController>.fromOpaque(context).takeUnretainedValue()
                 // kCGDisplayBeginConfigurationFlag (the C constant is not imported).
                 if flags.contains(CGDisplayChangeSummaryFlags(rawValue: 1 << 0)) {
-                    controller.session.settling.displayReconfigurationBegan(at: Date())
+                    controller.session.reconfigurationBegan()
                     controller.logLayout("display reconfiguration begin")
                 } else {
-                    controller.session.settling.displayReconfigurationEnded(at: Date())
+                    controller.session.reconfigurationEnded()
                     controller.logLayout("display reconfiguration end")
                 }
             }
@@ -185,7 +182,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             object: nil, queue: nil
         ) { _ in
             Task { @MainActor in
-                (NSApplication.shared.delegate as? OrbPeekController)?.session.settling.screenParametersChanged(at: Date())
+                (NSApplication.shared.delegate as? OrbPeekController)?.session.screenChanged()
                 (NSApplication.shared.delegate as? OrbPeekController)?.logLayout("screen parameters changed")
             }
         }
@@ -195,9 +192,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     // set fails (kAXErrorInvalidUIElement/-25202 etc.). Polling through the
     // blackout misreads it as "window closed" and drops managed windows —
     // with the restore sets failing too, leaving them parked off-screen.
-    // Gate instead: freeze evaluation while locked (macOS preserves frames
-    // across lock, so there is genuinely nothing to do). Same approach as
-    // AltTab's ScreenLockEvents.
+    // Independent lock, sleep and session gates preserve ownership through
+    // blackouts. Reconciliation uses the last stable layout after resume.
     private var screenLocked: Bool { session.screenLocked }
 
     private func installSessionGate() {
@@ -215,13 +211,29 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
             Task { @MainActor in
                 if let controller = NSApplication.shared.delegate as? OrbPeekController {
-                    controller.session.settling.didWake(at: Date())
+                    controller.session.wake()
                     controller.logLayout("wake")
                     controller.reseedLockState()
                 }
             }
         }
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.session.sleep() }
+        }
+        workspace.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.session.setSessionActive(false) }
+        }
+        workspace.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.reseedLockState() }
+        }
+        for (name, active) in [("com.apple.screensaver.didstart", true), ("com.apple.screensaver.didstop", false)] {
+            dnc.addObserver(forName: .init(name), object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in self?.session.setScreenSaverActive(active) }
+            }
+        }
         reseedLockState()
+        session.screenChanged() // Launch recovery waits for a stable, active desktop.
     }
 
     @objc private nonisolated func handleScreenLocked() {
@@ -239,8 +251,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     private func reseedLockState() {
-        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return }
-        if (dict["CGSSessionScreenIsLocked"] as? Bool) ?? false { session.lock() }
+        let state = SessionAvailability(snapshot: CGSessionCopyCurrentDictionary() as? [String: Any])
+        session.setSessionActive(state.isActive)
+        if state.isLocked { session.lock() }
         else { session.unlock() }
     }
 
@@ -316,6 +329,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
 
         let settings = NSMenuItem(title: tr("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
+        let rescue = NSMenuItem(title: tr("menu.rescueAll"), action: #selector(rescueAllWindows), keyEquivalent: "")
+        rescue.target = self
+        menu.addItem(rescue)
         settings.target = self
         menu.addItem(settings)
 
@@ -372,6 +388,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         m.terminate(exit: .restore)
     }
 
+    @objc private func rescueAllWindows() {
+        session.rescueAllWindows()
+        rebuildMenu()
+    }
+
     @objc func openSettings() {
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView())
@@ -420,8 +441,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     // MARK: Docking
 
-    private func makeManagedWindow(_ window: any WindowHandle, edge: DockEdge) -> ManagedWindow {
+    private func makeManagedWindow(_ window: any WindowHandle, edge: DockEdge, recovered: DockedWindowRecord? = nil) -> ManagedWindow {
         return session.add(window: window, edge: edge) { managedWindow in
+            if let recovered { managedWindow.setRecoveredIntent(recovered) }
             managedWindow.log = { [weak managedWindow] message in
                 guard let managedWindow else { return }
                 let app = managedWindow.window.bundleIdentifier ?? "unknown"
@@ -436,6 +458,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     // Dock the frontmost window off the given edge of the desktop.
     private func dockFrontmost(_ edge: DockEdge) {
+        guard session.canWriteAutomatically else { return }
         guard AXWindow.isProcessTrusted else {
             if shortcutPermissionPrompt.shouldPrompt() { promptAccessibility() }
             return
@@ -476,6 +499,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private func persistDockedWindows(cleanExit: Bool = false, exitedAt: Date? = nil,
                                       windows: [ManagedWindow]? = nil) {
+        guard !recoveryPending || cleanExit else { return }
         let records = (windows ?? managed).compactMap { $0.persistenceRecord(cleanExit: cleanExit, exitedAt: exitedAt) }
         do {
             if records.isEmpty { try dockStateStore.clear() }
@@ -492,13 +516,13 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private func logLayout(_ reason: String) {
         let description = geometry.layout.screens.map {
-            "id=\($0.id) frame=\($0.frame) visible=\($0.visibleFrame)"
+            "id=\($0.id) uuid=\($0.displayUUID ?? "unavailable") frame=\($0.frame) visible=\($0.visibleFrame)"
         }.joined(separator: " | ")
         Log.info("\(reason); layout \(description)")
     }
 
     private func recoverOrphanedWindowsIfPossible() {
-        guard recoveryPending else { return }
+        guard recoveryPending, session.recoveryReady else { return }
         guard AXWindow.isProcessTrusted else {
             if !recoveryDeferralLogged {
                 recoveryDeferralLogged = true
@@ -506,21 +530,24 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             }
             return
         }
-        recoveryPending = false
         Log.info("launch recovery begin")
-        DockRecovery(store: dockStateStore, redockAfterUpgrade: true, log: Log.info).recover(
-            geometry: geometry,
-            resolver: { [weak self] record in self?.windowsForRecovery(record) ?? [] },
+        recoveryPending = !DockRecovery(store: dockStateStore, redockAfterUpgrade: true, log: Log.info).recover(
+            geometry: WindowGeometry(layout: geometry.layout), canWrite: { [weak self] in self?.session.recoveryReady ?? false },
+            resolver: { [weak self] record in
+                guard let self else { return nil }
+                return self.windowsForRecovery(record)
+            },
             onRedock: { [weak self] record, window in self?.redockRecoveredWindow(record, window: window) }
         )
+        if !recoveryPending { persistDockedWindows() }
     }
 
     private func redockRecoveredWindow(_ record: DockedWindowRecord, window: any WindowHandle) {
-        _ = makeManagedWindow(window, edge: record.edge)
+        _ = makeManagedWindow(window, edge: record.edge, recovered: record)
         rebuildMenu()
     }
 
-    private func windowsForRecovery(_ record: DockedWindowRecord) -> [any WindowHandle] {
+    private func windowsForRecovery(_ record: DockedWindowRecord) -> [any WindowHandle]? {
         let application: NSRunningApplication?
         if let bundleID = record.bundleIdentifier {
             application = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
@@ -529,7 +556,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         }
         guard let application else { return [] }
         if let expectedBundle = record.bundleIdentifier, application.bundleIdentifier != expectedBundle { return [] }
-        return AXWindow.allWindows(ofPID: application.processIdentifier)
+        return AXWindow.windowsForRecovery(ofPID: application.processIdentifier)
     }
 
     // MARK: WindowDockDelegate
@@ -551,6 +578,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     }
 
     package func activate(window: any WindowHandle) {
+        guard session.canWriteAutomatically else { return }
         window.raise()
         window.activate()
     }
@@ -575,8 +603,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var lastMouseAt: Date?
 
     private func poll() {
-        if recoveryPending && AXWindow.isProcessTrusted { recoverOrphanedWindowsIfPossible() }
-        guard AXWindow.isProcessTrusted, !screenLocked else { return }
+        guard AXWindow.isProcessTrusted else { return }
         let q = DebugMouse.location(sinceLaunch: Date().timeIntervalSince(launchedAt))
             ?? geometry.toQuartz(NSEvent.mouseLocation)
         let now = Date()
@@ -592,6 +619,8 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         session.poll(mouseQ: q, mouseVelocity: velocity) { [weak self] in
             self?.closerDockedUnder(q, excluding: $0) ?? false
         }
+        if recoveryPending { recoverOrphanedWindowsIfPossible() }
+        guard !session.isSuspended else { return }
         // While a window is peeked it is raised to the front — drop the strips
         // to normal level so they can't cover it; restore floating after.
         let anyPeeked = managed.contains { $0.phase.isPeeked }

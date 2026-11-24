@@ -66,24 +66,22 @@ struct IncidentScenarioTests {
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<50 {
+        for _ in 0..<150 {
             server.clock.advance(0.1)
             server.session.poll()
         }
 
         #expect(server.delegate.removed.count == 2)
-        let first = server.session.pending[0].window as! FakeWindow
-        let second = server.session.pending[1].window as! FakeWindow
+        let first = server.session.released.map(\.managed)[0].window as! FakeWindow
+        let second = server.session.released.map(\.managed)[1].window as! FakeWindow
         #expect(first.storedFrame?.origin == CGPoint(x: 315, y: 208.5))
         #expect(second.storedFrame?.origin == CGPoint(x: 522, y: 122.5))
-        #expect(first.raiseCount > 0)
-        #expect(second.raiseCount > 0)
-        #expect(logs.contains { $0.contains("com.zhao.minibrowser") && $0.contains("offline after settling") })
-        #expect(logs.contains { $0.contains("rednote") && $0.contains("offline after settling") })
-        #expect(logs.contains { $0.contains("id=1 frame=(0.0, 0.0, 1352.0") })
+        #expect(first.raiseCount == 0)
+        #expect(second.raiseCount == 0)
+        #expect(server.session.unreachableWindows().isEmpty)
     }
 
-    @Test("late original display re-docks both windows", arguments: [4.0, 8.0, 20.0])
+    @Test("late original display never re-docks released windows", arguments: [14.0, 18.0, 67.0])
     func lateDisplayReturns(delay: TimeInterval) async {
         let server = await FakeWindowServer()
         server.session.lock()
@@ -95,7 +93,7 @@ struct IncidentScenarioTests {
             server.session.poll()
         }
         #expect(server.delegate.removed.count == 2)
-        #expect(server.session.pending.count == 2)
+        #expect(server.session.released.map(\.managed).count == 2)
 
         let builtIn = server.delegate.layoutBox.layout.primary!
         let returnedBuiltIn = ScreenInfo(id: builtIn.id,
@@ -110,26 +108,25 @@ struct IncidentScenarioTests {
             server.session.poll()
         }
         await drainTasks()
-        #expect(server.windows.allSatisfy { $0.phase == .docked && $0.pendingRedock == nil })
-        #expect(server.windows.allSatisfy { $0.dockScreen(in: server.delegate.geometry)?.id == 3 })
-        #expect((server.windows[0].window as! FakeWindow).storedFrame?.origin.x == -721)
-        #expect((server.windows[1].window as! FakeWindow).storedFrame?.origin.x == -307)
+        #expect(server.windows.isEmpty)
+        #expect(server.session.released.count == 2)
+        #expect(server.session.unreachableWindows().isEmpty)
     }
 
-    @Test("primary-screen change does not look like a user move")
+    @Test("primary-screen change after release never reclaims a normal window")
     func lateDisplayWithShiftedBuiltIn() async {
         let server = await FakeWindowServer()
         server.session.lock()
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<40 {
+        for _ in 0..<140 {
             server.clock.advance(0.1)
             server.session.poll()
         }
-        #expect(server.session.pending.count == 2)
+        #expect(server.session.released.map(\.managed).count == 2)
         let builtIn = server.delegate.layoutBox.layout.primary!
-        for pending in server.session.pending {
+        for pending in server.session.released.map(\.managed) {
             (pending.window as! FakeWindow).storedFrame?.origin.x -= 1352
             (pending.window as! FakeWindow).storedFrame?.origin.y += 2
         }
@@ -142,8 +139,8 @@ struct IncidentScenarioTests {
         server.session.screenChanged()
         server.session.poll()
         await drainTasks()
-        #expect(server.windows.count == 2)
-        #expect(server.windows.allSatisfy { $0.dockScreen(in: server.delegate.geometry)?.id == 3 })
+        #expect(server.windows.isEmpty)
+        #expect(server.session.released.count == 2)
     }
 
     @Test("user edits after offline release cancel late redock")
@@ -153,81 +150,81 @@ struct IncidentScenarioTests {
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<40 {
+        for _ in 0..<140 {
             server.clock.advance(0.1)
             server.session.poll()
         }
-        let edited = server.session.pending[1].window as! FakeWindow
+        let edited = server.session.released.map(\.managed)[1].window as! FakeWindow
         edited.storedFrame = CGRect(x: 50, y: 60, width: 900, height: 600)
         server.delegate.layoutBox.layout = server.externalLayout
         server.session.screenChanged()
         server.session.poll()
 
         #expect(edited.storedFrame == CGRect(x: 50, y: 60, width: 900, height: 600))
-        #expect(server.session.pending.isEmpty)
+        #expect(server.session.released.count == 2)
         #expect(server.delegate.removed.count == 2)
     }
 
-    @Test("mouse down during display return defers redock")
+    @Test("mouse down during display return never re-docks a released window")
     func mouseDownDefersLateRedock() async {
         let server = await FakeWindowServer()
         server.session.lock()
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<40 {
+        for _ in 0..<140 {
             server.clock.advance(0.1)
             server.session.poll()
         }
-        let pending = server.session.pending[0]
+        let pending = server.session.released.map(\.managed)[0]
         (pending.window as! FakeWindow).mouseDown = true
         server.delegate.layoutBox.layout = server.externalLayout
         server.session.screenChanged()
         server.session.poll()
-        #expect(pending.pendingRedock != nil)
+        #expect(server.session.released.count == 2)
         #expect(server.windows.filter { $0.window.isSameWindow(as: pending.window) }.isEmpty)
     }
 
-    @Test("manual dock cancels pending redock for the same window")
+    @Test("manual dock removes the same window from the release list")
     func manualDockCancelsPending() async {
         let server = await FakeWindowServer()
         server.session.lock()
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<40 {
+        for _ in 0..<140 {
             server.clock.advance(0.1)
             server.session.poll()
         }
-        let window = server.session.pending[0].window
+        let window = server.session.released.map(\.managed)[0].window
         server.session.add(window: window, edge: .left)
         server.delegate.layoutBox.layout = server.externalLayout
         server.session.screenChanged()
         server.session.poll()
         await drainTasks()
 
-        #expect(server.windows.count == 2)
+        #expect(server.windows.count == 1)
         #expect(server.windows.filter { $0.window.isSameWindow(as: window) }.count == 1)
         #expect(server.windows.first { $0.window.isSameWindow(as: window) }?.edge == .left)
-        #expect(server.session.pending.isEmpty)
+        #expect(server.session.released.count == 1)
     }
 
-    @Test("adopting a pending window is idempotent")
+    @Test("adopting a released window is idempotent")
     func adoptIsIdempotent() async {
         let server = await FakeWindowServer()
         server.session.lock()
         server.removeExternalDisplays()
         server.openBuiltInDisplay()
         server.session.unlock()
-        for _ in 0..<40 {
+        for _ in 0..<140 {
             server.clock.advance(0.1)
             server.session.poll()
         }
-        let pending = server.session.pending[0]
+        let pending = server.session.released.map(\.managed)[0]
         server.session.adopt(pending)
         server.session.adopt(pending)
         #expect(server.windows.filter { $0 === pending }.count == 1)
-        #expect(server.session.pending.filter { $0 === pending }.isEmpty)
+        #expect(server.session.released.map(\.managed).filter { $0 === pending }.isEmpty)
     }
 
     @Test("same display returning during lock keeps both docks")

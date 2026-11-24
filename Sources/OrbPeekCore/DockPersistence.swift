@@ -22,6 +22,7 @@ package struct DockedWindowRecord: Codable, Equatable {
     package var restoreFrame: PersistedRect
     package var parkedFrame: PersistedRect
     package var dockScreenID: CGDirectDisplayID?
+    package var dockScreenUUID: String?
     package var edge: DockEdge
     package var cleanExit: Bool?
     package var exitedAt: Date?
@@ -29,7 +30,7 @@ package struct DockedWindowRecord: Codable, Equatable {
 
     package init(processID: pid_t, bundleIdentifier: String?, title: String?, windowID: CGWindowID?,
                  restoreFrame: CGRect, parkedFrame: CGRect, dockScreenID: CGDirectDisplayID?, edge: DockEdge,
-                 cleanExit: Bool = false, exitedAt: Date? = nil) {
+                 cleanExit: Bool = false, exitedAt: Date? = nil, dockScreenUUID: String? = nil) {
         self.processID = processID
         self.bundleIdentifier = bundleIdentifier
         self.title = title
@@ -37,6 +38,7 @@ package struct DockedWindowRecord: Codable, Equatable {
         self.restoreFrame = PersistedRect(restoreFrame)
         self.parkedFrame = PersistedRect(parkedFrame)
         self.dockScreenID = dockScreenID
+        self.dockScreenUUID = dockScreenUUID
         self.edge = edge
         self.cleanExit = cleanExit
         self.exitedAt = exitedAt
@@ -87,16 +89,28 @@ package struct DockRecovery {
         self.log = log
     }
 
+    @discardableResult
     package func recover(geometry: WindowGeometry,
-                         resolver: (DockedWindowRecord) -> [any WindowHandle],
-                         onRedock: ((DockedWindowRecord, any WindowHandle) -> Void)? = nil) {
+                         canWrite: () -> Bool = { true },
+                         resolver: (DockedWindowRecord) -> [any WindowHandle]?,
+                         onRedock: ((DockedWindowRecord, any WindowHandle) -> Void)? = nil) -> Bool {
+        guard canWrite(), geometry.layout.isValid else { return false }
         guard let records = try? store.load() else {
             log("launch recovery load failed; clear journal")
             try? store.clear()
-            return
+            return true
         }
-        try? store.clear()
-        log("launch recovery loaded records=\(records.count); journal cleared before actions")
+        var resolvedRecords: [(DockedWindowRecord, [any WindowHandle])] = []
+        for record in records {
+            guard let resolved = resolver(record) else { return false }
+            resolvedRecords.append((record, resolved))
+        }
+        // Keep the journal intact while AX/session access is unavailable.
+        guard resolvedRecords.allSatisfy({ _, windows in windows.allSatisfy {
+            $0.frame != nil && !$0.isMinimized && !$0.isAppHidden
+        } }) else { return false }
+        var completed = true
+        log("launch recovery loaded records=\(records.count)")
         var recovered = Set<ObjectIdentifier>()
         var recoveredWindowIDs = Set<CGWindowID>()
         func alreadyRecovered(_ window: any WindowHandle) -> Bool {
@@ -108,8 +122,8 @@ package struct DockRecovery {
             recovered.insert(ObjectIdentifier(window))
         }
 
-        for record in records {
-            let resolved = resolver(record)
+        for (record, resolved) in resolvedRecords {
+            guard canWrite() else { return false }
             // A clean-exit restore is valid only in the same app process. Crash
             // recovery intentionally allows bundle-ID-based process restarts.
             let candidates = record.isCleanExit ? resolved.filter { $0.pid == record.processID } : resolved
@@ -134,7 +148,9 @@ package struct DockRecovery {
                     return abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2 &&
                         abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
                 } ?? false
+                let originalScreen = geometry.layout.matchingScreen(id: record.dockScreenID, uuid: record.dockScreenUUID)
                 if redockAfterUpgrade, age >= 0 && age <= 120, identityMatches, positionMatches,
+                   let originalScreen, geometry.isOuterEdge(record.edge, of: originalScreen),
                    let matched, !alreadyRecovered(matched), let onRedock {
                     log("re-dock recovered window edge=\(record.edge) age=\(Int(age))s wid=\(matched.windowID as Any)")
                     onRedock(record, matched)
@@ -153,7 +169,8 @@ package struct DockRecovery {
                 if !fullyVisible {
                     log("crash recovery place matched window frame=\(frame)")
                     OrbPeekCore.placeUndockedWindow(window: matched, preferredFrame: record.restoreFrame.rect,
-                                                    fallbackFrame: frame, geometry: geometry)
+                                                    fallbackFrame: frame, geometry: geometry, canWrite: canWrite)
+                    completed = completed && (matched.frame.map { geometry.visibleFraction(of: $0) >= 0.99 } ?? false)
                     markRecovered(matched)
                 } else {
                     log("crash recovery matched window already visible; no-op")
@@ -164,16 +181,14 @@ package struct DockRecovery {
 
             for window in candidates where !alreadyRecovered(window) {
                 guard let frame = window.frame, frame.width > 0, frame.height > 0 else { continue }
-                let visibleArea = geometry.layout.screens.reduce(CGFloat.zero) { total, screen in
-                    let intersection = geometry.quartzVisibleFrame(of: screen).intersection(frame)
-                    return total + (intersection.isNull || intersection.isEmpty ? 0 : intersection.width * intersection.height)
-                }
-                guard visibleArea / (frame.width * frame.height) < 0.1 else { continue }
-                log("crash recovery fallback visibleRatio=\(visibleArea / (frame.width * frame.height))")
+                guard geometry.visibleFraction(of: frame) < 0.1 else { continue }
                 OrbPeekCore.placeUndockedWindow(window: window, preferredFrame: nil,
-                                                fallbackFrame: frame, geometry: geometry)
+                                                fallbackFrame: frame, geometry: geometry, canWrite: canWrite)
+                completed = completed && (window.frame.map { geometry.visibleFraction(of: $0) >= 0.99 } ?? false)
                 markRecovered(window)
             }
         }
+        if completed { try? store.clear() }
+        return completed
     }
 }

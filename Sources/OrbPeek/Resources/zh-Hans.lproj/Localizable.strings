@@ -15,6 +15,7 @@
 "menu.grant" = "%@ — 点击授权";
 "menu.undockHint" = "点击取消贴边";
 "menu.settings" = "设置…";
+"menu.rescueAll" = "找回所有窗口";
 "menu.openLog" = "打开日志…";
 "menu.version" = "OrbPeek %@";
 "menu.quit" = "退出 OrbPeek";

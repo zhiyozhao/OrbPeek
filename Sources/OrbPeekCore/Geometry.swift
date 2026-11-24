@@ -1,5 +1,12 @@
 import AppKit
 
+package extension CGRect {
+    func approximatelyEquals(_ other: CGRect, tolerance: CGFloat = 2) -> Bool {
+        abs(minX - other.minX) <= tolerance && abs(minY - other.minY) <= tolerance &&
+        abs(width - other.width) <= tolerance && abs(height - other.height) <= tolerance
+    }
+}
+
 // Edge a window can dock to.
 package enum DockEdge: String, Codable {
     case left, right, up, down
@@ -14,23 +21,33 @@ package enum DockEdge: String, Codable {
     package enum Axis { case horizontal, vertical }
 }
 
-// A value-type snapshot of NSScreen. Display ID, rather than an NSScreen
-// object, is the stable identity across screen-parameter notifications.
+// A value snapshot of NSScreen. UUID identifies the physical display;
+// display ID is only its current runtime address.
 package struct ScreenInfo: Equatable {
     package let id: CGDirectDisplayID
     package let frame: CGRect
     package let visibleFrame: CGRect
+    package let displayUUID: String?
+    package let mirrorSourceID: CGDirectDisplayID?
 
-    package init(id: CGDirectDisplayID, frame: CGRect, visibleFrame: CGRect) {
+    package init(id: CGDirectDisplayID, frame: CGRect, visibleFrame: CGRect,
+                 displayUUID: String? = nil, mirrorSourceID: CGDirectDisplayID? = nil) {
         self.id = id
         self.frame = frame
         self.visibleFrame = visibleFrame
+        self.displayUUID = displayUUID
+        self.mirrorSourceID = mirrorSourceID
     }
 
     package init(_ screen: NSScreen) {
         self.id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
         self.frame = screen.frame
         self.visibleFrame = screen.visibleFrame
+        if let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() {
+            self.displayUUID = CFUUIDCreateString(nil, uuid) as String
+        } else { self.displayUUID = nil }
+        let source = CGDisplayMirrorsDisplay(id)
+        self.mirrorSourceID = source == kCGNullDirectDisplay ? nil : source
     }
 }
 
@@ -39,7 +56,8 @@ package struct ScreenLayout: Equatable {
     package let screens: [ScreenInfo]
 
     package init(screens: [ScreenInfo]) {
-        self.screens = screens
+        // Mirror receivers do not add a separate reachable desktop.
+        self.screens = screens.filter { $0.mirrorSourceID == nil }
     }
 
     package init(screens: [NSScreen]) {
@@ -47,6 +65,24 @@ package struct ScreenLayout: Equatable {
     }
 
     package var primary: ScreenInfo? { screens.first }
+
+    package var isValid: Bool {
+        !screens.isEmpty && Set(screens.map(\.id)).count == screens.count && screens.allSatisfy {
+            [$0.frame, $0.visibleFrame].allSatisfy { rect in
+                [rect.minX, rect.minY, rect.width, rect.height].allSatisfy(\.isFinite) &&
+                    rect.width > 0 && rect.height > 0
+            }
+        }
+    }
+
+    // UUIDs must match uniquely. Never guess identity from model or resolution.
+    package func matchingScreen(id: CGDirectDisplayID?, uuid: String?) -> ScreenInfo? {
+        if let uuid {
+            let matches = screens.filter { $0.displayUUID == uuid }
+            return matches.count == 1 ? matches[0] : nil
+        }
+        return screens.first { $0.id == id && $0.displayUUID == nil }
+    }
 
     package var desktopFrame: CGRect {
         guard let first = screens.first else { return .zero }
@@ -147,6 +183,37 @@ package struct WindowGeometry {
         let x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
         let y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
         return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    }
+
+    package func visibleFraction(of frame: CGRect) -> CGFloat {
+        guard frame.width > 0, frame.height > 0, [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite) else { return 0 }
+        let rects = layout.screens.map { quartzVisibleFrame(of: $0).intersection(frame) }.filter { !$0.isNull && !$0.isEmpty }
+        let xs = Set(rects.flatMap { [$0.minX, $0.maxX] }).sorted()
+        var area: CGFloat = 0
+        for (left, right) in zip(xs, xs.dropFirst()) {
+            var end = -CGFloat.infinity
+            var height: CGFloat = 0
+            for rect in rects.filter({ $0.minX < right && $0.maxX > left }).sorted(by: { $0.minY < $1.minY }) {
+                height += max(0, rect.maxY - max(end, rect.minY))
+                end = max(end, rect.maxY)
+            }
+            area += (right - left) * height
+        }
+        return area / (frame.width * frame.height)
+    }
+
+    package func isOuterEdge(_ edge: DockEdge, of screen: ScreenInfo) -> Bool {
+        let frame = quartzFrame(of: screen)
+        return !layout.screens.contains { other in
+            guard other.id != screen.id else { return false }
+            let adjacent = quartzFrame(of: other)
+            switch edge {
+            case .left: return adjacent.minX < frame.minX && adjacent.maxX >= frame.minX - 0.5 && min(adjacent.maxY, frame.maxY) - max(adjacent.minY, frame.minY) > 0.5
+            case .right: return adjacent.maxX > frame.maxX && adjacent.minX <= frame.maxX + 0.5 && min(adjacent.maxY, frame.maxY) - max(adjacent.minY, frame.minY) > 0.5
+            case .up: return adjacent.minY < frame.minY && adjacent.maxY >= frame.minY - 0.5 && min(adjacent.maxX, frame.maxX) - max(adjacent.minX, frame.minX) > 0.5
+            case .down: return adjacent.maxY > frame.maxY && adjacent.minY <= frame.maxY + 0.5 && min(adjacent.maxX, frame.maxX) - max(adjacent.minX, frame.minX) > 0.5
+            }
+        }
     }
 
     package func sliceScreenRect(edge: DockEdge, frame: CGRect, thickness: CGFloat) -> CGRect {

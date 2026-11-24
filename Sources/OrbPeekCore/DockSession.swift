@@ -1,8 +1,5 @@
 import Foundation
 
-// Product-policy switches are explicit: offline displays release to visible,
-// and a recent normal upgrade may restore docks. Alternative policies remain
-// isolated here rather than being scattered through the state machine.
 package struct DockSessionOptions {
     package enum OfflinePolicy { case migrate, releaseToVisible }
     package var offlinePolicy: OfflinePolicy = .releaseToVisible
@@ -10,16 +7,22 @@ package struct DockSessionOptions {
     package init() {}
 }
 
-// Testable multi-window session orchestration. The app controller currently
-// owns the same responsibilities; incident scenarios exercise them here with
-// no real windows or permissions.
 @MainActor
 package final class DockSession {
     package let options: DockSessionOptions
     package private(set) var windows: [ManagedWindow] = []
-    package private(set) var pending: [ManagedWindow] = []
+    package private(set) var released: [ReleasedWindowRecord] = []
     package private(set) var screenLocked = false
+    package private(set) var sleeping = false
+    package private(set) var sessionActive = true
+    package private(set) var screenSaverActive = false
+    package private(set) var stableLayout: ScreenLayout?
+    package private(set) var suspensionBaseline: ScreenLayout?
     package var settling = DisplaySettling()
+    private var observedLayout: ScreenLayout?
+    private var decisions = Set<UUID>()
+    private var lastSafetyCheck = Date.distantPast
+    private var rescueRequested = false
     private let delegate: any WindowDockDelegate
     private let clock: () -> Date
     package var log: (String) -> Void = { _ in }
@@ -28,115 +31,166 @@ package final class DockSession {
         self.delegate = delegate
         self.options = options
         self.clock = clock
+        let initial = delegate.geometry.layout
+        if initial.isValid { stableLayout = initial; observedLayout = initial }
     }
+
+    package var isSuspended: Bool { screenLocked || sleeping || !sessionActive || screenSaverActive }
+    package var canWriteAutomatically: Bool {
+        !isSuspended && delegate.geometry.layout.isValid && delegate.geometry.layout == observedLayout && !settling.isSettling(at: clock())
+    }
+    package var recoveryReady: Bool { canWriteAutomatically && decisions.isEmpty }
 
     @discardableResult
     package func add(window: any WindowHandle, edge: DockEdge,
                      configure: ((ManagedWindow) -> Void)? = nil) -> ManagedWindow {
         let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: clock)
         managed.offlinePolicyOverride = options.offlinePolicy
+        managed.automaticWritesAllowed = { [weak self] in self?.canWriteAutomatically ?? false }
+        managed.layoutOverride = stableLayout
         managed.log = { [weak self, weak managed] message in
             guard let managed else { return }
-            let app = managed.window.bundleIdentifier ?? "unknown"
-            let wid = managed.windowID.map(String.init) ?? "pending"
-            self?.log("[win=\(managed.id.uuidString.prefix(6)) app=\(app) wid=\(wid)] \(message)")
+            self?.log("[win=\(managed.id.uuidString.prefix(6)) app=\(managed.window.bundleIdentifier ?? "unknown") wid=\(managed.windowID.map(String.init) ?? "pending")] \(message)")
         }
         cancelPending(for: window)
         configure?(managed)
         windows.append(managed)
-        managed.dock()
+        if canWriteAutomatically { managed.dock() }
+        else { decisions.insert(managed.id); managed.pauseForLayoutDecision() }
         return managed
     }
 
     package func adopt(_ managed: ManagedWindow) {
         cancelPending(for: managed.window)
-        if !windows.contains(where: { $0 === managed || $0.window.isSameWindow(as: managed.window) }) {
-            windows.append(managed)
-        }
+        if !windows.contains(where: { $0 === managed || $0.window.isSameWindow(as: managed.window) }) { windows.append(managed) }
     }
-
     package func remove(_ managed: ManagedWindow) {
         windows.removeAll { $0 === managed }
+        decisions.remove(managed.id)
     }
-
     package func deferPending(_ managed: ManagedWindow) {
-        if !pending.contains(where: { $0 === managed }) { pending.append(managed) }
+        if !released.contains(where: { $0.managed.window.isSameWindow(as: managed.window) }) {
+            released.append(ReleasedWindowRecord(managed))
+        }
         remove(managed)
     }
-
     package func cancelPending(for window: any WindowHandle) {
-        pending.removeAll { $0.window.isSameWindow(as: window) }
+        for record in released where record.managed.window.isSameWindow(as: window) { record.managed.hideRecoveryStrip() }
+        released.removeAll { $0.managed.window.isSameWindow(as: window) }
     }
-
     package func clearPending() {
-        pending.removeAll()
+        for record in released { record.managed.hideRecoveryStrip() }
+        released.removeAll()
     }
 
-    package func lock() {
-        screenLocked = true
-        log("session locked")
+    private func pause() {
+        if suspensionBaseline == nil { suspensionBaseline = stableLayout }
+        for window in windows { decisions.insert(window.id); window.pauseForLayoutDecision() }
     }
-
-    package func unlock() {
-        screenLocked = false
-        settling.screenUnlocked(at: clock())
-        log("session unlocked; \(layoutDescription)")
+    package func lock() { pause(); screenLocked = true }
+    package func unlock() { screenLocked = false; settling.screenUnlocked(at: clock()); pause() }
+    package func sleep() { pause(); sleeping = true }
+    package func wake() { sleeping = false; settling.didWake(at: clock()); pause() }
+    package func setSessionActive(_ active: Bool) {
+        pause(); sessionActive = active
+        if active { settling.screenUnlocked(at: clock()) }
     }
-
-    package func wake() {
-        settling.didWake(at: clock())
-        log("session wake; \(layoutDescription)")
+    package func setScreenSaverActive(_ active: Bool) {
+        pause(); screenSaverActive = active
+        if !active { settling.screenUnlocked(at: clock()) }
     }
-
-    package func screenChanged() {
-        settling.screenParametersChanged(at: clock())
-        log("screen parameters changed; \(layoutDescription)")
-    }
-
-    package func reconfigurationBegan() {
-        settling.displayReconfigurationBegan(at: clock())
-        log("display reconfiguration began; \(layoutDescription)")
-    }
-
-    package func reconfigurationEnded() {
-        settling.displayReconfigurationEnded(at: clock())
-        log("display reconfiguration ended; \(layoutDescription)")
-    }
+    package func screenChanged() { observedLayout = delegate.geometry.layout; pause(); settling.screenParametersChanged(at: clock()) }
+    package func reconfigurationBegan() { pause(); settling.displayReconfigurationBegan(at: clock()) }
+    package func reconfigurationEnded() { pause(); settling.displayReconfigurationEnded(at: clock()) }
 
     package func poll(mouseQ: CGPoint = .zero, mouseVelocity: CGPoint = .zero,
                       blockedBySmaller: ((ManagedWindow) -> Bool)? = nil) {
-        guard !screenLocked else { return }
-        let now = clock()
-        let isSettling = settling.isSettling(at: now)
-        let pendingWindows = pending
-        for pendingWindow in pendingWindows {
-            if pendingWindow.redockIfDisplayReturns() { adopt(pendingWindow) }
+        let snapshot = delegate.geometry.layout
+        if observedLayout != snapshot {
+            observedLayout = snapshot
+            screenChanged()
         }
-        pending.removeAll { $0.pendingRedock == nil || $0.pendingRedockExpired }
-        let currentWindows = windows
-        for window in currentWindows {
-            let blockedByPeeked = windows.contains { $0 !== window && $0.phase.isPeeked }
+        guard !isSuspended else { return }
+        guard snapshot.isValid else { return }
+        let geometry = WindowGeometry(layout: snapshot)
+        for window in windows { window.layoutOverride = snapshot }
+        if settling.isSettling(at: clock()) {
+            for window in windows { window.showWaitingStrip(in: snapshot) }
+            return
+        }
+        let now = clock()
+        let pendingDecisions = decisions
+        for window in windows where pendingDecisions.contains(window.id) {
+            if window.reconcileLayout(snapshot, mayReleaseMissing: settling.mayConfirmMissingDisplay(at: now)) {
+                decisions.remove(window.id)
+            }
+        }
+        if decisions.isEmpty { stableLayout = snapshot; suspensionBaseline = nil }
+        if rescueRequested { performRescueAll(geometry: geometry) }
+        let current = windows
+        for window in current where !pendingDecisions.contains(window.id) && !decisions.contains(window.id) {
             window.evaluate(mouseQ: mouseQ, mouseVelocity: mouseVelocity,
                             frontmost: delegate.isFrontmost(window.window),
-                            blockedByPeeked: blockedByPeeked,
-                            blockedBySmaller: blockedBySmaller?(window) ?? false,
-                            settling: isSettling, now: now)
+                            blockedByPeeked: windows.contains { $0 !== window && $0.phase.isPeeked },
+                            blockedBySmaller: blockedBySmaller?(window) ?? false, settling: false, now: now)
         }
+        for window in windows {
+            guard let frame = window.window.frame, geometry.visibleFraction(of: frame) < 0.1,
+                  !window.hasReachableStrip(in: geometry) else { continue }
+            window.showWaitingStrip(in: snapshot)
+            if !window.hasReachableStrip(in: geometry), !window.releaseForDisplayChange() {
+                decisions.insert(window.id) // A failed AX write cannot silently drop ownership.
+            }
+        }
+        if now.timeIntervalSince(lastSafetyCheck) >= 1 || !pendingDecisions.isEmpty {
+            lastSafetyCheck = now
+            released.removeAll { !$0.check(geometry: geometry, capturer: delegate.capturer) }
+        }
+    }
+
+    package func rescueAllWindows() {
+        rescueRequested = true
+        guard canWriteAutomatically else { return }
+        performRescueAll(geometry: WindowGeometry(layout: delegate.geometry.layout))
+    }
+    private func performRescueAll(geometry: WindowGeometry) {
+        var deferred = false
+        for window in windows {
+            window.layoutOverride = geometry.layout
+            if !window.releaseForDisplayChange() { deferred = true }
+        }
+        for record in released {
+            record.manualRescuePending = true
+            if !record.rescue(geometry: geometry) { deferred = true }
+        }
+        rescueRequested = deferred
+    }
+
+    // Suspended/invalid desktops and explicit user-hidden/dragging windows
+    // are deferred, never "fixed" by unsolicited writes.
+    package func unreachableWindows() -> [ManagedWindow] {
+        guard !isSuspended, delegate.geometry.layout.isValid else { return [] }
+        let g = WindowGeometry(layout: delegate.geometry.layout)
+        return windows.filter { managed in
+            guard !managed.isLeftMousePressed(), !managed.window.isMinimized, !managed.window.isAppHidden,
+                  let frame = managed.window.frame else { return false }
+            return g.visibleFraction(of: frame) < 0.1 && !managed.hasReachableStrip(in: g)
+        } + released.filter { $0.needsRescue(in: g) && !$0.managed.hasReachableStrip(in: g) }.map(\.managed)
     }
 
     @discardableResult
     package func quit() -> [ManagedWindow] {
-        log("quit restore begin count=\(windows.count)")
-        let exited = windows
-        for window in exited { window.restore() }
+        var exited = windows
+        for window in windows { window.restore() }
+        // Do not discard an already restored parking position on quit. Failed
+        // rescues join the crash journal, never the clean-exit redock exception.
+        let geometry = WindowGeometry(layout: delegate.geometry.layout)
+        for record in released where record.manualRescuePending || record.needsRescue(in: geometry) || record.managed.window.frame == nil {
+            if !canWriteAutomatically || !record.rescue(geometry: geometry) { exited.append(record.managed) }
+        }
         windows.removeAll()
-        log("quit restore complete")
+        decisions.removeAll()
+        clearPending()
         return exited
-    }
-
-    private var layoutDescription: String {
-        delegate.geometry.layout.screens.map {
-            "id=\($0.id) frame=\($0.frame) visible=\($0.visibleFrame)"
-        }.joined(separator: " | ")
     }
 }
