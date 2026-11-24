@@ -1,5 +1,12 @@
 # 交接日志
 
+## 2026-11-24 — 显示器规则 v2 门禁建议补强
+
+- LegacyIncidentScenarioTests 的两个 ManagedWindow 显式注入未按鼠标，生产仍读 NSEvent.pressedMouseButtons；`swift test --skip-build --filter LegacyIncidentScenarioTests` 连续 50 次全过，日志 `/tmp/orbpeek-legacy-repeat.LtfcWl`。
+- 新增独立 sleep / inactive / screensaver 三参数门禁测试：无锁屏/无重叠门禁、settling 已过，直接调用 restore/terminate/peek/add 后零写入；恢复后确认入口重新可用。逐一临时移除每个门禁时对应参数均变红（每次4条断言），全部还原后绿。
+- 显示器值布局按事件缓存，display begin/end、screen parameters、wake/unlock、会话/屏保事件失效，原规则测试启用同一缓存。双窗口双屏30Hz模拟实测：改前270次布局重建/秒，改后预热稳态0次（不缓存只改门禁单读为150次）；每屏一次UUID/镜像调用折算540+540次/秒降到0+0，事件后首次读重建一次。没有运行真实桌面性能探针。
+- 使用 test-triage / swiftpm-macos 技能完成定向测试、反例回退与 SwiftPM 验证。make check 111 项测试、30 个套件全绿；静态检查/debug 构建通过。未启动GUI、不操作用户进程/窗口/defaults，未push/发版。
+
 ## 2026-11-24 — 显示器规则 v2（devs/display-rules-v2）
 
 - 从 main 9c595cc 的独立 worktree 实现 RULES-v2 第 1–7 条：稳定布局基线、独立锁屏/睡眠/会话门禁、UUID 归属、最后事件后 10 秒判离线、只释放受影响窗口。保留无动画，显示器回来不自动贴回；正常退出两分钟内重开的同窗/未移动/原屏在线例外保留。

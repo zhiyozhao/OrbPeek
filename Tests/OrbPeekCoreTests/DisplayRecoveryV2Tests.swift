@@ -41,6 +41,7 @@ struct DisplayRecoveryV2Tests {
         h.delegate.layoutBox.layout = ScreenLayout(screens: [
             ScreenInfo(id: 24, frame: a.frame, visibleFrame: a.visibleFrame, displayUUID: a.displayUUID), DisplayRulesV2Tests.Harness.b,
         ])
+        h.delegate.invalidateDisplayLayout()
         let session = DockSession(delegate: h.delegate, clock: { h.clock.now })
         DockRecovery(store: store, now: { h.clock.now.addingTimeInterval(119) }).recover(
             geometry: h.delegate.geometry, resolver: { _ in [h.window] }, onRedock: { record, window in
@@ -79,6 +80,7 @@ struct DisplayRecoveryV2Tests {
         let store = DockStateStore(fileURL: directory.appendingPathComponent("state.json"))
         try store.save([record])
         h.delegate.layoutBox.layout = ScreenLayout(screens: [DisplayRulesV2Tests.Harness.internalScreen])
+        h.delegate.invalidateDisplayLayout()
         var redocked = false
         DockRecovery(store: store, now: { h.clock.now }).recover(geometry: h.delegate.geometry, resolver: { _ in [h.window] },
                                                               onRedock: { _, _ in redocked = true })

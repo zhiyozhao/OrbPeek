@@ -37,7 +37,9 @@ package final class DockSession {
 
     package var isSuspended: Bool { screenLocked || sleeping || !sessionActive || screenSaverActive }
     package var canWriteAutomatically: Bool {
-        !isSuspended && delegate.geometry.layout.isValid && delegate.geometry.layout == observedLayout && !settling.isSettling(at: clock())
+        guard !isSuspended else { return false }
+        let snapshot = delegate.geometry.layout
+        return snapshot.isValid && snapshot == observedLayout && !settling.isSettling(at: clock())
     }
     package var recoveryReady: Bool { canWriteAutomatically && decisions.isEmpty }
 
@@ -88,20 +90,45 @@ package final class DockSession {
         for window in windows { decisions.insert(window.id); window.pauseForLayoutDecision() }
     }
     package func lock() { pause(); screenLocked = true }
-    package func unlock() { screenLocked = false; settling.screenUnlocked(at: clock()); pause() }
+    package func unlock() {
+        delegate.invalidateDisplayLayout()
+        screenLocked = false
+        settling.screenUnlocked(at: clock())
+        pause()
+    }
     package func sleep() { pause(); sleeping = true }
-    package func wake() { sleeping = false; settling.didWake(at: clock()); pause() }
+    package func wake() {
+        delegate.invalidateDisplayLayout()
+        sleeping = false
+        settling.didWake(at: clock())
+        pause()
+    }
     package func setSessionActive(_ active: Bool) {
+        delegate.invalidateDisplayLayout()
         pause(); sessionActive = active
         if active { settling.screenUnlocked(at: clock()) }
     }
     package func setScreenSaverActive(_ active: Bool) {
+        delegate.invalidateDisplayLayout()
         pause(); screenSaverActive = active
         if !active { settling.screenUnlocked(at: clock()) }
     }
-    package func screenChanged() { observedLayout = delegate.geometry.layout; pause(); settling.screenParametersChanged(at: clock()) }
-    package func reconfigurationBegan() { pause(); settling.displayReconfigurationBegan(at: clock()) }
-    package func reconfigurationEnded() { pause(); settling.displayReconfigurationEnded(at: clock()) }
+    package func screenChanged() {
+        delegate.invalidateDisplayLayout()
+        observedLayout = delegate.geometry.layout
+        pause()
+        settling.screenParametersChanged(at: clock())
+    }
+    package func reconfigurationBegan() {
+        delegate.invalidateDisplayLayout()
+        pause()
+        settling.displayReconfigurationBegan(at: clock())
+    }
+    package func reconfigurationEnded() {
+        delegate.invalidateDisplayLayout()
+        pause()
+        settling.displayReconfigurationEnded(at: clock())
+    }
 
     package func poll(mouseQ: CGPoint = .zero, mouseVelocity: CGPoint = .zero,
                       blockedBySmaller: ((ManagedWindow) -> Bool)? = nil) {

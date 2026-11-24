@@ -23,7 +23,7 @@ macOS 菜单栏 app：把前台窗口停靠到屏幕边缘，悬停预览条时�
 - `OrbPeekController`、`ManagedWindow`、`SliceCapturer` 和 delegate 都是 `@MainActor`；非隔离事件通过 `Task { @MainActor in ... }` 进入。
 - phase 只能在 transition 中改变：idle / docking / docked / peeked。每个窗口最多一个 transition Task，新 transition 取消旧任务并检查 `Task.isCancelled`。
 - AX/CG 是 top-left，原点是**主屏**左上角；AppKit 是 bottom-left。所有换算只在 `WindowGeometry`，桌面并集仅用于选择隐藏停放的左右外缘。
-- 生产布局从当前 `NSScreen.screens` 构造不可变快照，首项主屏，镜像接收屏不单独算桌面。屏幕身份用唯一 display UUID，CGDirectDisplayID 仅用于运行期寻屏；无可靠 UUID 时保守按 ID，不用尺寸/名称猜同屏。不长期保存 NSScreen，不用随焦点变化的 NSScreen.main。
+- 生产布局从 `NSScreen.screens` 构造不可变值快照，按显示器/会话恢复事件失效后惰性重建，稳态 poll/写入门禁复用，不逐次查询 CG UUID/镜像关系；首项主屏，镜像接收屏不单独算桌面。屏幕身份用唯一 display UUID，CGDirectDisplayID 仅用于运行期寻屏；无可靠 UUID 时保守按 ID，不用尺寸/名称猜同屏。不长期保存 NSScreen，不用随焦点变化的 NSScreen.main。
 - `perp` 和 restore origin 存为相对停靠屏 quartz visibleFrame 的偏移；原屏掉线时保留 ID，不用 fallback 屏覆盖。
 - CG display reconfiguration 的 begin callback 暂停窗口自动写入，结束后等 3 秒稳定；归属屏缺失的最终决定等最后相关事件后 10 秒。锁屏/睡眠/会话 inactive 独立冻结所有自动写入，基线取最后稳定快照；原屏离线期间禁止 fallback re-anchor。零屏/无效几何不作最终决定。
 - 外部漂移释放在 AX 读取后用注入时钟计时，docked 和 peeked 都有 0.5 秒宽限；宽限中不改写 `perp`。

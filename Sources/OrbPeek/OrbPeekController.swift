@@ -26,7 +26,9 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     private var settings: Config
     package var config: DockConfiguration { settings.dockConfiguration }
-    package let geometry = WindowGeometry()
+    private let displayLayout = DisplayLayoutCache()
+    package var geometry: WindowGeometry { displayLayout.geometry }
+    package func invalidateDisplayLayout() { displayLayout.invalidate() }
     private let captureEngine = SliceCapturer()
     package var capturer: any SliceCapturing { captureEngine }
     package var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }

@@ -99,14 +99,18 @@ final class FakeStrip: SnapshotStripHandling {
 
 final class LayoutBox {
     var layout: ScreenLayout
+    var readCount = 0
     init(_ layout: ScreenLayout) { self.layout = layout }
+    func read() -> ScreenLayout { readCount += 1; return layout }
 }
 
 @MainActor
 final class FakeDelegate: WindowDockDelegate {
     var config = DockConfiguration()
     let layoutBox: LayoutBox
-    var geometry: WindowGeometry { WindowGeometry(layoutProvider: { self.layoutBox.layout }) }
+    var layoutCache: DisplayLayoutCache?
+    var geometry: WindowGeometry { layoutCache?.geometry ?? WindowGeometry(layoutProvider: { self.layoutBox.read() }) }
+    func invalidateDisplayLayout() { layoutCache?.invalidate() }
     let fakeCapturer = FakeCapturer()
     var capturer: any SliceCapturing { fakeCapturer }
     var offlinePolicy: DockSessionOptions.OfflinePolicy = .migrate

@@ -78,7 +78,10 @@ struct LegacyIncidentScenarioTests {
             ManagedWindow(window: first, edge: .down, delegate: delegate),
             ManagedWindow(window: second, edge: .down, delegate: delegate),
         ]
-        for window in managed { window.dock() }
+        for window in managed {
+            window.isLeftMousePressed = { false }
+            window.dock()
+        }
         for _ in 0..<20 { await Task.yield() }
 
         // lock → remove external displays → 0 screens → built-in display → unlock

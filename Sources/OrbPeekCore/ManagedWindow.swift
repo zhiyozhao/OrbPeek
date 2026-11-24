@@ -8,6 +8,7 @@ package protocol WindowDockDelegate: AnyObject {
     var capturer: any SliceCapturing { get }
     var offlinePolicy: DockSessionOptions.OfflinePolicy { get }
     func offlineWindowReleased(_ managed: ManagedWindow)
+    func invalidateDisplayLayout()
     func makeStrip() -> any SnapshotStripHandling
     func nameForWindow(_ window: any WindowHandle) -> String
     func activate(window: any WindowHandle)
@@ -19,6 +20,7 @@ package protocol WindowDockDelegate: AnyObject {
 package extension WindowDockDelegate {
     var offlinePolicy: DockSessionOptions.OfflinePolicy { .releaseToVisible }
     func offlineWindowReleased(_ managed: ManagedWindow) {}
+    func invalidateDisplayLayout() {}
 }
 
 // Per-window state machine. Phases: idle, docked, docking (capture in flight),

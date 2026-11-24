@@ -14,6 +14,8 @@
 
 AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 bottom-left 坐标。所有换算集中在 `WindowGeometry`。每轮使用同一份不可变 `ScreenLayout`，首项为主屏；唯一 UUID 匹配同一物理屏，运行期 ID 可更新。无 UUID/UUID 重复时不按型号或尺寸猜匹配。镜像接收屏不构成独立桌面。
 
+生产 controller 的 `DisplayLayoutCache` 保存值快照，不保存 NSScreen 对象。`DockSession` 的 screenChanged/reconfiguration begin/end、wake/unlock、会话/屏保事件通过 delegate 使缓存失效，下一次读取才重建（包括无效/零屏布局，不回退旧有效屏）；稳定基线仍由原 reconcile 流程维护。门禁一次只取一份快照，稳态 30Hz 不重复查询 CG UUID/镜像关系。原显示器规则测试也使用同一缓存；LayoutSnapshotTests 覆盖事件失效、无效快照与双窗口30Hz计数。
+
 ## 取消贴边与可见区域保底
 
 `ManagedWindow.placeUndockedWindow` 是唯一收尾函数：用当前布局选择最近屏，将窗口完整限制在该屏的 quartz `visibleFrame`，窗口过大时先缩小再定位。

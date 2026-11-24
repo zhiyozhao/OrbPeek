@@ -90,9 +90,9 @@ package struct ScreenLayout: Equatable {
     }
 }
 
-// Pure geometry over an injectable screen layout. Production reads the current
-// NSScreen list on every access; tests provide fixed layouts without AppKit
-// global state. AX frames are quartz (top-left); AppKit is bottom-left.
+// Pure geometry over an injectable screen layout. The app uses event-cached
+// value snapshots; standalone clients may read NSScreen directly. Tests provide
+// fixed layouts without global state. AX is top-left; AppKit is bottom-left.
 package struct WindowGeometry {
     private let layoutProvider: () -> ScreenLayout
 
