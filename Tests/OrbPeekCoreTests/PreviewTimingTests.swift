@@ -110,4 +110,14 @@ struct PreviewTimingTests {
         retry.begin(at: now); retry.finished(success: true, at: now)
         #expect(!retry.due(at: now.addingTimeInterval(10000)))
     }
+
+    @Test("pausing before a queued preview starts prevents the capture call")
+    func cancelledBeforeStart() async {
+        let f = await makeDockedFixture(layout: testLayout)
+        let count = f.delegate.fakeCapturer.captureCount
+        f.managed.peek()
+        f.managed.stopActivationRetry()
+        await drainTasks()
+        #expect(f.delegate.fakeCapturer.captureCount == count)
+    }
 }

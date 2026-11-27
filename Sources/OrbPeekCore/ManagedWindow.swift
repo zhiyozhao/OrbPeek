@@ -279,8 +279,10 @@ package final class ManagedWindow {
         }
         let generation = previewGeneration
         previewCapture = Task { [weak self] in
-            let image = await delegate.capturer.captureWindow(frame: frame, displayID: screen.id, windowID: self?.windowID)
             guard let self, !Task.isCancelled, generation == self.previewGeneration,
+                  self.automaticPreviewAllowed(), self.phase == .peeked else { return }
+            let image = await delegate.capturer.captureWindow(frame: frame, displayID: screen.id, windowID: self.windowID)
+            guard !Task.isCancelled, generation == self.previewGeneration,
                   self.automaticPreviewAllowed(), self.phase == .peeked else { return }
             self.previewCapture = nil
             self.previewRetry.finished(success: image != nil, at: self.clock())

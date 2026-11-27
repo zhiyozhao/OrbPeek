@@ -6,14 +6,12 @@ import OrbPeekCore
 // ScreenCaptureKit-based capture of the strip image. Captures a REGION OF THE
 // DISPLAY (composited pixels — translucency, shadow and rounded corners all
 // look exactly as the real window does on screen), unlike a window-filter
-// capture which returns the raw, flattened surface. Display captures are fast
-// (~50ms) and never hit the ~1s stalls window-filter captures have on parked
-// windows, so every dock captures fresh.
+// capture which isolates the window surface. Both enumeration and capture
+// have real deadlines; unavailable or obscured frames retain cache/identity.
 //
 // Every successful capture is cached by (windowID, edge, size). The cache is
-// only a fallback for the one case where a live capture is impossible —
-// re-docking a window that is parked off-screen — and for showing the strip
-// instantly while the fresh capture is in flight.
+// used when the window is parked off-screen or obscured, and for showing the
+// strip instantly while the fresh capture is in flight.
 @MainActor
 package final class SliceCapturer: SliceCapturing {
     private lazy var pipeline = CapturePipeline(load: { try await ScreenCaptureService.content() },
