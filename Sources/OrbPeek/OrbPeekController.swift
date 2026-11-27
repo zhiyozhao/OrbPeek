@@ -172,10 +172,10 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
                 let controller = Unmanaged<OrbPeekController>.fromOpaque(context).takeUnretainedValue()
                 // kCGDisplayBeginConfigurationFlag (the C constant is not imported).
                 if flags.contains(CGDisplayChangeSummaryFlags(rawValue: 1 << 0)) {
-                    controller.session.settling.displayReconfigurationBegan(at: Date())
+                    controller.session.reconfigurationBegan()
                     controller.logLayout("display reconfiguration begin")
                 } else {
-                    controller.session.settling.displayReconfigurationEnded(at: Date())
+                    controller.session.reconfigurationEnded()
                     controller.logLayout("display reconfiguration end")
                 }
             }
@@ -185,7 +185,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
             object: nil, queue: nil
         ) { _ in
             Task { @MainActor in
-                (NSApplication.shared.delegate as? OrbPeekController)?.session.settling.screenParametersChanged(at: Date())
+                (NSApplication.shared.delegate as? OrbPeekController)?.session.screenChanged()
                 (NSApplication.shared.delegate as? OrbPeekController)?.logLayout("screen parameters changed")
             }
         }
@@ -215,10 +215,16 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
             Task { @MainActor in
                 if let controller = NSApplication.shared.delegate as? OrbPeekController {
-                    controller.session.settling.didWake(at: Date())
+                    controller.session.wake()
                     controller.logLayout("wake")
                     controller.reseedLockState()
                 }
+            }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.captureEngine.invalidateContent(reason: "session active")
+                self?.reseedLockState()
             }
         }
         reseedLockState()

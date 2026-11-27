@@ -46,11 +46,16 @@ package struct DockConfiguration {
 
 @MainActor
 package protocol SliceCapturing: AnyObject {
+    func invalidateContent(reason: String)
     func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID?
     func windowExists(_ id: CGWindowID) -> Bool
     func cachedSlice(for windowID: CGWindowID, edge: DockEdge, size: CGSize, thickness: CGFloat) -> NSImage?
     func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage?
     func slice(from image: CGImage, edge: DockEdge, windowSize: CGSize, thickness: CGFloat) -> NSImage?
+}
+
+package extension SliceCapturing {
+    func invalidateContent(reason: String) {}
 }
 
 @MainActor

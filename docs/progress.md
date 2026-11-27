@@ -1,5 +1,12 @@
 # 交接日志
 
+## 2026-11-27 — 截图缓存失效与真实超时（devs/capture-fix）
+
+- 从main 9c595cc独立worktree修复：旧SCShareableContent仅在缺自身PID时刷新，显示器/唤醒/会话事件不失效；失败吞SCK错误且普通失败不重取。旧TaskGroup退出等不响应取消的SCK子任务，日志538656ms与fake红测试约0.58秒均证明超时不有界。日志等待期间仍处理窗口/锁屏事件，不能称主线程阻塞；docking流程在等结果。
+- CapturePipeline注入content provider、display capture、时钟、日志与replayd动作。显示器begin/end、screen parameters、wake/unlock/active强制失效；所有失败最多一次fresh retry，displayID严格匹配，无first回退；SCK错误domain/code/描述与阶段入日志。generation阻止失效/超时晚到内容或图片回写。
+- continuation竞争让调用者按0.5s枚举/0.3s截图返回（最多两次），prewarm也有界；非隔离SCK适配运行在通用executor，主线程可继续交互。底层不响应取消的请求最多8个，避免无限后台堆积。三次连续逻辑截图超时、五分钟冷却不变，fresh retry成功/普通错误清零，未实际重启用户replayd。
+- 新fake测试覆盖超时/取消、MainActor可运行、缓存事件失效接线、缓存失败/枚举错误恢复、错误日志、无目标屏不截图、永不响应枚举/截图、晚到结果丢弃、replayd门限/冷却及请求上限。make check 85项/28套件、静态检查/debug构建全绿，无真实截图/用户窗口操作。不push、不发版；合入试用分支及授权TERM/open核验另记OrbPeek-capture-1127-report.md。
+
 ## 2026-11-23 — 1.1.3 发布准备
 
 - 在 main 01ea570 上依次合入 devs/default-shortcuts 与 devs/site-v3，合并提交 aa46d97，无冲突。用户确认仅改变新安装默认值，所有已保存快捷键保持不变，不添加迁移逻辑。

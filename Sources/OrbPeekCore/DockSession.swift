@@ -78,27 +78,32 @@ package final class DockSession {
     }
 
     package func unlock() {
+        delegate.capturer.invalidateContent(reason: "unlock")
         screenLocked = false
         settling.screenUnlocked(at: clock())
         log("session unlocked; \(layoutDescription)")
     }
 
     package func wake() {
+        delegate.capturer.invalidateContent(reason: "wake")
         settling.didWake(at: clock())
         log("session wake; \(layoutDescription)")
     }
 
     package func screenChanged() {
+        delegate.capturer.invalidateContent(reason: "screen parameters changed")
         settling.screenParametersChanged(at: clock())
         log("screen parameters changed; \(layoutDescription)")
     }
 
     package func reconfigurationBegan() {
+        delegate.capturer.invalidateContent(reason: "display reconfiguration begin")
         settling.displayReconfigurationBegan(at: clock())
         log("display reconfiguration began; \(layoutDescription)")
     }
 
     package func reconfigurationEnded() {
+        delegate.capturer.invalidateContent(reason: "display reconfiguration end")
         settling.displayReconfigurationEnded(at: clock())
         log("display reconfiguration ended; \(layoutDescription)")
     }
