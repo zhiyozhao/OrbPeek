@@ -64,6 +64,8 @@ final class FakeWindow: WindowHandle {
 
 @MainActor
 final class FakeCapturer: SliceCapturing {
+    var contentInvalidations: [String] = []
+    func invalidateContent(reason: String) { contentInvalidations.append(reason) }
     var onCapture: (() -> Void)?
     var captureCount = 0
     var windowIsInWindowList = true

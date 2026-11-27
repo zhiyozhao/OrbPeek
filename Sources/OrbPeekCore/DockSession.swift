@@ -92,6 +92,7 @@ package final class DockSession {
     package func lock() { pause(); screenLocked = true }
     package func unlock() {
         delegate.invalidateDisplayLayout()
+        delegate.capturer.invalidateContent(reason: "unlock")
         screenLocked = false
         settling.screenUnlocked(at: clock())
         pause()
@@ -101,18 +102,21 @@ package final class DockSession {
     package func wake() {
         delegate.invalidateDisplayLayout()
         sleeping = false
+        delegate.capturer.invalidateContent(reason: "wake")
         settling.didWake(at: clock())
         pause()
         resumeUnchangedDesktop()
     }
     package func setSessionActive(_ active: Bool) {
         delegate.invalidateDisplayLayout()
+        if active { delegate.capturer.invalidateContent(reason: "session active") }
         pause(); sessionActive = active
         if active { settling.screenUnlocked(at: clock()) }
         if active { resumeUnchangedDesktop() }
     }
     package func setScreenSaverActive(_ active: Bool) {
         delegate.invalidateDisplayLayout()
+        if !active { delegate.capturer.invalidateContent(reason: "screen saver stopped") }
         pause(); screenSaverActive = active
         if !active { settling.screenUnlocked(at: clock()) }
         if !active { resumeUnchangedDesktop() }
@@ -136,6 +140,7 @@ package final class DockSession {
         observeLayout(delegate.geometry.layout)
     }
     private func observeLayout(_ snapshot: ScreenLayout) {
+        delegate.capturer.invalidateContent(reason: "screen parameters changed")
         observedLayout = snapshot
         pause()
         settling.screenParametersChanged(at: clock())
@@ -143,11 +148,13 @@ package final class DockSession {
     package func reconfigurationBegan() {
         delegate.invalidateDisplayLayout()
         pause()
+        delegate.capturer.invalidateContent(reason: "display reconfiguration begin")
         settling.displayReconfigurationBegan(at: clock())
     }
     package func reconfigurationEnded() {
         delegate.invalidateDisplayLayout()
         pause()
+        delegate.capturer.invalidateContent(reason: "display reconfiguration end")
         settling.displayReconfigurationEnded(at: clock())
     }
 

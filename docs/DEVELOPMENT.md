@@ -46,6 +46,8 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 ## 构建、签名与产物
 
+截图由`CapturePipeline`协调，`ScreenCaptureService`只提供非MainActor的SCK显示器区域截图适配；测试注入假content与假image闭包，不访问桌面。显示器begin/end、screen parameters及wake/unlock/会话恢复清缓存，失败重取content重试一次；displayID必须精确匹配，记录SCK错误domain/code。generation隔离失效期间的旧结果；continuation竞争的0.5秒枚举/0.3秒截图截止不等待取消失效的底层任务，最多两次尝试。底层请求预算8个，超出即失败；正常失败不重启replayd，连续3次逻辑截图最终超时才允许重启、5分钟冷却。预热同样有界但不影响重启计数。
+
 `Scripts/build-app.sh` 是唯一的 app 组装入口：release 构建、复制可执行文件和 SPM resource bundles、编译 asset catalog、用 `DEV X` 签名。`Info.plist` 的 `CFBundleShortVersionString` 是版本来源，`Scripts/version.sh` 校验并读取它，本地 app/DMG 和 CI 共用；tag 发布时还必须与 `GITHUB_REF_NAME` 一致。`KeyboardShortcuts` fork 的 resource-bundle 修复不能丢失，否则手工打包的设置页可能崩溃。
 
 `make package` 和 release workflow 使用相同的 DMG 结构：app、`/Applications` 符号链接、UDZO。不要改变 `Info.plist` 中的 `com.orbpeek.OrbPeek`、`OrbPeek.app`、`OrbPeek-VERSION.dmg` 命名约定或 release secrets。

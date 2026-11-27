@@ -1,5 +1,10 @@
 # 交接日志
 
+## 2026-11-27 — 合入截图修复
+
+- 将从main独立修复的devs/capture-fix d74acbc合入本试用分支，解决事件/会话接线冲突时保留v2的全部布局与交互规则；active/屏保结束及2秒守卫发现漏通知变化同样作废截图content。增加对应接线/守卫断言。
+- main修复分支make check 85项/28套件通过；合入后make check 130项/34套件通过，包含所有显示器兜底与立即解锁回归。试用签名重建和用户授权TERM/open核验另记OrbPeek-capture-1127-report.md，不push、不发版。
+
 ## 2026-11-24 — 解锁同布局立即恢复交互
 
 - 日志两次 unlock 到首次 slam peek 为3.344/3.224秒；v2无条件3秒settle并整轮跳过evaluate。1.1.3也有3秒settle，但期间仍evaluate hover，因此整段交互冻结是v2回归。hover本来按每轮鼠标位置判断，不是mouseEntered；没有日志证据证明必须移出再进入，不把推测当根因。
@@ -32,6 +37,13 @@
 - README、中英官网、开发说明同步更新。使用 swiftpm-macos / test-triage / appkit-interop 技能指导 SwiftPM 检查、fake 竞态测试及现有菜单本地化接线；未引入 UI 桥接或依赖。
 - 单元测试覆盖上午完整时间线、两份评审场景、ID 重分配、31/43ms 锁屏竞态、1080→1055 visibleFrame、9.9/10.1/66.847 秒慢醒、相邻桌面暴露旧停放位、精确名单多次恢复、手动兜底、重开恢复及 poll 不变式。make check 107 项测试、28 套件及静态检查/debug 构建通过。
 - 不启动 app、不触碰用户窗口/进程/defaults，不 push、不发版。规则/代码/测试与证据对照报告在 Devs 工作区 OrbPeek-display-rules-v2-report.md。
+
+## 2026-11-27 — 截图缓存失效与真实超时（devs/capture-fix）
+
+- 从main 9c595cc独立worktree修复：旧SCShareableContent仅在缺自身PID时刷新，显示器/唤醒/会话事件不失效；失败吞SCK错误且普通失败不重取。旧TaskGroup退出等不响应取消的SCK子任务，日志538656ms与fake红测试约0.58秒均证明超时不有界。日志等待期间仍处理窗口/锁屏事件，不能称主线程阻塞；docking流程在等结果。
+- CapturePipeline注入content provider、display capture、时钟、日志与replayd动作。显示器begin/end、screen parameters、wake/unlock/active强制失效；所有失败最多一次fresh retry，displayID严格匹配，无first回退；SCK错误domain/code/描述与阶段入日志。generation阻止失效/超时晚到内容或图片回写。
+- continuation竞争让调用者按0.5s枚举/0.3s截图返回（最多两次），prewarm也有界；非隔离SCK适配运行在通用executor，主线程可继续交互。底层不响应取消的请求最多8个，避免无限后台堆积。三次连续逻辑截图超时、五分钟冷却不变，fresh retry成功/普通错误清零，未实际重启用户replayd。
+- 新fake测试覆盖超时/取消、MainActor可运行、缓存事件失效接线、缓存失败/枚举错误恢复、错误日志、无目标屏不截图、永不响应枚举/截图、晚到结果丢弃、replayd门限/冷却及请求上限。make check 85项/28套件、静态检查/debug构建全绿，无真实截图/用户窗口操作。不push、不发版；合入试用分支及授权TERM/open核验另记OrbPeek-capture-1127-report.md。
 
 ## 2026-11-23 — 1.1.3 发布准备
 

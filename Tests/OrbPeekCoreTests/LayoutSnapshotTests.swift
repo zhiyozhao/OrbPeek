@@ -101,6 +101,7 @@ struct LayoutSnapshotTests {
         #expect(!h.session.canWriteAutomatically)
         #expect(h.session.stableLayout == previous)
         #expect(h.window.positionWrites.count == writes)
+        #expect(h.delegate.fakeCapturer.contentInvalidations == ["screen parameters changed"])
         h.poll(topology ? 10.1 : 3.1)
         if topology {
             #expect(h.session.windows.isEmpty)
