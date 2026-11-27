@@ -1,5 +1,10 @@
 # 交接日志
 
+## 2026-11-27 — 合入桌宠装饰过滤
+
+- 合入cf3f3d9，显示器门禁/兜底不改；透明桌宠的layer3表面在遮挡判断和SCK过滤中使用同一分类，普通窗口遮挡仍拒绝。同app普通窗口通过过滤例外保留，未知浮层让原pipeline重枚举一次。
+- 两分支make check分别99项/30套件、145项/36套件通过，含plist/脚本/debug构建；日志/tmp/orbpeek-overlay-fix.a7iBCT。试用重建及用户授权TERM/open的实际截图核验写入项目外OrbPeek-capture-1127-report.md，不push/发版。
+
 ## 2026-11-27 — 合入稳定优先的无截图等待收起
 
 - 合入9daa624，保留v2完整布局门禁和隐藏位指纹；原captureRace改为新窗口的首次贴边路径（peek收起已经不截图），显式断言暂停确实在capture中触发、零写入、恢复后两窗可达且零激活。
@@ -48,6 +53,12 @@
 - README、中英官网、开发说明同步更新。使用 swiftpm-macos / test-triage / appkit-interop 技能指导 SwiftPM 检查、fake 竞态测试及现有菜单本地化接线；未引入 UI 桥接或依赖。
 - 单元测试覆盖上午完整时间线、两份评审场景、ID 重分配、31/43ms 锁屏竞态、1080→1055 visibleFrame、9.9/10.1/66.847 秒慢醒、相邻桌面暴露旧停放位、精确名单多次恢复、手动兜底、重开恢复及 poll 不变式。make check 107 项测试、28 套件及静态检查/debug 构建通过。
 - 不启动 app、不触碰用户窗口/进程/defaults，不 push、不发版。规则/代码/测试与证据对照报告在 Devs 工作区 OrbPeek-display-rules-v2-report.md。
+
+## 2026-11-27 — 透明桌宠不再阻断合成截图
+
+- 只读Pets Therapy：pid6829、wid21217/21218整屏，layer3/alpha1/sharingState0。旧规则把整窗alpha当逐像素不透明，造成常驻桌宠环境永久拒绝。按公开CG layer/alpha和系统bundle分类普通窗口；sharingState不作遮挡判据，无公开跨进程ignoresMouseEvents查询。
+- 门禁忽略装饰，截图同时用SCK app排除+window例外保留同app普通窗口，桌面backing保留；每次系统截图重读清单，缓存缺少新覆盖层/普通例外时fresh retry。普通层级真遮挡仍拒绝。不改timeout、收起cache-only或replayd策略。
+- 新fake tests覆盖实测Pets、非0层、alpha0、菜单/Dock、普通半透明真遮挡、SCK无shareable窗口的桌宠、同app普通窗例外、桌面背景和失效缓存。petsOverlay在旧分类下先红1断言；完整检查及试用结果见项目外事故报告。无真实测试截图，不push/发版。
 
 ## 2026-11-27 — 稳定优先：收起不再等待截图
 
