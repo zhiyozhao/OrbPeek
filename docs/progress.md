@@ -1,5 +1,11 @@
 # 交接日志
 
+## 2026-11-27 — 透明桌宠不再阻断合成截图
+
+- 只读Pets Therapy：pid6829、wid21217/21218整屏，layer3/alpha1/sharingState0。旧规则把整窗alpha当逐像素不透明，造成常驻桌宠环境永久拒绝。按公开CG layer/alpha和系统bundle分类普通窗口；sharingState不作遮挡判据，无公开跨进程ignoresMouseEvents查询。
+- 门禁忽略装饰，截图同时用SCK app排除+window例外保留同app普通窗口，桌面backing保留；每次系统截图重读清单，缓存缺少新覆盖层/普通例外时fresh retry。普通层级真遮挡仍拒绝。不改timeout、收起cache-only或replayd策略。
+- 新fake tests覆盖实测Pets、非0层、alpha0、菜单/Dock、普通半透明真遮挡、SCK无shareable窗口的桌宠、同app普通窗例外、桌面背景和失效缓存。petsOverlay在旧分类下先红1断言；完整检查及试用结果见项目外事故报告。无真实测试截图，不push/发版。
+
 ## 2026-11-27 — 稳定优先：收起不再等待截图
 
 - 回看git历史/CHANGELOG/日志，旧注释~1秒window-filter停顿、101923d的replayd wedge与无效TaskGroup超时、b8532aa的共享服务重启节流、11-27的538656ms/缓存失效均有证据；专项历史与路径审计写入Devs工作区OrbPeek-capture-1127-report.md。
