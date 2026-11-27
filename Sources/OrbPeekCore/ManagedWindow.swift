@@ -124,7 +124,9 @@ package final class ManagedWindow {
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
         transition?.cancel()
-        let wasHidden = phase == .docked
+        // A return from peek uses the composited preview acquired while
+        // visible. Hiding must never wait for a new screenshot.
+        let useCachedPreview = phase == .docked || phase == .peeked
         if let newEdge { edge = newEdge }
         let geometry = delegate.geometry
         if phase == .idle && restoreSize == .zero {
@@ -155,13 +157,13 @@ package final class ManagedWindow {
         bigDriftSince = nil
         phase = .docking
         transition = Task { [weak self] in
-            await self?.finishDock(frame: frame, screen: screen, wasHidden: wasHidden)
+            await self?.finishDock(frame: frame, screen: screen, useCachedPreview: useCachedPreview)
         }
         log("dock applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
         delegate.dockStateDidChange()
     }
 
-    private func finishDock(frame: CGRect, screen: ScreenInfo, wasHidden: Bool) async {
+    private func finishDock(frame: CGRect, screen: ScreenInfo, useCachedPreview: Bool) async {
         if Task.isCancelled { return }
         guard let delegate else { return }
         let geometry = delegate.geometry
@@ -180,10 +182,14 @@ package final class ManagedWindow {
         if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
         fakeStrip?.setIdentity(name: appName, pid: window.pid)
 
-        if wasHidden {
+        if useCachedPreview {
+            guard !isLeftMousePressed() else {
+                terminate(exit: .leave)
+                return
+            }
             moveTo(hiddenPos)
             phase = .docked
-            log("hidden re-dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
+            log("cache-only dock: strip from \(cached != nil ? "cache" : "placeholder") edge=\(edge)")
             fakeStrip?.show(image: cached, frame: stripFrame, edge: edge)
             delegate.dockStateDidChange()
             return

@@ -5,6 +5,30 @@ import Testing
 @Suite("composited preview timing")
 @MainActor
 struct PreviewTimingTests {
+    @Test("hide-on-leave never starts another screenshot or waits for a hung peek preview", arguments: [false, true])
+    func hideWithoutCapture(hung: Bool) async {
+        let f = await makeDockedFixture(layout: testLayout)
+        f.delegate.fakeCapturer.suspendCapture = hung
+        f.managed.peek(); await drainTasks()
+        let pending = f.delegate.fakeCapturer.pendingCapture
+        let captures = f.delegate.fakeCapturer.captureCount
+        // Any accidental extra capture returns nil, so the red test can
+        // report failure without stranding another fake continuation.
+        f.delegate.fakeCapturer.suspendCapture = false
+        f.clock.advance(1)
+        f.managed.evaluate(mouseQ: CGPoint(x: -9999, y: -9999), mouseVelocity: .zero,
+            frontmost: true, blockedByPeeked: false, blockedBySmaller: false,
+            settling: false, now: f.clock.now)
+        await drainTasks()
+        #expect(f.delegate.fakeCapturer.captureCount == captures)
+        #expect(f.managed.phase == .docked)
+        #expect(f.delegate.strip.isVisible)
+        pending?.resume(returning: nil)
+        await drainTasks()
+        #expect(f.managed.phase == .docked)
+        #expect(f.delegate.strip.isVisible)
+    }
+
     @Test("unobscured background windows capture at dock; obscured restores use identity and wait for hover")
     func background() async {
         let f = makeIdleFixture(layout: testLayout)

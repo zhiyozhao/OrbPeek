@@ -1,5 +1,11 @@
 # 交接日志
 
+## 2026-11-27 — 稳定优先：收起不再等待截图
+
+- 回看git历史/CHANGELOG/日志，旧注释~1秒window-filter停顿、101923d的replayd wedge与无效TaskGroup超时、b8532aa的共享服务重启节流、11-27的538656ms/缓存失效均有证据；专项历史与路径审计写入Devs工作区OrbPeek-capture-1127-report.md。
+- 发现正常peek收起仍会新拍一次并等待（最坏约1.6秒），改为直接用展开期间已取得的合成缓存/身份占位，不再请求截图；独立补拍取消不join。初贴边保留一次有界拍摄，等待时条仍可hover/slam取消；不采用window-only或隐藏刷新。取舍是条记录最近一次可见快照，未必是收起瞬间最后一帧。
+- hideWithoutCapture在普通失败/悬挂补拍两参数上旧代码先红（2断言，/tmp/orbpeek-hide-capture-red.log），修后与既有截图/交互测试全绿。完整检查结果见外部报告；未真实截图或替换用户实例，不push/发版。
+
 ## 2026-11-27 — 截止测试与调度延迟分离
 
 - v2完整检查在MainActor图片测试并行时出现465ms观察延迟，原400ms墙钟断言失败，但底层仍未释放且结果为timeout。删除重复的紧墙钟阈值，独立看门狗留5秒调度余量；仍断言20ms deadline返回时worker尚未结束，并验证MainActor可执行，旧TaskGroup必等worker而失败。生产deadline没有改变。
