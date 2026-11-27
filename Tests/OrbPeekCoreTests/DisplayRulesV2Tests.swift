@@ -325,21 +325,27 @@ struct DisplayRulesV2Tests {
     @Test("grab-in-flight cannot hide after pause and resumes without activating", arguments: [false, true])
     func captureRace(locked: Bool) async {
         let h = await Harness()
-        h.managed.peek()
+        // Returning from peek no longer captures. Exercise the remaining
+        // capture-before-parking path with a newly managed visible window.
+        let candidate = FakeWindow(frame: CGRect(x: 300, y: 200, width: 500, height: 400))
+        var captures = 0
         h.delegate.fakeCapturer.onCapture = {
+            captures += 1
             if locked { h.session.lock() } else { h.change([Harness.internalScreen]) }
         }
-        let writes = h.window.positionWrites.count
-        h.managed.dock()
+        let writes = candidate.positionWrites.count
+        let managed = h.session.add(window: candidate, edge: .down) { $0.isLeftMousePressed = { false } }
         await drainTasks()
-        #expect(h.window.positionWrites.count == writes)
+        #expect(captures == 1)
+        #expect(candidate.positionWrites.count == writes)
         h.delegate.fakeCapturer.onCapture = nil
         if locked { h.session.unlock() } else { h.change([Harness.a, Harness.b]) }
         h.poll(3.1)
         await drainTasks()
         #expect(h.managed.phase == .docked)
+        #expect(managed.phase == .docked)
         #expect(h.session.unreachableWindows().isEmpty)
-        #expect(h.delegate.activationCount == 1)
+        #expect(h.delegate.activationCount == 0)
     }
 
     @Test("mirror receivers add no desktop; extended-to-mirror releases only lost desktop")

@@ -46,7 +46,7 @@ AX/CG 使用以主屏左上角为原点的 top-left 坐标；AppKit 使用 botto
 
 ## 构建、签名与产物
 
-预览条只用display合成像素，不能用window-only替代圆角/半透明后的肉眼效果。`CaptureVisibility`按CGWindowList真实前后顺序验证完整窗口无遮挡（忽略OrbPeek自己的条，其他应用浮窗/半透明覆盖也保守拒绝），截图前后校验frame/层级，整窗必须在精确display内。来源是最新合成图→同窗口同尺寸缓存→带应用图标与名称的身份占位。贴边前留最后可截画面，peek后独立任务补拍；peek失败只在可见时1/4/15秒有限重试，收起再试最后一帧。抓图等待中的条也支持hover/slam，取消旧transition后不会晚到隐藏窗口；peek的补拍任务只更新缓存，不移动窗口。启动恢复不能为截图激活或闪现，无遮挡即可截，被挡则保留占位等首次peek；隐藏期间不定时刷新，新消息不实时更新。所有SCK调用继续走有界截止及原replayd门禁。
+预览条只用display合成像素，不能用window-only替代圆角/半透明后的肉眼效果。`CaptureVisibility`按CGWindowList真实前后顺序验证完整窗口无遮挡（忽略OrbPeek自己的条，其他应用浮窗/半透明覆盖也保守拒绝），截图前后校验frame/层级，整窗必须在精确display内。来源是最新合成图→同窗口同尺寸缓存→带应用图标与名称的身份占位。初次贴边拍可见画面，peek后独立任务补拍；peek失败只在可见时1/4/15秒有限重试。稳定优先：peek收起直接用已取得的缓存/身份条，不再为“最后一帧”请求或等待截图，取消尚未结束的补拍也不join。抓图等待中的条支持hover/slam，取消旧transition后不会晚到隐藏窗口；peek的补拍任务只更新缓存，不移动窗口。启动恢复不能为截图激活或闪现，无遮挡即可截，被挡则保留占位等首次peek；隐藏期间不定时刷新，新消息不实时更新。所有SCK调用继续走有界截止及原replayd门禁。
 
 截图由`CapturePipeline`协调，`ScreenCaptureService`只提供非MainActor的SCK显示器区域截图适配；测试注入假content与假image闭包，不访问桌面。显示器begin/end、screen parameters及wake/unlock/会话恢复清缓存，失败重取content重试一次；displayID必须精确匹配，记录SCK错误domain/code。generation隔离失效期间的旧结果；continuation竞争的0.5秒枚举/0.3秒截图截止不等待取消失效的底层任务，最多两次尝试。底层请求预算8个，超出即失败；正常失败不重启replayd，连续3次逻辑截图最终超时才允许重启、5分钟冷却。预热同样有界但不影响重启计数。
 

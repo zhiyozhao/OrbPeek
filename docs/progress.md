@@ -1,5 +1,10 @@
 # 交接日志
 
+## 2026-11-27 — 合入稳定优先的无截图等待收起
+
+- 合入9daa624，保留v2完整布局门禁和隐藏位指纹；原captureRace改为新窗口的首次贴边路径（peek收起已经不截图），显式断言暂停确实在capture中触发、零写入、恢复后两窗可达且零激活。
+- 最终make check 141项/36套件全绿，截图分支95项/30套件全绿；日志/tmp/orbpeek-stability-v2-check.log与/tmp/orbpeek-stability-main-check.log。历史与全路径截止专项写入外部事故报告。未真实截图/替换实例，不push/发版。
+
 ## 2026-11-27 — 合入合成预览策略
 
 - 合入ddc44ad，保留全部v2布局/写入门禁；补拍使用同一canWriteAutomatically，pause统一取消transition与preview。新增五种暂停（锁屏/睡眠/inactive/屏保/重配置）排队截图取消及恢复测试，全程fake窗口和截图。
@@ -43,6 +48,12 @@
 - README、中英官网、开发说明同步更新。使用 swiftpm-macos / test-triage / appkit-interop 技能指导 SwiftPM 检查、fake 竞态测试及现有菜单本地化接线；未引入 UI 桥接或依赖。
 - 单元测试覆盖上午完整时间线、两份评审场景、ID 重分配、31/43ms 锁屏竞态、1080→1055 visibleFrame、9.9/10.1/66.847 秒慢醒、相邻桌面暴露旧停放位、精确名单多次恢复、手动兜底、重开恢复及 poll 不变式。make check 107 项测试、28 套件及静态检查/debug 构建通过。
 - 不启动 app、不触碰用户窗口/进程/defaults，不 push、不发版。规则/代码/测试与证据对照报告在 Devs 工作区 OrbPeek-display-rules-v2-report.md。
+
+## 2026-11-27 — 稳定优先：收起不再等待截图
+
+- 回看git历史/CHANGELOG/日志，旧注释~1秒window-filter停顿、101923d的replayd wedge与无效TaskGroup超时、b8532aa的共享服务重启节流、11-27的538656ms/缓存失效均有证据；专项历史与路径审计写入Devs工作区OrbPeek-capture-1127-report.md。
+- 发现正常peek收起仍会新拍一次并等待（最坏约1.6秒），改为直接用展开期间已取得的合成缓存/身份占位，不再请求截图；独立补拍取消不join。初贴边保留一次有界拍摄，等待时条仍可hover/slam取消；不采用window-only或隐藏刷新。取舍是条记录最近一次可见快照，未必是收起瞬间最后一帧。
+- hideWithoutCapture在普通失败/悬挂补拍两参数上旧代码先红（2断言，/tmp/orbpeek-hide-capture-red.log），修后与既有截图/交互测试全绿。完整检查结果见外部报告；未真实截图或替换用户实例，不push/发版。
 
 ## 2026-11-27 — 截止测试与调度延迟分离
 
