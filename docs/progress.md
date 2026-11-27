@@ -1,5 +1,10 @@
 # 交接日志
 
+## 2026-11-27 — 截止测试与调度延迟分离
+
+- v2完整检查在MainActor图片测试并行时出现465ms观察延迟，原400ms墙钟断言失败，但底层仍未释放且结果为timeout。删除重复的紧墙钟阈值，独立看门狗留5秒调度余量；仍断言20ms deadline返回时worker尚未结束，并验证MainActor可执行，旧TaskGroup必等worker而失败。生产deadline没有改变。
+- 临时回退TaskGroup实测红：1项1断言、5.507秒，证明仍能抓住旧join缺陷；还原后make check 94项/30套件通过。日志/tmp/orbpeek-preview-deadline-red.log与/tmp/orbpeek-preview-main-check.log。
+
 ## 2026-11-27 — 暂停时阻止已排队的补拍
 
 - 补拍Task进入底层前也检查取消/代际/会话门禁，避免peek后同轮暂停仍启动截图。新增cancelledBeforeStart假测试。修正文档中过时的性能断言，不声称真实截图永不挂起。
