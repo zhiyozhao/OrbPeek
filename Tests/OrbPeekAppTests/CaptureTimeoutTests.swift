@@ -47,16 +47,16 @@ struct CaptureTimeoutTests {
     func uncooperativeCapture() async {
         let blocked = SuspendedCapture()
         // Independent watchdog makes the old task-group bug fail instead of
-        // hanging the test process. It is not the operation's timeout.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { blocked.release() }
+        // hanging the test process. Leave generous scheduler headroom for
+        // concurrent MainActor image tests: the semantic assertion below is
+        // that the caller returns BEFORE this worker is released.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5) { blocked.release() }
         var mainActorRan = false
         let interaction = Task { @MainActor in mainActorRan = true }
-        let started = ContinuousClock.now
         let outcome = await withTimeoutOutcome(0.02) { await blocked.wait() }
         await interaction.value
         #expect(mainActorRan)
         #expect(!blocked.wasReleased, "deadline must not wait for the watchdog to release SCK")
-        #expect(ContinuousClock.now - started < .milliseconds(400))
         if case .timedOut = outcome {} else { Issue.record("expected a timeout") }
         blocked.release() // clean up the fake background work after asserting.
     }

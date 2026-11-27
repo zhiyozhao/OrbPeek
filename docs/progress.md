@@ -4,6 +4,7 @@
 
 - 合入ddc44ad，保留全部v2布局/写入门禁；补拍使用同一canWriteAutomatically，pause统一取消transition与preview。新增五种暂停（锁屏/睡眠/inactive/屏保/重配置）排队截图取消及恢复测试，全程fake窗口和截图。
 - 首轮make check 138项/36套件通过，追加五参数门禁定向测试通过。真实验证出现系统窗口后的停止要求仍有效，不替换用户3038实例；最终合入检查/签名产物状态见外部报告。
+- 最终合入353c032后make check 140项/36套件通过，plist/脚本/debug构建全绿，无Swift warning或continuation misuse；保留全局可达不变式。make check日志/tmp/orbpeek-preview-v2-check.log。
 
 ## 2026-11-27 — 合入截图修复
 
@@ -42,6 +43,11 @@
 - README、中英官网、开发说明同步更新。使用 swiftpm-macos / test-triage / appkit-interop 技能指导 SwiftPM 检查、fake 竞态测试及现有菜单本地化接线；未引入 UI 桥接或依赖。
 - 单元测试覆盖上午完整时间线、两份评审场景、ID 重分配、31/43ms 锁屏竞态、1080→1055 visibleFrame、9.9/10.1/66.847 秒慢醒、相邻桌面暴露旧停放位、精确名单多次恢复、手动兜底、重开恢复及 poll 不变式。make check 107 项测试、28 套件及静态检查/debug 构建通过。
 - 不启动 app、不触碰用户窗口/进程/defaults，不 push、不发版。规则/代码/测试与证据对照报告在 Devs 工作区 OrbPeek-display-rules-v2-report.md。
+
+## 2026-11-27 — 截止测试与调度延迟分离
+
+- v2完整检查在MainActor图片测试并行时出现465ms观察延迟，原400ms墙钟断言失败，但底层仍未释放且结果为timeout。删除重复的紧墙钟阈值，独立看门狗留5秒调度余量；仍断言20ms deadline返回时worker尚未结束，并验证MainActor可执行，旧TaskGroup必等worker而失败。生产deadline没有改变。
+- 临时回退TaskGroup实测红：1项1断言、5.507秒，证明仍能抓住旧join缺陷；还原后make check 94项/30套件通过。日志/tmp/orbpeek-preview-deadline-red.log与/tmp/orbpeek-preview-main-check.log。
 
 ## 2026-11-27 — 暂停时阻止已排队的补拍
 
