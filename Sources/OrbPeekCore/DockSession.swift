@@ -35,6 +35,10 @@ package final class DockSession {
                      configure: ((ManagedWindow) -> Void)? = nil) -> ManagedWindow {
         let managed = ManagedWindow(window: window, edge: edge, delegate: delegate, clock: clock)
         managed.offlinePolicyOverride = options.offlinePolicy
+        managed.automaticPreviewAllowed = { [weak self] in
+            guard let self else { return false }
+            return !self.screenLocked && !self.settling.isSettling(at: self.clock())
+        }
         managed.log = { [weak self, weak managed] message in
             guard let managed else { return }
             let app = managed.window.bundleIdentifier ?? "unknown"
@@ -73,6 +77,7 @@ package final class DockSession {
     }
 
     package func lock() {
+        for window in windows { window.cancelPreviewCapture() }
         screenLocked = true
         log("session locked")
     }

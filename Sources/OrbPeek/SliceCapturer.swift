@@ -21,6 +21,11 @@ package final class SliceCapturer: SliceCapturing {
 
     package func invalidateContent(reason: String) { pipeline.invalidate(reason: reason) }
 
+    package func canCaptureWindow(frame: CGRect, windowID: CGWindowID?) -> Bool {
+        guard let windowID else { return false }
+        return CaptureVisibility.current(frame: frame, target: windowID)
+    }
+
     // Full-window captures keyed by CGWindowID. One image serves all four
     // edges and any strip thickness — slices are cropped on read, so changing
     // sliverPx in settings re-crops instantly without a new capture. (The
@@ -110,10 +115,19 @@ package final class SliceCapturer: SliceCapturing {
     // All failures retry once with fresh content and the exact display ID.
     // Deadlines return without joining an uncooperative ScreenCaptureKit call.
     package func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
+        guard canCaptureWindow(frame: frame, windowID: windowID) else {
+            Log.info("composite capture deferred: obscured/moved/missing window wid=\(windowID.map(String.init) ?? "nil")")
+            return nil
+        }
         let t0 = Date()
         let result = await pipeline.capture(frame: frame, displayID: displayID)
-        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(result != nil) display=\(displayID.map(String.init) ?? "nil") wid=\(windowID.map(String.init) ?? "nil")")
+        let accepted = result != nil && canCaptureWindow(frame: frame, windowID: windowID)
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(accepted) display=\(displayID.map(String.init) ?? "nil") wid=\(windowID.map(String.init) ?? "nil")")
         guard let result else { return nil }
+        guard accepted else {
+            Log.info("composite capture discarded: visibility changed wid=\(windowID.map(String.init) ?? "nil")")
+            return nil
+        }
         if let windowID, result.displayFrame.contains(frame) {
             if windowImages.count > 8 { windowImages.removeAll() }
             windowImages[windowID] = (result.image, frame.size)

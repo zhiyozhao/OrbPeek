@@ -4,6 +4,13 @@ import OrbPeekCore
 // A floating strip that displays a captured slice of a docked window's content.
 final class SnapshotStrip: NSPanel, SnapshotStripHandling {
     private let imageView = NSImageView()
+    private var identityName = "OrbPeek"
+    private var identityIcon: NSImage?
+
+    package func setIdentity(name: String, pid: pid_t?) {
+        identityName = name
+        identityIcon = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.icon }
+    }
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -45,8 +52,8 @@ final class SnapshotStrip: NSPanel, SnapshotStripHandling {
         } else {
             // Capture genuinely unavailable (e.g. missing screen-recording
             // permission): keep the strip a visible, hoverable handle.
-            imageView.image = nil
-            imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+            imageView.image = StripIdentity.image(name: identityName, icon: identityIcon, size: frame.size, edge: edge)
+            imageView.layer?.backgroundColor = nil
         }
         setFrame(frame, display: true)
         applyCornerMask(edge: edge)
@@ -91,5 +98,28 @@ final class SnapshotStrip: NSPanel, SnapshotStripHandling {
         thickness = edge.slideAxis == .vertical ? frame.height : frame.width
         setFrame(frame, display: true)
         applyCornerMask(edge: edge)
+    }
+}
+
+// Explicit identity card, not simulated window pixels. Rotate the legend on
+// vertical edges so the app name remains readable at the configured thickness.
+@MainActor
+enum StripIdentity {
+    static func image(name: String, icon: NSImage?, size: CGSize, edge: DockEdge) -> NSImage {
+        NSImage(size: size, flipped: false) { bounds in
+            NSColor.controlBackgroundColor.setFill(); bounds.fill()
+            let vertical = edge.slideAxis == .horizontal
+            let transform = NSAffineTransform()
+            if vertical { transform.translateX(by: size.width, yBy: 0); transform.rotate(byDegrees: 90); transform.concat() }
+            let thickness = vertical ? size.width : size.height
+            let length = vertical ? size.height : size.width
+            let iconSize = max(1, min(14, thickness - 2))
+            icon?.draw(in: NSRect(x: 3, y: (thickness - iconSize) / 2, width: iconSize, height: iconSize))
+            let label = name.isEmpty ? "OrbPeek" : name
+            let text = NSAttributedString(string: label, attributes: [.font: NSFont.systemFont(ofSize: max(5, min(11, thickness - 2))),
+                .foregroundColor: NSColor.labelColor])
+            text.draw(in: NSRect(x: icon == nil ? 4 : iconSize + 6, y: 0, width: max(1, length - iconSize - 10), height: thickness))
+            return true
+        }
     }
 }

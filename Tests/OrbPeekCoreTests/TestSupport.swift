@@ -59,6 +59,10 @@ final class FakeWindow: WindowHandle {
 
 @MainActor
 final class FakeCapturer: SliceCapturing {
+    var captureAllowed = true
+    var pendingCapture: CheckedContinuation<CGImage?, Never>?
+    var suspendCapture = false
+    func canCaptureWindow(frame: CGRect, windowID: CGWindowID?) -> Bool { captureAllowed }
     var contentInvalidations: [String] = []
     func invalidateContent(reason: String) { contentInvalidations.append(reason) }
     var onCapture: (() -> Void)?
@@ -70,6 +74,7 @@ final class FakeCapturer: SliceCapturing {
     func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
         captureCount += 1
         onCapture?()
+        if suspendCapture { return await withCheckedContinuation { pendingCapture = $0 } }
         return nil
     }
     func slice(from image: CGImage, edge: DockEdge, windowSize: CGSize, thickness: CGFloat) -> NSImage? { nil }
@@ -77,6 +82,8 @@ final class FakeCapturer: SliceCapturing {
 
 @MainActor
 final class FakeStrip: SnapshotStripHandling {
+    var identity = ""
+    func setIdentity(name: String, pid: pid_t?) { identity = name }
     var frame: NSRect = .zero
     var thickness: CGFloat = 0
     var alphaValue: CGFloat = 1

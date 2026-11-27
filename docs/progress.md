@@ -1,5 +1,11 @@
 # 交接日志
 
+## 2026-11-27 — 合成预览截图时机
+
+- 按用户新硬要求只使用肉眼一致的display合成来源；实际CG窗口层级替代frontmost，前后检查遮挡/位置、整窗精确归属屏。初贴边和peek后可见时抓图，失败在同次可见期间1/4/15秒有限重试；最终收起再抓最后可截画面，隐藏期间只用缓存/应用图标名称占位，无定时刷新、无闪回。
+- 抓图中的条已显示且支持正常hover/slam，中断旧capture/transition不会晚到隐藏；peek补拍独立于交互，只更新图片缓存。新增层级、背景未挡、启动恢复被挡、peek补拍、退避、隐藏不抓、门禁、悬挂截图交互和四边占位假测试。回退frontmost/抓图中不hover两条旧行为时，2项测试5断言失败，恢复后绿；完整check结果见外部事故报告。
+- 使用SwiftPM/test-triage/build-run-debug/signing技能。真实自建窗口验证发现UserNotificationCenter系统窗口wid22278，立即停止后续真实截图/切换，无点击；探针自行退出，未启动小红书/模拟器测试。屏外AppKit/Metal图成功仅证明自建窗口可截，不代表iPad/qemu效果；window-only未采用。细节/限制写入OrbPeek-capture-1127-report.md，试用替换依用户“遇系统弹窗停止”约束暂不执行。不push、不发版。
+
 ## 2026-11-27 — 截图缓存失效与真实超时（devs/capture-fix）
 
 - 从main 9c595cc独立worktree修复：旧SCShareableContent仅在缺自身PID时刷新，显示器/唤醒/会话事件不失效；失败吞SCK错误且普通失败不重取。旧TaskGroup退出等不响应取消的SCK子任务，日志538656ms与fake红测试约0.58秒均证明超时不有界。日志等待期间仍处理窗口/锁屏事件，不能称主线程阻塞；docking流程在等结果。

@@ -63,6 +63,10 @@ package final class ManagedWindow {
     private var lastLogAt: [String: Date] = [:]
     package private(set) var windowID: CGWindowID?
     private var transition: Task<Void, Never>?
+    private var previewCapture: Task<Void, Never>?
+    private var previewGeneration = 0
+    private var previewRetry = PreviewRetry()
+    package var automaticPreviewAllowed: () -> Bool = { true }
     package private(set) var phase: Phase = .idle
     package var gesture = false
     package var offlinePolicyOverride: DockSessionOptions.OfflinePolicy?
@@ -116,6 +120,7 @@ package final class ManagedWindow {
     }
 
     package func dock(to newEdge: DockEdge? = nil, targetScreenID: CGDirectDisplayID? = nil) {
+        cancelPreviewCapture()
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
         transition?.cancel()
@@ -173,6 +178,7 @@ package final class ManagedWindow {
         let cached = windowID.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size, thickness: config.sliverPx) }
 
         if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
+        fakeStrip?.setIdentity(name: appName, pid: window.pid)
 
         if wasHidden {
             moveTo(hiddenPos)
@@ -184,13 +190,16 @@ package final class ManagedWindow {
         }
 
         let sliceOnScreen = geometry.quartzFrame(of: screen)
-            .contains(geometry.sliceScreenRect(edge: edge, frame: frame, thickness: config.sliverPx))
-        let canCapture = sliceOnScreen && delegate.isFrontmost(window)
+            .contains(frame)
+        // The handle is usable even while a bounded composited capture is in
+        // flight. Hover can cancel this transition and reveal immediately.
+        fakeStrip?.show(image: cached, frame: stripFrame, edge: edge)
+        let canCapture = sliceOnScreen && capturer.canCaptureWindow(frame: frame, windowID: windowID)
         let fullImage = canCapture
             ? await capturer.captureWindow(frame: frame, displayID: dockScreenID, windowID: windowID)
             : nil
         if !canCapture {
-            log("capture skipped sliceOnScreen=\(sliceOnScreen) frontmost=\(delegate.isFrontmost(window))")
+            log("capture deferred sliceOnScreen=\(sliceOnScreen) unobscured=\(canCapture); retain cache/identity")
         }
         if canCapture && fullImage == nil {
             log("capture FAILED edge=\(edge) — strip shows cache/placeholder")
@@ -226,6 +235,7 @@ package final class ManagedWindow {
     }
 
     package func peek() {
+        cancelPreviewCapture()
         let t0 = clock()
         guard valid, let frame = window.frame, let delegate else { return }
         guard let screen = dockScreen(in: delegate.geometry) else { return }
@@ -244,6 +254,38 @@ package final class ManagedWindow {
         moveTo(delegate.geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen))
         log("peek applied in \(Int(clock().timeIntervalSince(t0) * 1000))ms edge=\(edge)")
         delegate.dockStateDidChange()
+        previewRetry.begin(at: clock())
+        refreshVisiblePreview()
+    }
+
+    package func cancelPreviewCapture() {
+        previewGeneration += 1
+        previewCapture?.cancel()
+        previewCapture = nil
+    }
+
+    // This task only updates the image cache. It never moves, activates or
+    // hides a window and is independent of the interaction transition.
+    private func refreshVisiblePreview() {
+        guard previewCapture == nil, phase == .peeked, valid,
+              automaticPreviewAllowed(), previewRetry.due(at: clock()),
+              !gesture, !isLeftMousePressed(), let delegate, let frame = window.frame,
+              let screen = dockScreen(in: delegate.geometry) else { return }
+        let g = delegate.geometry
+        guard g.quartzFrame(of: screen).contains(frame),
+              delegate.capturer.canCaptureWindow(frame: frame, windowID: windowID) else {
+            previewRetry.finished(success: false, at: clock())
+            return
+        }
+        let generation = previewGeneration
+        previewCapture = Task { [weak self] in
+            let image = await delegate.capturer.captureWindow(frame: frame, displayID: screen.id, windowID: self?.windowID)
+            guard let self, !Task.isCancelled, generation == self.previewGeneration,
+                  self.automaticPreviewAllowed(), self.phase == .peeked else { return }
+            self.previewCapture = nil
+            self.previewRetry.finished(success: image != nil, at: self.clock())
+            self.log("visible preview capture got=\(image != nil)")
+        }
     }
 
     package enum ExitPosition {
@@ -278,6 +320,7 @@ package final class ManagedWindow {
     }
 
     package func stopActivationRetry() {
+        cancelPreviewCapture()
         activationSucceeded = true
         lastActivationRetry = nil
     }
@@ -428,6 +471,7 @@ package final class ManagedWindow {
     }
 
     package func detachStrip() {
+        cancelPreviewCapture()
         if let fakeStrip { log("strip hide frame=\(fakeStrip.frame) visible=\(fakeStrip.isVisible)") }
         fakeStrip?.hide()
         fakeStrip = nil
@@ -442,6 +486,7 @@ package final class ManagedWindow {
     private func ensureStripVisible(geometry: WindowGeometry, config: DockConfiguration,
                                     capturer: any SliceCapturing, screen: ScreenInfo, size: CGSize) {
         guard let fakeStrip else { return }
+        fakeStrip.setIdentity(name: appName, pid: window.pid)
         let quartz = geometry.sliverRect(edge: edge, size: size, perp: perp, screen: screen,
                                          thickness: config.sliverPx)
         let expected = geometry.toAppKit(quartz)
@@ -536,6 +581,7 @@ package final class ManagedWindow {
 
         switch phase {
         case .peeked:
+            if !settling { refreshVisiblePreview() }
             let inGrace = dwell.shownSince.map { now.timeIntervalSince($0) < 0.6 } ?? false
             if settling {
                 bigDriftSince = nil
@@ -634,7 +680,24 @@ package final class ManagedWindow {
                 dwell.sliverSince = nil
                 dwell.slammed = false
             }
-        case .idle, .docking:
+        case .docking:
+            let sliver = geometry.sliverRect(edge: edge, size: frame.size, perp: perp, screen: screen,
+                                             thickness: config.sliverPx)
+            if sliver.insetBy(dx: -6, dy: -6).contains(mouseQ), !blockedByPeeked, !blockedBySmaller {
+                if dwell.sliverSince == nil {
+                    dwell.sliverSince = now
+                    let toward: CGFloat
+                    switch edge {
+                    case .up: toward = -mouseVelocity.y
+                    case .down: toward = mouseVelocity.y
+                    case .left: toward = -mouseVelocity.x
+                    case .right: toward = mouseVelocity.x
+                    }
+                    dwell.slammed = toward > config.slamVelocity
+                }
+                if dwell.slammed || now.timeIntervalSince(dwell.sliverSince!) >= config.peekDwell { peek() }
+            } else { dwell.sliverSince = nil; dwell.slammed = false }
+        case .idle:
             break
         }
     }

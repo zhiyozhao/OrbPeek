@@ -46,6 +46,7 @@ package struct DockConfiguration {
 
 @MainActor
 package protocol SliceCapturing: AnyObject {
+    func canCaptureWindow(frame: CGRect, windowID: CGWindowID?) -> Bool
     func invalidateContent(reason: String)
     func windowID(for pid: pid_t, matching frame: CGRect) -> CGWindowID?
     func windowExists(_ id: CGWindowID) -> Bool
@@ -55,11 +56,13 @@ package protocol SliceCapturing: AnyObject {
 }
 
 package extension SliceCapturing {
+    func canCaptureWindow(frame: CGRect, windowID: CGWindowID?) -> Bool { true }
     func invalidateContent(reason: String) {}
 }
 
 @MainActor
 package protocol SnapshotStripHandling: AnyObject {
+    func setIdentity(name: String, pid: pid_t?)
     var frame: NSRect { get }
     var thickness: CGFloat { get }
     var alphaValue: CGFloat { get set }
@@ -68,4 +71,8 @@ package protocol SnapshotStripHandling: AnyObject {
     func show(image: NSImage?, frame: NSRect, edge: DockEdge)
     func updateFrame(_ frame: NSRect, edge: DockEdge)
     func hide()
+}
+
+package extension SnapshotStripHandling {
+    func setIdentity(name: String, pid: pid_t?) {}
 }
