@@ -89,7 +89,10 @@ final class CapturePipeline {
                 log("capture display missing requested=\(displayID.map(String.init) ?? "nil") available=\(content?.displays.map(\.id) ?? []); no fallback")
                 return Attempt()
             }
-            guard frame.width > 0, frame.height > 0 else { return Attempt() }
+            guard frame.width > 0, frame.height > 0, display.frame.contains(frame) else {
+                log("composite capture deferred: frame extends beyond requested display=\(displayID)")
+                return Attempt()
+            }
             let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
             let outcome = await withTimeoutOutcome(imageTimeout) { try await display.capture(local) }
             guard !Task.isCancelled, requestedGeneration == generation else {

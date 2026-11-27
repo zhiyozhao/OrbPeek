@@ -50,6 +50,7 @@ package final class DockSession {
         managed.offlinePolicyOverride = options.offlinePolicy
         managed.automaticWritesAllowed = { [weak self] in self?.canWriteAutomatically ?? false }
         managed.layoutOverride = stableLayout
+        managed.automaticPreviewAllowed = { [weak self] in self?.canWriteAutomatically ?? false }
         managed.log = { [weak self, weak managed] message in
             guard let managed else { return }
             self?.log("[win=\(managed.id.uuidString.prefix(6)) app=\(managed.window.bundleIdentifier ?? "unknown") wid=\(managed.windowID.map(String.init) ?? "pending")] \(message)")

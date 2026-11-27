@@ -1,5 +1,10 @@
 # 交接日志
 
+## 2026-11-27 — 合入合成预览策略
+
+- 合入ddc44ad，保留全部v2布局/写入门禁；补拍使用同一canWriteAutomatically，pause统一取消transition与preview。新增五种暂停（锁屏/睡眠/inactive/屏保/重配置）排队截图取消及恢复测试，全程fake窗口和截图。
+- 首轮make check 138项/36套件通过，追加五参数门禁定向测试通过。真实验证出现系统窗口后的停止要求仍有效，不替换用户3038实例；最终合入检查/签名产物状态见外部报告。
+
 ## 2026-11-27 — 合入截图修复
 
 - 将从main独立修复的devs/capture-fix d74acbc合入本试用分支，解决事件/会话接线冲突时保留v2的全部布局与交互规则；active/屏保结束及2秒守卫发现漏通知变化同样作废截图content。增加对应接线/守卫断言。
@@ -37,6 +42,12 @@
 - README、中英官网、开发说明同步更新。使用 swiftpm-macos / test-triage / appkit-interop 技能指导 SwiftPM 检查、fake 竞态测试及现有菜单本地化接线；未引入 UI 桥接或依赖。
 - 单元测试覆盖上午完整时间线、两份评审场景、ID 重分配、31/43ms 锁屏竞态、1080→1055 visibleFrame、9.9/10.1/66.847 秒慢醒、相邻桌面暴露旧停放位、精确名单多次恢复、手动兜底、重开恢复及 poll 不变式。make check 107 项测试、28 套件及静态检查/debug 构建通过。
 - 不启动 app、不触碰用户窗口/进程/defaults，不 push、不发版。规则/代码/测试与证据对照报告在 Devs 工作区 OrbPeek-display-rules-v2-report.md。
+
+## 2026-11-27 — 合成预览截图时机
+
+- 按用户新硬要求只使用肉眼一致的display合成来源；实际CG窗口层级替代frontmost，前后检查遮挡/位置、整窗精确归属屏。初贴边和peek后可见时抓图，失败在同次可见期间1/4/15秒有限重试；最终收起再抓最后可截画面，隐藏期间只用缓存/应用图标名称占位，无定时刷新、无闪回。
+- 抓图中的条已显示且支持正常hover/slam，中断旧capture/transition不会晚到隐藏；peek补拍独立于交互，只更新图片缓存。新增层级、背景未挡、启动恢复被挡、peek补拍、退避、隐藏不抓、门禁、悬挂截图交互和四边占位假测试。回退frontmost/抓图中不hover两条旧行为时，2项测试5断言失败，恢复后绿；完整check结果见外部事故报告。
+- 使用SwiftPM/test-triage/build-run-debug/signing技能。真实自建窗口验证发现UserNotificationCenter系统窗口wid22278，立即停止后续真实截图/切换，无点击；探针自行退出，未启动小红书/模拟器测试。屏外AppKit/Metal图成功仅证明自建窗口可截，不代表iPad/qemu效果；window-only未采用。细节/限制写入OrbPeek-capture-1127-report.md，试用替换依用户“遇系统弹窗停止”约束暂不执行。不push、不发版。
 
 ## 2026-11-27 — 截图缓存失效与真实超时（devs/capture-fix）
 

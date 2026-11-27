@@ -6,20 +6,23 @@ import OrbPeekCore
 // ScreenCaptureKit-based capture of the strip image. Captures a REGION OF THE
 // DISPLAY (composited pixels — translucency, shadow and rounded corners all
 // look exactly as the real window does on screen), unlike a window-filter
-// capture which returns the raw, flattened surface. Display captures are fast
-// (~50ms) and never hit the ~1s stalls window-filter captures have on parked
-// windows, so every dock captures fresh.
+// capture which isolates the window surface. Both enumeration and capture
+// have real deadlines; unavailable or obscured frames retain cache/identity.
 //
 // Every successful capture is cached by (windowID, edge, size). The cache is
-// only a fallback for the one case where a live capture is impossible —
-// re-docking a window that is parked off-screen — and for showing the strip
-// instantly while the fresh capture is in flight.
+// used when the window is parked off-screen or obscured, and for showing the
+// strip instantly while the fresh capture is in flight.
 @MainActor
 package final class SliceCapturer: SliceCapturing {
     private lazy var pipeline = CapturePipeline(load: { try await ScreenCaptureService.content() },
         restart: { [weak self] in self?.kickstartReplayd() }, log: Log.info)
 
     package func invalidateContent(reason: String) { pipeline.invalidate(reason: reason) }
+
+    package func canCaptureWindow(frame: CGRect, windowID: CGWindowID?) -> Bool {
+        guard let windowID else { return false }
+        return CaptureVisibility.current(frame: frame, target: windowID)
+    }
 
     // Full-window captures keyed by CGWindowID. One image serves all four
     // edges and any strip thickness — slices are cropped on read, so changing
@@ -110,10 +113,19 @@ package final class SliceCapturer: SliceCapturing {
     // All failures retry once with fresh content and the exact display ID.
     // Deadlines return without joining an uncooperative ScreenCaptureKit call.
     package func captureWindow(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?) async -> CGImage? {
+        guard canCaptureWindow(frame: frame, windowID: windowID) else {
+            Log.info("composite capture deferred: obscured/moved/missing window wid=\(windowID.map(String.init) ?? "nil")")
+            return nil
+        }
         let t0 = Date()
         let result = await pipeline.capture(frame: frame, displayID: displayID)
-        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(result != nil) display=\(displayID.map(String.init) ?? "nil") wid=\(windowID.map(String.init) ?? "nil")")
+        let accepted = result != nil && canCaptureWindow(frame: frame, windowID: windowID)
+        Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(accepted) display=\(displayID.map(String.init) ?? "nil") wid=\(windowID.map(String.init) ?? "nil")")
         guard let result else { return nil }
+        guard accepted else {
+            Log.info("composite capture discarded: visibility changed wid=\(windowID.map(String.init) ?? "nil")")
+            return nil
+        }
         if let windowID, result.displayFrame.contains(frame) {
             if windowImages.count > 8 { windowImages.removeAll() }
             windowImages[windowID] = (result.image, frame.size)
