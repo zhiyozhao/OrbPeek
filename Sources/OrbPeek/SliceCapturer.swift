@@ -118,7 +118,7 @@ package final class SliceCapturer: SliceCapturing {
             return nil
         }
         let t0 = Date()
-        let result = await pipeline.capture(frame: frame, displayID: displayID)
+        let result = await pipeline.capture(frame: frame, displayID: displayID, windowID: windowID)
         let accepted = result != nil && canCaptureWindow(frame: frame, windowID: windowID)
         Log.info("display capture \(Int(Date().timeIntervalSince(t0) * 1000))ms got=\(accepted) display=\(displayID.map(String.init) ?? "nil") wid=\(windowID.map(String.init) ?? "nil")")
         guard let result else { return nil }

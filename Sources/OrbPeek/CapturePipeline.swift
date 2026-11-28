@@ -7,7 +7,7 @@ import OrbPeekCore
 struct CaptureDisplay {
     let id: CGDirectDisplayID
     let frame: CGRect
-    let capture: @Sendable (CGRect) async throws -> CGImage?
+    let capture: @Sendable (CGRect, CGWindowID?) async throws -> CGImage?
 }
 struct CaptureContent {
     let displays: [CaptureDisplay]
@@ -76,7 +76,7 @@ final class CapturePipeline {
         var cancelled = false
     }
 
-    private func attempt(frame: CGRect, displayID: CGDirectDisplayID?, imageTimeout: Double) async -> Attempt {
+    private func attempt(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID?, imageTimeout: Double) async -> Attempt {
         let requestedGeneration = generation
         let loaded = await contentForCapture()
         guard !Task.isCancelled else { return Attempt(cancelled: true) }
@@ -94,7 +94,7 @@ final class CapturePipeline {
                 return Attempt()
             }
             let local = frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
-            let outcome = await withTimeoutOutcome(imageTimeout) { try await display.capture(local) }
+            let outcome = await withTimeoutOutcome(imageTimeout) { try await display.capture(local, windowID) }
             guard !Task.isCancelled, requestedGeneration == generation else {
                 log("capture discarded: cancelled or layout/session changed")
                 return Attempt(cancelled: true)
@@ -115,12 +115,12 @@ final class CapturePipeline {
 
     // Count once per logical capture, not twice for the fresh-content retry.
     // A recovered request/ordinary error breaks the consecutive-timeout streak.
-    func capture(frame: CGRect, displayID: CGDirectDisplayID?, prewarm: Bool = false) async -> CaptureResult? {
-        var last = await attempt(frame: frame, displayID: displayID, imageTimeout: prewarm ? 2 : imageTimeout)
+    func capture(frame: CGRect, displayID: CGDirectDisplayID?, windowID: CGWindowID? = nil, prewarm: Bool = false) async -> CaptureResult? {
+        var last = await attempt(frame: frame, displayID: displayID, windowID: windowID, imageTimeout: prewarm ? 2 : imageTimeout)
         guard !last.cancelled else { return nil }
         if last.result == nil {
             invalidate(reason: "capture failed; retry once with fresh content")
-            last = await attempt(frame: frame, displayID: displayID, imageTimeout: prewarm ? 2 : imageTimeout)
+            last = await attempt(frame: frame, displayID: displayID, windowID: windowID, imageTimeout: prewarm ? 2 : imageTimeout)
         }
         guard !last.cancelled else { return nil }
         if !prewarm {

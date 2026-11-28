@@ -13,7 +13,9 @@ A different way to manage macOS windows. Park what you don't need right now at a
 - Hover when you need them. Check a message or look something up in the actual window, ready to use.
 - Make room on every display. Keep useful windows at the edges of each screen.
 
-All four edges of every display work, including edges between adjacent screens. Docks stay after lock or sleep when their display returns promptly; only losing a window's own display undocks it and returns it to view, without docking it again when the display returns.
+All four edges of every display work, including edges between adjacent screens; connecting another display keeps existing docks in place. Windows stay in place while locked or asleep and wait for displays on resume. Only a window's own display staying offline undocks and centers it, without docking it again when the display returns. Choose “Bring Back All Windows” in the menu whenever needed.
+
+The strip keeps the window's last visible snapshot and refreshes when revealed. Hiding never waits for a screenshot; unavailable captures keep the last image or show the app's icon and name.
 
 ## Install
 
@@ -46,7 +48,7 @@ Both installation methods use these permissions, for different purposes:
 | Permission | Purpose | Without it |
 |---|---|---|
 | Accessibility (required) | Move and reveal windows | Docking and hover won't work |
-| Screen Recording (optional) | Generate window preview images | Docking and hover still work, with dark placeholder strips |
+| Screen Recording (optional) | Generate window preview images | Docking and hover still work, with the app's icon and name on the strip |
 
 1. **Accessibility:** On first launch, click Open Settings. Go to System Settings → Privacy & Security → Accessibility and enable OrbPeek. If it isn't listed, click “+” to add it from Applications. It works immediately, with no restart.
 2. **Screen Recording:** Click the OrbPeek menu bar icon → Screen Recording — Click to Grant. Read the explanation, click Continue, then allow access when prompted. You can also enable it later under System Settings → Privacy & Security → Screen Recording, called “Screen & System Audio Recording” on some versions. If macOS asks you to quit and reopen, follow that prompt.

@@ -145,7 +145,7 @@ package final class ManagedWindow {
         let g = WindowGeometry(layout: layout)
         let requested = window.frame?.size ?? restoreSize
         let size = g.fitting(CGRect(origin: .zero, size: requested), in: screen).size
-        if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
+        prepareStrip()
         lastStripRecoveryAt = nil
         ensureStripVisible(geometry: g, config: delegate.config, capturer: delegate.capturer, screen: screen, size: size)
     }
@@ -189,7 +189,7 @@ package final class ManagedWindow {
             dock(targetScreenID: screen.id)
             return true
         }
-        if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
+        prepareStrip()
         let target = phase == .peeked
             ? geometry.peekPosition(for: edge, size: frame.size, perp: perp, screen: screen)
             : geometry.hiddenPosition(for: edge, size: frame.size, perp: perp, screen: screen)
@@ -300,8 +300,7 @@ package final class ManagedWindow {
         }
         let cached = windowID.flatMap { capturer.cachedSlice(for: $0, edge: edge, size: frame.size, thickness: config.sliverPx) }
 
-        if fakeStrip == nil { fakeStrip = delegate.makeStrip() }
-        fakeStrip?.setIdentity(name: appName, pid: window.pid)
+        prepareStrip()
 
         if useCachedPreview {
             guard !isLeftMousePressed() else {
@@ -416,12 +415,14 @@ package final class ManagedWindow {
         }
         let generation = previewGeneration
         previewCapture = Task { [weak self] in
-            guard let self, !Task.isCancelled, generation == self.previewGeneration,
+            guard let self else { return }
+            // Clear even on a gate's early return, but never clear a newer task.
+            defer { if generation == self.previewGeneration { self.previewCapture = nil } }
+            guard !Task.isCancelled, generation == self.previewGeneration,
                   self.automaticPreviewAllowed(), self.phase == .peeked else { return }
             let image = await delegate.capturer.captureWindow(frame: frame, displayID: screen.id, windowID: self.windowID)
             guard !Task.isCancelled, generation == self.previewGeneration,
                   self.automaticPreviewAllowed(), self.phase == .peeked else { return }
-            self.previewCapture = nil
             self.previewRetry.finished(success: image != nil, at: self.clock())
             self.log("visible preview capture got=\(image != nil)")
         }
@@ -584,10 +585,18 @@ package final class ManagedWindow {
         if fakeStrip.level != target { fakeStrip.level = target }
     }
 
+    private func prepareStrip() {
+        guard fakeStrip == nil, let delegate else { return }
+        let strip = delegate.makeStrip()
+        // The owner of this WindowHandle does not change. A newly created
+        // strip resolves its identity once; steady polling never queries LS/icons.
+        strip.setIdentity(name: appName, pid: window.pid)
+        fakeStrip = strip
+    }
+
     private func ensureStripVisible(geometry: WindowGeometry, config: DockConfiguration,
                                     capturer: any SliceCapturing, screen: ScreenInfo, size: CGSize) {
         guard let fakeStrip else { return }
-        fakeStrip.setIdentity(name: appName, pid: window.pid)
         let quartz = geometry.sliverRect(edge: edge, size: size, perp: perp, screen: screen,
                                          thickness: config.sliverPx)
         let expected = geometry.toAppKit(quartz)

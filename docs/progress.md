@@ -1,5 +1,13 @@
 # 交接日志
 
+## 2026-11-28 — 1.1.4整体门禁候选：CPU与截图建议
+
+- 在devs/display-rules-v2基于c1e3e74完成，版本1.1.4/114；中英CHANGELOG各一条，README/官网统一显示器与身份占位说明，修正lint对“当前版本必须有1.1.3快捷键文案”的绑定。停止在本地提交，待整体门禁，未push/tag/发版或替换5840。
+- sample5840稳态确认poll热点：141份图标+46份名称样本/446份poll样本，此外重复AX frame和前台进程查询。身份改为每条创建时一次；frame与frontmost PID仅同步poll内复用，写入作废，poll结束清空，不跨await；鼠标远离条时不扫描其他条。30Hz/hover延时/安全守卫不变。
+- 独立release只读重放（真实AX读取+生产DockSession/AXWindow/SnapshotStrip，窗口移动/激活/捕获/显示均替换为虚拟操作）首轮15秒×450poll：稳态7.43%→2.32%、hover6.23%→1.65%单核，5次默认hover均值172.3→167.2ms。整机旧试用约11%不是新包after；未替换用户实例，不能混称真实新版CPU。保留30Hz AX状态读取有约2%底线，未达到近0。证据/tmp/orbpeek-perf-114。
+- previewCapture早退通过generation保护的defer清槽，新增中途门禁恢复、旧任务不能清新槽回归。目标windowID贯穿pipeline/display过滤，允许非0层目标并保留自身，其他装饰仍排除；目标缺失/移动/真实遮挡保守失败。系统bundle的layer0装饰取舍保留，公开API限制如实说明。
+- 核心性能/槽位测试先红3断言再绿；临时回退目标分类后floatingTarget两断言红，恢复后绿。测试含poll值生命周期/nil/写失败失效/下轮漂移、30Hz dwell/slam、完整显示器可达不变式；最终make check与提交信息追加在项目外OrbPeek-114-preflight-report.md。
+
 ## 2026-11-27 — 合入桌宠装饰过滤
 
 - 合入cf3f3d9，显示器门禁/兜底不改；透明桌宠的layer3表面在遮挡判断和SCK过滤中使用同一分类，普通窗口遮挡仍拒绝。同app普通窗口通过过滤例外保留，未知浮层让原pipeline重枚举一次。

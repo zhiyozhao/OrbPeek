@@ -15,7 +15,8 @@ lint:
 	Scripts/version.sh >/dev/null
 	Scripts/release-notes.sh 1.1.0 | grep -q '修复'
 	Scripts/release-notes.sh 1.1.2 | grep -q -- '--login-item-status'
-	Scripts/release-notes.sh "$$(Scripts/version.sh)" | grep -q 'Control + Command'
+	Scripts/release-notes.sh 1.1.3 | grep -q 'Control + Command'
+	Scripts/release-notes.sh "$$(Scripts/version.sh)" | grep -q '^[-*] '
 
 build:
 	swift build

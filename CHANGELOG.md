@@ -1,5 +1,12 @@
 # 更新记录
 
+## 1.1.4 - 2026-11-28
+
+### 改进 / Improved
+
+- 锁屏、睡眠时保持窗口原位，恢复后等待显示器就绪；只有窗口所属屏幕持续离线才取消贴边并居中，屏幕接回后不自动贴回，相邻屏插拔仍保持原边贴边。新增「找回所有窗口」菜单；预览截图更准确、更稳定，桌宠不再挡住截图，截图失败时保留旧图或显示应用图标和名称，收起不再等待截图，并降低持续贴边时的 CPU 占用。
+- Windows stay in place while locked or asleep and wait for displays on resume; only a window's own display staying offline undocks and centers it, without docking again when that display returns. Connecting adjacent displays keeps docks intact. Added “Bring Back All Windows”; previews are more accurate and reliable, desktop pets no longer block them, unavailable captures keep the last image or show the app's icon and name, hiding no longer waits for a screenshot, and keeping windows docked uses less CPU.
+
 ## 1.1.3 - 2026-11-23
 
 ### 改进 / Improved

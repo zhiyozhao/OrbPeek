@@ -9,6 +9,10 @@ import OrbPeekCore
 // of values that AX APIs are guaranteed to return, so they cannot fail.
 package final class AXWindow: WindowHandle {
     let element: AXUIElement
+    private let frameReads = PollReadCache<CGRect?>()
+    private var ownerPID: pid_t?
+    package func beginPoll() { frameReads.begin() }
+    package func endPoll() { frameReads.end() }
     var log: (String) -> Void = Log.info
 
     init(_ element: AXUIElement) {
@@ -45,6 +49,10 @@ package final class AXWindow: WindowHandle {
     }
 
     package var frame: CGRect? {
+        frameReads.read { readFrame() }
+    }
+
+    private func readFrame() -> CGRect? {
         var posV: CFTypeRef?
         var sizeV: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posV) == .success,
@@ -67,6 +75,7 @@ package final class AXWindow: WindowHandle {
             return p
         }
         set {
+            frameReads.invalidate()
             guard let p = newValue else { return }
             var copy = p
             guard let value = AXValueCreate(.cgPoint, &copy) else { return }
@@ -92,12 +101,14 @@ package final class AXWindow: WindowHandle {
     }
 
     package func unminimize() {
+        frameReads.invalidate()
         if isMinimized {
             AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
     }
 
     package func raise() {
+        frameReads.invalidate()
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
@@ -105,6 +116,7 @@ package final class AXWindow: WindowHandle {
     // AX-level activation — reliable regardless of our own app's activation
     // state, unlike NSRunningApplication.activate which can silently no-op.
     package func activate() {
+        frameReads.invalidate()
         guard let pid else { return }
         let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
@@ -112,6 +124,7 @@ package final class AXWindow: WindowHandle {
     }
 
     package func resize(to size: CGSize) {
+        frameReads.invalidate()
         var copy = size
         guard let value = AXValueCreate(.cgSize, &copy) else { return }
         let error = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
@@ -151,7 +164,10 @@ package final class AXWindow: WindowHandle {
     }
 
     package var pid: pid_t? {
+        if let ownerPID { return ownerPID }
         var p: pid_t = 0
-        return AXUIElementGetPid(element, &p) == .success ? p : nil
+        guard AXUIElementGetPid(element, &p) == .success else { return nil }
+        ownerPID = p // An unavailable owner is retried, never cached forever.
+        return p
     }
 }

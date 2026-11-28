@@ -30,8 +30,34 @@ struct CaptureVisibilityTests {
             let blocker = CaptureLayer(id: 9, pid: 20, frame: frame, alpha: alpha)
             #expect(!CaptureVisibility.allows(frame: frame, target: 1, excludingPID: 30, layers: [blocker, target]))
         }
-        #expect(!CaptureVisibility.allows(frame: frame, target: 4, excludingPID: 30,
+        #expect(CaptureVisibility.allows(frame: frame, target: 4, excludingPID: 30,
             layers: [CaptureLayer(id: 4, pid: 20, frame: frame, alpha: 1, layer: 3)]))
+    }
+
+    @Test("an explicitly targeted floating window is retained while other decorations are excluded")
+    func floatingTarget() throws {
+        let target = CaptureLayer(id: 10, pid: 20, frame: frame, alpha: 1, layer: 3)
+        let pet = CaptureLayer(id: 11, pid: 20, frame: frame, alpha: 1, layer: 25)
+        let ordinary = CaptureLayer(id: 12, pid: 40, frame: frame, alpha: 1)
+        let list = [pet, target, ordinary]
+        let windows = list.map { CaptureFilterWindow(id: $0.id, pid: $0.pid, layer: $0.layer) }
+        #expect(CaptureVisibility.allows(frame: frame, target: 10, excludingPID: 30, layers: list))
+        let plan = try CaptureFilterPlan.make(frame: frame, layers: list, ownPID: 30,
+            availableApplications: [20, 30, 40], windows: windows, target: 10)
+        #expect(plan.applications == [20, 30])
+        #expect(plan.exceptions == [10]) // Target included, pet excluded.
+        #expect(throws: (any Error).self) {
+            try CaptureFilterPlan.make(frame: frame, layers: [ordinary, pet, target], ownPID: 30,
+                availableApplications: [20, 30, 40], windows: windows, target: 10)
+        }
+        #expect(throws: (any Error).self) {
+            try CaptureFilterPlan.make(frame: frame, layers: list, ownPID: 30,
+                availableApplications: [20, 30, 40], windows: windows.filter { $0.id != 10 }, target: 10)
+        }
+        for invalid in [CaptureLayer(id: 10, pid: 20, frame: frame, alpha: 0, layer: 3),
+                        CaptureLayer(id: 10, pid: 20, frame: frame, alpha: 1, systemDecoration: true)] {
+            #expect(!CaptureVisibility.allows(frame: frame, target: 10, excludingPID: 30, layers: [invalid]))
+        }
     }
 
     @Test("filter excludes Pets even without a shareable SCWindow, preserves its normal windows and the target composition")

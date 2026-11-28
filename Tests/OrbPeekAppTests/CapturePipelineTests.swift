@@ -14,6 +14,7 @@ private actor CaptureFixture {
     var loads = 0
     var captures = 0
     var locals: [CGRect] = []
+    var targetIDs: [CGWindowID?] = []
     private var nextCaptureFails = false
     let blocked = SuspendedCapture()
     private var started: CheckedContinuation<Void, Never>?
@@ -24,12 +25,13 @@ private actor CaptureFixture {
         if mode == .contentError { throw NSError(domain: "FakeContent", code: 17) }
         if mode == .contentHang { _ = await blocked.wait() }
         return CaptureContent(displays: [CaptureDisplay(id: mode == .missing ? 99 : 2,
-            frame: CGRect(x: 1920, y: 0, width: 1920, height: 1080)) { local in
-                try await self.capture(mode, local: local)
+            frame: CGRect(x: 1920, y: 0, width: 1920, height: 1080)) { local, target in
+                try await self.capture(mode, local: local, target: target)
             }], containsOwnApplication: true)
     }
-    private func capture(_ mode: Mode, local: CGRect) async throws -> CGImage? {
+    private func capture(_ mode: Mode, local: CGRect, target: CGWindowID?) async throws -> CGImage? {
         captures += 1; locals.append(local)
+        targetIDs.append(target)
         started?.resume(); started = nil
         if nextCaptureFails {
             nextCaptureFails = false
@@ -50,6 +52,14 @@ private actor CaptureFixture {
 @MainActor
 struct CapturePipelineTests {
     let frame = CGRect(x: 2000, y: 120, width: 300, height: 600)
+
+    @Test("the explicit target identity reaches the display filter on both fresh attempts")
+    func targetIdentity() async {
+        let fake = CaptureFixture([.imageError, .success])
+        let pipeline = CapturePipeline(load: { try await fake.load() }, restart: {}, log: { _ in })
+        #expect(await pipeline.capture(frame: frame, displayID: 2, windowID: 534) != nil)
+        #expect(await fake.targetIDs == [534, 534])
+    }
 
     @Test("a cached failure or content error retries with new content and logs its error", arguments: [false, true])
     func retry(contentError: Bool) async {

@@ -161,6 +161,9 @@ package final class DockSession {
 
     package func poll(mouseQ: CGPoint = .zero, mouseVelocity: CGPoint = .zero,
                       blockedBySmaller: ((ManagedWindow) -> Bool)? = nil) {
+        let handles = (windows + released.map(\.managed)).map(\.window)
+        for handle in handles { handle.beginPoll() }
+        defer { for handle in handles { handle.endPoll() } }
         let snapshot = delegate.geometry.layout
         if observedLayout != snapshot {
             observeLayout(snapshot)

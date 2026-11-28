@@ -581,13 +581,14 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
 
     package func activate(window: any WindowHandle) {
         guard session.canWriteAutomatically else { return }
+        frontmostReads.invalidate()
         window.raise()
         window.activate()
     }
 
     package func isFrontmost(_ window: any WindowHandle) -> Bool {
         guard let pid = window.pid else { return false }
-        return pid == (NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)
+        return pid == frontmostReads.read { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     }
 
     func isAppHidden(_ window: AXWindow) -> Bool {
@@ -603,8 +604,11 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
     private var launchedAt = Date()
     private var lastMouseQ: CGPoint?
     private var lastMouseAt: Date?
+    private let frontmostReads = PollReadCache<pid_t?>()
 
     private func poll() {
+        frontmostReads.begin()
+        defer { frontmostReads.end() }
         guard AXWindow.isProcessTrusted else { return }
         let q = DebugMouse.location(sinceLaunch: Date().timeIntervalSince(launchedAt))
             ?? geometry.toQuartz(NSEvent.mouseLocation)
@@ -636,6 +640,7 @@ final class OrbPeekController: NSObject, NSApplicationDelegate, NSMenuDelegate, 
         guard let f = m.window.frame, let mscreen = m.dockScreen(in: geometry) else { return false }
         let mRect = geometry.sliverRect(edge: m.edge, size: f.size, perp: m.perp,
                                         screen: mscreen, thickness: config.sliverPx)
+        guard mRect.insetBy(dx: -6, dy: -6).contains(q) else { return false }
         let mDist = m.edge.slideAxis == .horizontal ? abs(q.y - mRect.midY) : abs(q.x - mRect.midX)
         for other in managed where other !== m && other.phase.isDocked {
             guard let of = other.window.frame, let oscreen = other.dockScreen(in: geometry) else { continue }

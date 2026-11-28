@@ -16,10 +16,14 @@ package protocol WindowHandle: AnyObject {
     func activate()
     func resize(to size: CGSize)
     func isSameWindow(as other: any WindowHandle) -> Bool
+    func beginPoll()
+    func endPoll()
 }
 
 package extension WindowHandle {
     var windowID: CGWindowID? { nil }
+    func beginPoll() {}
+    func endPoll() {}
 }
 
 package struct DockConfiguration {

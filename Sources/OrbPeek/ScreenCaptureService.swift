@@ -27,13 +27,13 @@ enum ScreenCaptureService {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return CaptureContent(displays: content.displays.map { display in
-            CaptureDisplay(id: display.displayID, frame: display.frame) { local in
-                try await image(display: display, content: content, local: local)
+            CaptureDisplay(id: display.displayID, frame: display.frame) { local, windowID in
+                try await image(display: display, content: content, local: local, windowID: windowID)
             }
         }, containsOwnApplication: content.applications.contains { $0.processID == ownPID })
     }
 
-    private static func image(display: SCDisplay, content: SCShareableContent, local: CGRect) async throws -> CGImage? {
+    private static func image(display: SCDisplay, content: SCShareableContent, local: CGRect, windowID: CGWindowID?) async throws -> CGImage? {
         try budget.acquire()
         defer { budget.release() }
         guard let layers = CaptureVisibility.currentLayers() else {
@@ -43,7 +43,7 @@ enum ScreenCaptureService {
         let frame = local.offsetBy(dx: display.frame.minX, dy: display.frame.minY)
         let plan = try CaptureFilterPlan.make(frame: frame, layers: layers, ownPID: getpid(),
             availableApplications: Set(content.applications.map(\.processID)),
-            windows: content.windows.map { CaptureFilterWindow(id: $0.windowID, pid: $0.owningApplication?.processID ?? 0, layer: $0.windowLayer) })
+            windows: content.windows.map { CaptureFilterWindow(id: $0.windowID, pid: $0.owningApplication?.processID ?? 0, layer: $0.windowLayer) }, target: windowID)
         let excluded = content.applications.filter { plan.applications.contains($0.processID) }
         let exceptions = content.windows.filter { plan.exceptions.contains($0.windowID) }
         let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: exceptions)

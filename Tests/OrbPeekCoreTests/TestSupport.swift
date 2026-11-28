@@ -22,6 +22,11 @@ final class FakeWindow: WindowHandle {
     var activateCount = 0
     var rejectWrites = false
     var onRead: (() -> Void)?
+    var cacheReads = false
+    var frameReadCount = 0
+    private let frameCache = PollReadCache<CGRect?>()
+    func beginPoll() { frameCache.begin() }
+    func endPoll() { frameCache.end() }
     var pid: pid_t? = 42
     var windowID: CGWindowID?
     var title: String? = "Fake"
@@ -33,6 +38,10 @@ final class FakeWindow: WindowHandle {
     }
 
     var frame: CGRect? {
+        cacheReads ? frameCache.read { readFrame() } : readFrame()
+    }
+    private func readFrame() -> CGRect? {
+        frameReadCount += 1
         onRead?()
         clock?.advance(readDelay)
         return storedFrame
@@ -40,6 +49,7 @@ final class FakeWindow: WindowHandle {
     var position: CGPoint? {
         get { storedFrame?.origin }
         set {
+            frameCache.invalidate()
             guard let newValue else { return }
             if rejectWrites { return }
             if storedFrame == nil { storedFrame = CGRect(origin: newValue, size: lastKnownSize) }
@@ -53,6 +63,7 @@ final class FakeWindow: WindowHandle {
     func raise() { raiseCount += 1 }
     func activate() { activateCount += 1 }
     func resize(to size: CGSize) {
+        frameCache.invalidate()
         if rejectWrites { return }
         lastKnownSize = size
         if storedFrame == nil { storedFrame = CGRect(origin: .zero, size: size) }
@@ -88,7 +99,8 @@ final class FakeCapturer: SliceCapturing {
 @MainActor
 final class FakeStrip: SnapshotStripHandling {
     var identity = ""
-    func setIdentity(name: String, pid: pid_t?) { identity = name }
+    var identityCount = 0
+    func setIdentity(name: String, pid: pid_t?) { identity = name; identityCount += 1 }
     var frame: NSRect = .zero
     var thickness: CGFloat = 0
     var alphaValue: CGFloat = 1
@@ -129,6 +141,7 @@ final class FakeDelegate: WindowDockDelegate {
     var removed: [ManagedWindow] = []
     var stateChangeCount = 0
     var activationCount = 0
+    var nameReadCount = 0
     var onOfflineRelease: ((ManagedWindow) -> Void)?
 
     init(layout: ScreenLayout) { self.layoutBox = LayoutBox(layout) }
@@ -137,7 +150,7 @@ final class FakeDelegate: WindowDockDelegate {
         strips.append(strip)
         return strip
     }
-    func nameForWindow(_ window: any WindowHandle) -> String { "Fake" }
+    func nameForWindow(_ window: any WindowHandle) -> String { nameReadCount += 1; return "Fake" }
     func activate(window: any WindowHandle) { activationCount += 1 }
     func isFrontmost(_ window: any WindowHandle) -> Bool { frontmost }
     func dockStateDidChange() { stateChangeCount += 1 }

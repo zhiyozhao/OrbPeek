@@ -13,6 +13,7 @@ struct CaptureLayer {
     var isDecoration: Bool { layer != 0 || alpha <= 0 || systemDecoration }
     // Retain the desktop's backing surface for translucent window pixels.
     var isDesktopBacking: Bool { layer <= CGWindowLevelForKey(.desktopWindow) }
+    var isCaptureTarget: Bool { alpha > 0 && !systemDecoration && !isDesktopBacking }
 }
 
 enum CaptureVisibility {
@@ -20,7 +21,7 @@ enum CaptureVisibility {
     // Conservatively require the whole cached image to be unobscured.
     static func allows(frame: CGRect, target: CGWindowID, excludingPID: pid_t, layers: [CaptureLayer]) -> Bool {
         guard let index = layers.firstIndex(where: { $0.id == target }),
-              !layers[index].isDecoration,
+              layers[index].isCaptureTarget,
               abs(layers[index].frame.minX - frame.minX) <= 2,
               abs(layers[index].frame.minY - frame.minY) <= 2,
               abs(layers[index].frame.width - frame.width) <= 2,
@@ -70,15 +71,22 @@ struct CaptureFilterPlan {
     let exceptions: Set<CGWindowID>
 
     static func make(frame: CGRect, layers: [CaptureLayer], ownPID: pid_t,
-                     availableApplications: Set<pid_t>, windows: [CaptureFilterWindow]) throws -> Self {
+                     availableApplications: Set<pid_t>, windows: [CaptureFilterWindow], target: CGWindowID? = nil) throws -> Self {
+        if let target {
+            guard windows.contains(where: { $0.id == target }),
+                  CaptureVisibility.allows(frame: frame, target: target, excludingPID: ownPID, layers: layers) else {
+                throw NSError(domain: "OrbPeek.StaleCaptureWindows", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "capture target missing, moved or obscured: \(target)"])
+            }
+        }
         let relevant = layers.filter { $0.frame.intersects(frame) }
-        let decorations = relevant.filter { $0.isDecoration && !$0.isDesktopBacking }
+        let decorations = relevant.filter { $0.id != target && $0.isDecoration && !$0.isDesktopBacking }
         let wantedApps = Set(decorations.map(\.pid)).union([ownPID])
         let excludedApps = wantedApps.intersection(availableApplications)
         let knownIDs = Set(windows.map(\.id))
         let missingDecorations = decorations.filter { !excludedApps.contains($0.pid) && !knownIDs.contains($0.id) }
         let missingNormals = relevant.filter {
-            $0.pid != ownPID && excludedApps.contains($0.pid) && !$0.isDecoration && !knownIDs.contains($0.id)
+            $0.pid != ownPID && excludedApps.contains($0.pid) && (!$0.isDecoration || $0.id == target) && !knownIDs.contains($0.id)
         }
         guard missingDecorations.isEmpty, missingNormals.isEmpty else {
             throw NSError(domain: "OrbPeek.StaleCaptureWindows", code: 1,
@@ -87,8 +95,8 @@ struct CaptureFilterPlan {
         let current = Dictionary(layers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let exceptions = windows.filter { window in
             guard window.pid != ownPID else { return !excludedApps.contains(ownPID) }
-            let decoration = current[window.id].map { $0.isDecoration && !$0.isDesktopBacking }
-                ?? (window.layer != 0 && window.layer > CGWindowLevelForKey(.desktopWindow))
+            let decoration = window.id != target && (current[window.id].map { $0.isDecoration && !$0.isDesktopBacking }
+                ?? (window.layer != 0 && window.layer > CGWindowLevelForKey(.desktopWindow)))
             return excludedApps.contains(window.pid) ? !decoration : decoration
         }
         return Self(applications: excludedApps, exceptions: Set(exceptions.map(\.id)))

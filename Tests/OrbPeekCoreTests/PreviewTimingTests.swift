@@ -5,6 +5,59 @@ import Testing
 @Suite("composited preview timing")
 @MainActor
 struct PreviewTimingTests {
+    @Test("stable polls and repeated peek/hide do not reload strip identity")
+    func stableIdentity() async {
+        let f = await makeDockedFixture(layout: testLayout)
+        let reads = f.delegate.nameReadCount
+        let updates = f.delegate.strip.identityCount
+        for _ in 0..<300 { f.clock.advance(1.0 / 30); tick(f) }
+        f.managed.peek(); await drainTasks()
+        f.managed.dock(); await drainTasks()
+        #expect(f.delegate.nameReadCount == reads)
+        #expect(f.delegate.strip.identityCount == updates)
+        #expect(!f.delegate.strip.identity.isEmpty)
+    }
+
+    @Test("a gate closing during capture releases the slot for the same peek's next retry")
+    func interruptedPreviewSlot() async {
+        let f = await makeDockedFixture(layout: testLayout)
+        var allowed = true
+        f.managed.automaticPreviewAllowed = { allowed }
+        f.delegate.fakeCapturer.suspendCapture = true
+        f.managed.peek(); await drainTasks()
+        let count = f.delegate.fakeCapturer.captureCount
+        let pending = f.delegate.fakeCapturer.pendingCapture
+        allowed = false
+        pending?.resume(returning: nil); await drainTasks()
+        allowed = true; f.delegate.fakeCapturer.suspendCapture = false
+        f.clock.advance(1)
+        let point = f.window.frame!.origin
+        f.managed.evaluate(mouseQ: point, mouseVelocity: .zero, frontmost: true,
+            blockedByPeeked: false, blockedBySmaller: false, settling: false, now: f.clock.now)
+        await drainTasks()
+        #expect(f.managed.phase == .peeked)
+        #expect(f.delegate.fakeCapturer.captureCount == count + 1)
+    }
+
+    @Test("an old cancelled preview cannot clear the newer peek's capture slot")
+    func oldPreviewSlot() async {
+        let f = await makeDockedFixture(layout: testLayout)
+        f.delegate.fakeCapturer.suspendCapture = true
+        f.managed.peek(); await drainTasks()
+        let old = f.delegate.fakeCapturer.pendingCapture
+        f.managed.dock(); await drainTasks()
+        f.managed.peek(); await drainTasks()
+        let fresh = f.delegate.fakeCapturer.pendingCapture
+        let count = f.delegate.fakeCapturer.captureCount
+        old?.resume(returning: nil); await drainTasks()
+        f.clock.advance(5)
+        f.managed.evaluate(mouseQ: f.window.frame!.origin, mouseVelocity: .zero, frontmost: true,
+            blockedByPeeked: false, blockedBySmaller: false, settling: false, now: f.clock.now)
+        await drainTasks()
+        #expect(f.delegate.fakeCapturer.captureCount == count)
+        fresh?.resume(returning: nil); await drainTasks()
+    }
+
     @Test("hide-on-leave never starts another screenshot or waits for a hung peek preview", arguments: [false, true])
     func hideWithoutCapture(hung: Bool) async {
         let f = await makeDockedFixture(layout: testLayout)
